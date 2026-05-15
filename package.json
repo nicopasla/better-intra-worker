@@ -1,0 +1,16 @@
+{
+  "name": "better-intra-worker",
+  "version": "0.0.1",
+  "main": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy --remote",
+    "cf-typegen": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260515.1",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.92.0"
+  }
+}
