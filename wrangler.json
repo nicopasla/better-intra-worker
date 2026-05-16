@@ -7,5 +7,8 @@
       "binding": "BETTER_INTRA_KV",
       "id": "76d494582f944fd6b0f7e02b51fed387"
     }
-  ]
+  ],
+  "vars": {
+    "CLIENT_ID": "u-s4t2ud-8a3189d9af041af2f8775dc0f3b6ea37d1ee7b3c1a9cb8581dac62b631144138"
+  }
 }
