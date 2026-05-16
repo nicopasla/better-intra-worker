@@ -6,7 +6,7 @@ export interface Env {
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
@@ -202,21 +202,33 @@ export default {
       });
     }
     if (request.method === "DELETE") {
-      const authHeader = request.headers.get("Authorization")?.replace("Bearer ", "");
-      const tokensList = existingData?.sessionTokens || (existingData?.sessionToken ? [existingData.sessionToken] : []);
+      const authHeader = request.headers
+        .get("Authorization")
+        ?.replace("Bearer ", "");
+      const tokensList =
+        existingData?.sessionTokens ||
+        (existingData?.sessionToken ? [existingData.sessionToken] : []);
 
       if (!existingData || !tokensList.includes(authHeader)) {
-        return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+        return new Response("Unauthorized", {
+          status: 401,
+          headers: corsHeaders,
+        });
       }
 
       const deleteAll = url.searchParams.get("all") === "true";
 
       if (deleteAll) {
         await env.BETTER_INTRA_KV.delete(loginParam);
-        return new Response("All cloud data deleted", { status: 200, headers: corsHeaders });
+        return new Response("All cloud data deleted", {
+          status: 200,
+          headers: corsHeaders,
+        });
       } else {
-        const updatedTokens = tokensList.filter((t: string) => t !== authHeader);
-        
+        const updatedTokens = tokensList.filter(
+          (t: string) => t !== authHeader,
+        );
+
         await env.BETTER_INTRA_KV.put(
           loginParam,
           JSON.stringify({
@@ -224,8 +236,14 @@ export default {
             settings: existingData.settings || {},
           }),
         );
-        return new Response("Session removed", { status: 200, headers: corsHeaders });
+        return new Response("Session removed", {
+          status: 200,
+          headers: corsHeaders,
+        });
       }
+    }
+    if (request.method === "OPTIONS") {
+      return new Response(null, { headers: corsHeaders });
     }
     return new Response("Method not allowed", {
       status: 405,
