@@ -180,20 +180,53 @@ export default {
       };
 
       if (!existingData) {
-        return new Response(JSON.stringify({ settings: {} }), {
-          headers: dynamicCorsHeaders,
-        });
+        return new Response(
+          JSON.stringify({ settings: {}, activeSessions: 0 }),
+          {
+            headers: dynamicCorsHeaders,
+          },
+        );
       }
+
+      const tokensList =
+        existingData.sessionTokens ||
+        (existingData.sessionToken ? [existingData.sessionToken] : []);
 
       const publicData = {
         settings: existingData.settings || {},
+        activeSessions: tokensList.length,
       };
 
       return new Response(JSON.stringify(publicData), {
         headers: dynamicCorsHeaders,
       });
     }
+    if (request.method === "DELETE") {
+      const authHeader = request.headers.get("Authorization")?.replace("Bearer ", "");
+      const tokensList = existingData?.sessionTokens || (existingData?.sessionToken ? [existingData.sessionToken] : []);
 
+      if (!existingData || !tokensList.includes(authHeader)) {
+        return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+      }
+
+      const deleteAll = url.searchParams.get("all") === "true";
+
+      if (deleteAll) {
+        await env.BETTER_INTRA_KV.delete(loginParam);
+        return new Response("All cloud data deleted", { status: 200, headers: corsHeaders });
+      } else {
+        const updatedTokens = tokensList.filter((t: string) => t !== authHeader);
+        
+        await env.BETTER_INTRA_KV.put(
+          loginParam,
+          JSON.stringify({
+            sessionTokens: updatedTokens,
+            settings: existingData.settings || {},
+          }),
+        );
+        return new Response("Session removed", { status: 200, headers: corsHeaders });
+      }
+    }
     return new Response("Method not allowed", {
       status: 405,
       headers: corsHeaders,
