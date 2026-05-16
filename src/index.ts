@@ -149,9 +149,30 @@ export default {
     }
 
     if (request.method === "GET") {
-      if (!existing)
-        return new Response("Not Found", { status: 404, headers: corsHeaders });
-      return Response.json(existing, { headers: corsHeaders });
+      const login = url.searchParams.get("login");
+      if (!login) return new Response("Missing login", { status: 400 });
+
+      const data = (await env.BETTER_INTRA_KV.get(login, {
+        type: "json",
+      })) as any;
+      if (!data)
+        return new Response(JSON.stringify({ settings: {} }), {
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          },
+        });
+
+      const publicData = {
+        settings: data.settings || {},
+      };
+
+      return new Response(JSON.stringify(publicData), {
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        },
+      });
     }
 
     return new Response("Method not allowed", {
