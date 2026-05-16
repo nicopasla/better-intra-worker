@@ -1,7 +1,7 @@
 {
   "name": "better-intra-worker",
   "main": "src/index.ts",
-  "compatibility_date": "2026-05-15",
+  "compatibility_date": "2026-03-01",
   "kv_namespaces": [
     {
       "binding": "BETTER_INTRA_KV",

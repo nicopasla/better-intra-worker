@@ -8,6 +8,41 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
+async function nativeWorkerHash(
+  password: string,
+  saltString: string,
+): Promise<string> {
+  const encoder = new TextEncoder();
+  const passwordBuffer = encoder.encode(password);
+  const saltBuffer = encoder.encode(saltString);
+
+  const baseKey = await crypto.subtle.importKey(
+    "raw",
+    passwordBuffer,
+    "PBKDF2",
+    false,
+    ["deriveBits", "deriveKey"],
+  );
+
+  const derivedKey = await crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      salt: saltBuffer,
+      iterations: 100000,
+      hash: "SHA-256",
+    },
+    baseKey,
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt", "decrypt"],
+  );
+
+  const exportedKey = await crypto.subtle.exportKey("raw", derivedKey);
+  return Array.from(new Uint8Array(exportedKey))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -33,29 +68,52 @@ export default {
             headers: corsHeaders,
           });
 
-        const { password, ...publicSettings } = data as any;
+        const { password, passwordHash, ...publicSettings } = data as any;
         return Response.json(publicSettings, { headers: corsHeaders });
       }
 
       if (request.method === "POST") {
         const body = (await request.json()) as any;
 
-        const existing = (await env.BETTER_INTRA_KV.get(login, {
-          type: "json",
-        })) as any;
-
-        if (existing && existing.password !== body.password) {
-          return new Response("Unauthorized", {
-            status: 401,
+        if (!body.password) {
+          return new Response("Password required", {
+            status: 400,
             headers: corsHeaders,
           });
         }
 
+        const incomingPasswordHash = await nativeWorkerHash(
+          body.password,
+          login,
+        );
+
+        const existing = (await env.BETTER_INTRA_KV.get(login, {
+          type: "json",
+        })) as any;
+
+        if (existing) {
+          const storedHash = existing.passwordHash || existing.password;
+          if (storedHash !== incomingPasswordHash) {
+            return new Response("Unauthorized", {
+              status: 401,
+              headers: corsHeaders,
+            });
+          }
+        }
+
+        const isConnectionTest =
+          existing &&
+          (!body.settings || Object.keys(body.settings).length === 0);
+
+        const settingsToSave = isConnectionTest
+          ? existing.settings
+          : body.settings || {};
+
         await env.BETTER_INTRA_KV.put(
           login,
           JSON.stringify({
-            password: body.password,
-            settings: body.settings,
+            passwordHash: incomingPasswordHash,
+            settings: settingsToSave,
           }),
         );
 
