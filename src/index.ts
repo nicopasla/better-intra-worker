@@ -30,10 +30,9 @@ export default {
       if (!code) return new Response("Missing code", { status: 400 });
 
       if (!env.CLIENT_ID || !env.CLIENT_SECRET) {
-        return new Response(
-          "Configuration Error: CLIENT_ID or CLIENT_SECRET is missing in Cloudflare dashboard.",
-          { status: 500 },
-        );
+        return new Response("Configuration Error: Missing API Credentials.", {
+          status: 500,
+        });
       }
 
       try {
@@ -51,7 +50,6 @@ export default {
             body: formData,
           },
         );
-
         const tokenData = (await tokenResponse.json()) as any;
 
         if (tokenData.error) {
@@ -69,78 +67,92 @@ export default {
 
         if (!login) return new Response("Invalid 42 session", { status: 400 });
 
-        const sessionToken = crypto.randomUUID();
+        const newSessionToken = crypto.randomUUID();
         const existing = ((await env.BETTER_INTRA_KV.get(login, {
           type: "json",
         })) as any) || { settings: {} };
 
+        let activeTokens: string[] = [];
+        if (Array.isArray(existing.sessionTokens)) {
+          activeTokens = existing.sessionTokens;
+        } else if (typeof existing.sessionToken === "string") {
+          activeTokens = [existing.sessionToken];
+        }
+        activeTokens.push(newSessionToken);
+
+        if (activeTokens.length > 3) {
+          activeTokens.shift();
+        }
+
         await env.BETTER_INTRA_KV.put(
           login,
           JSON.stringify({
-            sessionToken: sessionToken,
-            settings: existing.settings,
+            sessionTokens: activeTokens,
+            settings: existing.settings || {},
           }),
         );
 
         const html = `
-      <!DOCTYPE html>
-      <html>
-      <head><title>Better Intra Auth</title></head>
-      <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
-        <h2>Login Successful!</h2>
-        <p>Synchronizing, this window will close automatically...</p>
-        <script>
-          if (window.opener) {
-            window.opener.postMessage({ type: "42_AUTH_SUCCESS", token: "${sessionToken}", login: "${login}" }, "*");
-            window.close();
-          } else {
-            document.body.innerHTML = "<h2>Error: Parent window not found.</h2>";
-          }
-        </script>
-      </body>
-      </html>
-    `;
+          <!DOCTYPE html>
+          <html>
+          <head><title>Better Intra Auth</title></head>
+          <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
+            <h2>Login Successful!</h2>
+            <p>Synchronizing, this window will close automatically...</p>
+            <script>
+              if (window.opener) {
+                window.opener.postMessage({ type: "42_AUTH_SUCCESS", token: "${newSessionToken}", login: "${login}" }, "*");
+                window.close();
+              } else {
+                document.body.innerHTML = "<h2>Error: Parent window not found.</h2>";
+              }
+            </script>
+          </body>
+          </html>
+        `;
         return new Response(html, { headers: { "Content-Type": "text/html" } });
       } catch (e) {
         return new Response("Auth Server Error", { status: 500 });
       }
     }
 
-    const login = url.searchParams.get("login");
-    if (!login)
+    const loginParam = url.searchParams.get("login");
+    if (!loginParam) {
       return new Response("Username required", {
         status: 400,
         headers: corsHeaders,
       });
+    }
 
-    const existing = (await env.BETTER_INTRA_KV.get(login, {
+    const existingData = (await env.BETTER_INTRA_KV.get(loginParam, {
       type: "json",
     })) as any;
 
     if (request.method === "POST") {
-      const body = (await request.json()) as any;
       const authHeader = request.headers
         .get("Authorization")
         ?.replace("Bearer ", "");
 
-      if (!existing || existing.sessionToken !== authHeader) {
+      const tokensList =
+        existingData?.sessionTokens ||
+        (existingData?.sessionToken ? [existingData.sessionToken] : []);
+
+      if (!existingData || !tokensList.includes(authHeader)) {
         return new Response("Unauthorized", {
           status: 401,
           headers: corsHeaders,
         });
       }
 
+      const body = (await request.json()) as any;
       let settingsToSave = body.settings || {};
-      if (!body.settings || Object.keys(body.settings).length === 0) {
-        settingsToSave = existing.settings;
-      } else {
-        settingsToSave = { ...existing.settings, ...body.settings };
-      }
+
+      settingsToSave = { ...(existingData.settings || {}), ...settingsToSave };
 
       await env.BETTER_INTRA_KV.put(
-        login,
+        loginParam,
         JSON.stringify({
-          sessionToken: existing.sessionToken,
+          sessionTokens: tokensList,
           settings: settingsToSave,
         }),
       );
@@ -161,28 +173,24 @@ export default {
       if (!isAuthorized) {
         return new Response("Unauthorized platform", { status: 403 });
       }
-      const login = url.searchParams.get("login");
-      if (!login) return new Response("Missing login", { status: 400 });
 
-      const data = (await env.BETTER_INTRA_KV.get(login, {
-        type: "json",
-      })) as any;
-      const corsHeaders = {
+      const dynamicCorsHeaders = {
         "Content-Type": "application/json",
         "Access-Control-Allow-Origin": origin || "*",
       };
-      if (!data) {
+
+      if (!existingData) {
         return new Response(JSON.stringify({ settings: {} }), {
-          headers: corsHeaders,
+          headers: dynamicCorsHeaders,
         });
       }
 
       const publicData = {
-        settings: data.settings || {},
+        settings: existingData.settings || {},
       };
 
       return new Response(JSON.stringify(publicData), {
-        headers: corsHeaders,
+        headers: dynamicCorsHeaders,
       });
     }
 
