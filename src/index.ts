@@ -21,7 +21,10 @@ export default {
     if (url.pathname === "/login") {
       const extensionRedirectUri = url.searchParams.get("redirect_uri");
       if (!extensionRedirectUri) {
-        return new Response("Missing redirect_uri from extension", { status: 400 });
+        return new Response("Missing redirect_uri from extension", { 
+          status: 400, 
+          headers: corsHeaders 
+        });
       }
 
       const authUrl = `https://api.intra.42.fr/oauth/authorize?client_id=${env.CLIENT_ID}&redirect_uri=${encodeURIComponent(`${url.origin}/callback`)}&response_type=code&scope=public&state=${encodeURIComponent(extensionRedirectUri)}`;
@@ -34,29 +37,33 @@ export default {
       const extensionRedirectUri = url.searchParams.get("state");
 
       if (!code || !extensionRedirectUri) {
-        return new Response("Missing code or state", { status: 400 });
+        return new Response("Missing code or state", { status: 400, headers: corsHeaders });
       }
 
       if (!env.CLIENT_ID || !env.CLIENT_SECRET) {
-        return new Response("Configuration Error: Missing API Credentials.", { status: 500 });
+        return new Response("Configuration Error: Missing API Credentials.", { status: 500, headers: corsHeaders });
       }
 
       try {
-        const formData = new FormData();
-        formData.append("grant_type", "authorization_code");
-        formData.append("client_id", env.CLIENT_ID);
-        formData.append("client_secret", env.CLIENT_SECRET);
-        formData.append("code", code);
-        formData.append("redirect_uri", `${url.origin}/callback`);
+        const tokenParams = new URLSearchParams();
+        tokenParams.append("grant_type", "authorization_code");
+        tokenParams.append("client_id", env.CLIENT_ID);
+        tokenParams.append("client_secret", env.CLIENT_SECRET);
+        tokenParams.append("code", code);
+        tokenParams.append("redirect_uri", `${url.origin}/callback`);
 
         const tokenResponse = await fetch("https://api.intra.42.fr/oauth/token", {
           method: "POST",
-          body: formData,
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: tokenParams.toString(),
         });
         const tokenData = (await tokenResponse.json()) as any;
 
         if (tokenData.error) {
-          return new Response(`42 OAuth Error: ${tokenData.error_description || tokenData.error}`, { status: 400 });
+          return new Response(`42 OAuth Error: ${tokenData.error_description || tokenData.error}`, { 
+            status: 400, 
+            headers: corsHeaders 
+          });
         }
 
         const userResponse = await fetch("https://api.intra.42.fr/v2/me", {
@@ -65,7 +72,7 @@ export default {
         const userData = (await userResponse.json()) as any;
         const login = userData.login;
 
-        if (!login) return new Response("Invalid 42 session", { status: 400 });
+        if (!login) return new Response("Invalid 42 session", { status: 400, headers: corsHeaders });
 
         const newSessionToken = crypto.randomUUID();
         const existing = ((await env.BETTER_INTRA_KV.get(login, { type: "json" })) as any) || { settings: {} };
@@ -96,7 +103,7 @@ export default {
 
         return Response.redirect(finalRedirectUrl.toString(), 302);
       } catch (e) {
-        return new Response("Auth Server Error", { status: 500 });
+        return new Response("Auth Server Error", { status: 500, headers: corsHeaders });
       }
     }
 
@@ -149,6 +156,7 @@ export default {
       }
 
       const dynamicCorsHeaders = {
+        ...corsHeaders,
         "Content-Type": "application/json",
         "Access-Control-Allow-Origin": origin || "*",
       };
