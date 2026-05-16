@@ -18,21 +18,27 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
-    const REDIRECT_URI = `${url.origin}/callback`;
-
     if (url.pathname === "/login") {
-      const authUrl = `https://api.intra.42.fr/oauth/authorize?client_id=${env.CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=public`;
+      const extensionRedirectUri = url.searchParams.get("redirect_uri");
+      if (!extensionRedirectUri) {
+        return new Response("Missing redirect_uri from extension", { status: 400 });
+      }
+
+      const authUrl = `https://api.intra.42.fr/oauth/authorize?client_id=${env.CLIENT_ID}&redirect_uri=${encodeURIComponent(`${url.origin}/callback`)}&response_type=code&scope=public&state=${encodeURIComponent(extensionRedirectUri)}`;
+      
       return Response.redirect(authUrl, 302);
     }
 
     if (url.pathname === "/callback") {
       const code = url.searchParams.get("code");
-      if (!code) return new Response("Missing code", { status: 400 });
+      const extensionRedirectUri = url.searchParams.get("state");
+
+      if (!code || !extensionRedirectUri) {
+        return new Response("Missing code or state", { status: 400 });
+      }
 
       if (!env.CLIENT_ID || !env.CLIENT_SECRET) {
-        return new Response("Configuration Error: Missing API Credentials.", {
-          status: 500,
-        });
+        return new Response("Configuration Error: Missing API Credentials.", { status: 500 });
       }
 
       try {
@@ -41,22 +47,16 @@ export default {
         formData.append("client_id", env.CLIENT_ID);
         formData.append("client_secret", env.CLIENT_SECRET);
         formData.append("code", code);
-        formData.append("redirect_uri", REDIRECT_URI);
+        formData.append("redirect_uri", `${url.origin}/callback`);
 
-        const tokenResponse = await fetch(
-          "https://api.intra.42.fr/oauth/token",
-          {
-            method: "POST",
-            body: formData,
-          },
-        );
+        const tokenResponse = await fetch("https://api.intra.42.fr/oauth/token", {
+          method: "POST",
+          body: formData,
+        });
         const tokenData = (await tokenResponse.json()) as any;
 
         if (tokenData.error) {
-          return new Response(
-            `42 OAuth Error: ${tokenData.error_description || tokenData.error}`,
-            { status: 400 },
-          );
+          return new Response(`42 OAuth Error: ${tokenData.error_description || tokenData.error}`, { status: 400 });
         }
 
         const userResponse = await fetch("https://api.intra.42.fr/v2/me", {
@@ -68,9 +68,7 @@ export default {
         if (!login) return new Response("Invalid 42 session", { status: 400 });
 
         const newSessionToken = crypto.randomUUID();
-        const existing = ((await env.BETTER_INTRA_KV.get(login, {
-          type: "json",
-        })) as any) || { settings: {} };
+        const existing = ((await env.BETTER_INTRA_KV.get(login, { type: "json" })) as any) || { settings: {} };
 
         let activeTokens: string[] = [];
         if (Array.isArray(existing.sessionTokens)) {
@@ -92,25 +90,11 @@ export default {
           }),
         );
 
-        const html = `
-          <!DOCTYPE html>
-          <html>
-          <head><title>Better Intra Auth</title></head>
-          <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
-            <h2>Login Successful!</h2>
-            <p>Synchronizing, this window will close automatically...</p>
-            <script>
-              if (window.opener) {
-                window.opener.postMessage({ type: "42_AUTH_SUCCESS", token: "${newSessionToken}", login: "${login}" }, "*");
-                window.close();
-              } else {
-                document.body.innerHTML = "<h2>Error: Parent window not found.</h2>";
-              }
-            </script>
-          </body>
-          </html>
-        `;
-        return new Response(html, { headers: { "Content-Type": "text/html" } });
+        const finalRedirectUrl = new URL(extensionRedirectUri);
+        finalRedirectUrl.searchParams.set("token", newSessionToken);
+        finalRedirectUrl.searchParams.set("login", login);
+
+        return Response.redirect(finalRedirectUrl.toString(), 302);
       } catch (e) {
         return new Response("Auth Server Error", { status: 500 });
       }
@@ -129,24 +113,15 @@ export default {
     })) as any;
 
     if (request.method === "POST") {
-      const authHeader = request.headers
-        .get("Authorization")
-        ?.replace("Bearer ", "");
-
-      const tokensList =
-        existingData?.sessionTokens ||
-        (existingData?.sessionToken ? [existingData.sessionToken] : []);
+      const authHeader = request.headers.get("Authorization")?.replace("Bearer ", "");
+      const tokensList = existingData?.sessionTokens || (existingData?.sessionToken ? [existingData.sessionToken] : []);
 
       if (!existingData || !tokensList.includes(authHeader)) {
-        return new Response("Unauthorized", {
-          status: 401,
-          headers: corsHeaders,
-        });
+        return new Response("Unauthorized", { status: 401, headers: corsHeaders });
       }
 
       const body = (await request.json()) as any;
       let settingsToSave = body.settings || {};
-
       settingsToSave = { ...(existingData.settings || {}), ...settingsToSave };
 
       await env.BETTER_INTRA_KV.put(
@@ -167,7 +142,6 @@ export default {
       const isAuthorized =
         origin.endsWith(".42.fr") ||
         referer.includes(".42.fr") ||
-        origin.startsWith("chrome-extension://") ||
         origin.startsWith("moz-extension://");
 
       if (!isAuthorized) {
@@ -180,55 +154,33 @@ export default {
       };
 
       if (!existingData) {
-        return new Response(
-          JSON.stringify({ settings: {}, activeSessions: 0 }),
-          {
-            headers: dynamicCorsHeaders,
-          },
-        );
+        return new Response(JSON.stringify({ settings: {}, activeSessions: 0 }), { headers: dynamicCorsHeaders });
       }
 
-      const tokensList =
-        existingData.sessionTokens ||
-        (existingData.sessionToken ? [existingData.sessionToken] : []);
-
+      const tokensList = existingData.sessionTokens || (existingData.sessionToken ? [existingData.sessionToken] : []);
       const publicData = {
         settings: existingData.settings || {},
         activeSessions: tokensList.length,
       };
 
-      return new Response(JSON.stringify(publicData), {
-        headers: dynamicCorsHeaders,
-      });
+      return new Response(JSON.stringify(publicData), { headers: dynamicCorsHeaders });
     }
+
     if (request.method === "DELETE") {
-      const authHeader = request.headers
-        .get("Authorization")
-        ?.replace("Bearer ", "");
-      const tokensList =
-        existingData?.sessionTokens ||
-        (existingData?.sessionToken ? [existingData.sessionToken] : []);
+      const authHeader = request.headers.get("Authorization")?.replace("Bearer ", "");
+      const tokensList = existingData?.sessionTokens || (existingData?.sessionToken ? [existingData.sessionToken] : []);
 
       if (!existingData || !tokensList.includes(authHeader)) {
-        return new Response("Unauthorized", {
-          status: 401,
-          headers: corsHeaders,
-        });
+        return new Response("Unauthorized", { status: 401, headers: corsHeaders });
       }
 
       const deleteAll = url.searchParams.get("all") === "true";
 
       if (deleteAll) {
         await env.BETTER_INTRA_KV.delete(loginParam);
-        return new Response("All cloud data deleted", {
-          status: 200,
-          headers: corsHeaders,
-        });
+        return new Response("All cloud data deleted", { status: 200, headers: corsHeaders });
       } else {
-        const updatedTokens = tokensList.filter(
-          (t: string) => t !== authHeader,
-        );
-
+        const updatedTokens = tokensList.filter((t: string) => t !== authHeader);
         await env.BETTER_INTRA_KV.put(
           loginParam,
           JSON.stringify({
@@ -236,18 +188,10 @@ export default {
             settings: existingData.settings || {},
           }),
         );
-        return new Response("Session removed", {
-          status: 200,
-          headers: corsHeaders,
-        });
+        return new Response("Session removed", { status: 200, headers: corsHeaders });
       }
     }
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers: corsHeaders });
-    }
-    return new Response("Method not allowed", {
-      status: 405,
-      headers: corsHeaders,
-    });
+
+    return new Response("Method not allowed", { status: 405, headers: corsHeaders });
   },
 };
