@@ -1,134 +1,124 @@
 export interface Env {
   BETTER_INTRA_KV: KVNamespace;
+  CLIENT_ID: string;
+  CLIENT_SECRET: string;
 }
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
-
-async function nativeWorkerHash(
-  password: string,
-  saltString: string,
-): Promise<string> {
-  const encoder = new TextEncoder();
-  const passwordBuffer = encoder.encode(password);
-  const saltBuffer = encoder.encode(saltString);
-
-  const baseKey = await crypto.subtle.importKey(
-    "raw",
-    passwordBuffer,
-    "PBKDF2",
-    false,
-    ["deriveBits", "deriveKey"],
-  );
-
-  const derivedKey = await crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: saltBuffer,
-      iterations: 100000,
-      hash: "SHA-256",
-    },
-    baseKey,
-    { name: "AES-GCM", length: 256 },
-    true,
-    ["encrypt", "decrypt"],
-  );
-
-  const exportedKey = await crypto.subtle.exportKey("raw", derivedKey);
-  return Array.from(new Uint8Array(exportedKey))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    const login = url.searchParams.get("login");
 
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
     }
 
-    if (!login) {
-      return new Response("Username required", {
-        status: 400,
-        headers: corsHeaders,
-      });
+    const REDIRECT_URI = `${url.origin}/callback`;
+
+    if (url.pathname === "/login") {
+      const authUrl = `https://api.intra.42.fr/oauth/authorize?client_id=${env.CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=public`;
+      return Response.redirect(authUrl, 302);
     }
 
-    try {
-      if (request.method === "GET") {
-        const data = await env.BETTER_INTRA_KV.get(login, { type: "json" });
-        if (!data)
-          return new Response("Not Found", {
-            status: 404,
-            headers: corsHeaders,
-          });
+    if (url.pathname === "/callback") {
+      const code = url.searchParams.get("code");
+      if (!code) return new Response("Missing code", { status: 400 });
 
-        const { password, passwordHash, ...publicSettings } = data as any;
-        return Response.json(publicSettings, { headers: corsHeaders });
-      }
-
-      if (request.method === "POST") {
-        const body = (await request.json()) as any;
-
-        if (!body.password) {
-          return new Response("Password required", {
-            status: 400,
-            headers: corsHeaders,
-          });
-        }
-
-        const incomingPasswordHash = await nativeWorkerHash(
-          body.password,
-          login,
-        );
-
-        const existing = (await env.BETTER_INTRA_KV.get(login, {
-          type: "json",
-        })) as any;
-
-        if (existing) {
-          const storedHash = existing.passwordHash || existing.password;
-          if (storedHash !== incomingPasswordHash) {
-            return new Response("Unauthorized", {
-              status: 401,
-              headers: corsHeaders,
-            });
-          }
-        }
-
-        const isConnectionTest =
-          existing &&
-          (!body.settings || Object.keys(body.settings).length === 0);
-
-        const settingsToSave = isConnectionTest
-          ? existing.settings
-          : body.settings || {};
-
-        await env.BETTER_INTRA_KV.put(
-          login,
-          JSON.stringify({
-            passwordHash: incomingPasswordHash,
-            settings: settingsToSave,
+      try {
+        const tokenResponse = await fetch("https://api.intra.42.fr/oauth/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "authorization_code",
+            client_id: env.CLIENT_ID,
+            client_secret: env.CLIENT_SECRET,
+            code: code,
+            redirect_uri: REDIRECT_URI,
           }),
-        );
+        });
 
-        return new Response("Saved", { status: 200, headers: corsHeaders });
+        const tokenData = await tokenResponse.json() as any;
+
+        const userResponse = await fetch("https://api.intra.42.fr/v2/me", {
+          headers: { Authorization: `Bearer ${tokenData.access_token}` },
+        });
+        const userData = await userResponse.json() as any;
+        const login = userData.login;
+
+        if (!login) return new Response("Invalid 42 session", { status: 400 });
+
+        const sessionToken = crypto.randomUUID();
+
+        const existing = await env.BETTER_INTRA_KV.get(login, { type: "json" }) as any || { settings: {} };
+
+        await env.BETTER_INTRA_KV.put(login, JSON.stringify({
+          sessionToken: sessionToken,
+          settings: existing.settings
+        }));
+
+        const html = `
+          <!DOCTYPE html>
+          <html>
+          <head><title>Better Intra Auth</title></head>
+          <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
+            <h2>Login Successful!</h2>
+            <p>Synchronizing, this window will close automatically...</p>
+            <script>
+              if (window.opener) {
+                window.opener.postMessage({ type: "42_AUTH_SUCCESS", token: "${sessionToken}", login: "${login}" }, "*");
+                window.close();
+              } else {
+                document.body.innerHTML = "<h2>Error: Parent window not found.</h2>";
+              }
+            </script>
+          </body>
+          </html>
+        `;
+        return new Response(html, { headers: { "Content-Type": "text/html" } });
+
+      } catch (e) {
+        return new Response("Auth Error", { status: 500 });
+      }
+    }
+
+    const login = url.searchParams.get("login");
+    if (!login) return new Response("Username required", { status: 400, headers: corsHeaders });
+
+    const existing = await env.BETTER_INTRA_KV.get(login, { type: "json" }) as any;
+
+    if (request.method === "POST") {
+      const body = await request.json() as any;
+      const authHeader = request.headers.get("Authorization")?.replace("Bearer ", "");
+
+      if (!existing || existing.sessionToken !== authHeader) {
+        return new Response("Unauthorized", { status: 401, headers: corsHeaders });
       }
 
-      return new Response("Method not allowed", {
-        status: 405,
-        headers: corsHeaders,
-      });
-    } catch (e) {
-      return new Response("Server Error", {
-        status: 500,
-        headers: corsHeaders,
-      });
+      let settingsToSave = body.settings || {};
+      if (!body.settings || Object.keys(body.settings).length === 0) {
+        settingsToSave = existing.settings;
+      } else {
+        settingsToSave = { ...existing.settings, ...body.settings };
+      }
+
+      await env.BETTER_INTRA_KV.put(login, JSON.stringify({
+        sessionToken: existing.sessionToken,
+        settings: settingsToSave
+      }));
+
+      return new Response("Saved", { status: 200, headers: corsHeaders });
     }
+
+    if (request.method === "GET") {
+      if (!existing) return new Response("Not Found", { status: 404, headers: corsHeaders });
+      return Response.json(existing, { headers: corsHeaders });
+    }
+
+    return new Response("Method not allowed", { status: 405, headers: corsHeaders });
   },
 };
