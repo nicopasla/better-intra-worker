@@ -149,29 +149,40 @@ export default {
     }
 
     if (request.method === "GET") {
+      const origin = request.headers.get("Origin") || "";
+      const referer = request.headers.get("Referer") || "";
+
+      const isAuthorized =
+        origin.endsWith(".42.fr") ||
+        referer.includes(".42.fr") ||
+        origin.startsWith("chrome-extension://") ||
+        origin.startsWith("moz-extension://");
+
+      if (!isAuthorized) {
+        return new Response("Unauthorized platform", { status: 403 });
+      }
       const login = url.searchParams.get("login");
       if (!login) return new Response("Missing login", { status: 400 });
 
       const data = (await env.BETTER_INTRA_KV.get(login, {
         type: "json",
       })) as any;
-      if (!data)
+      const corsHeaders = {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": origin || "*",
+      };
+      if (!data) {
         return new Response(JSON.stringify({ settings: {} }), {
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-          },
+          headers: corsHeaders,
         });
+      }
 
       const publicData = {
         settings: data.settings || {},
       };
 
       return new Response(JSON.stringify(publicData), {
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        },
+        headers: corsHeaders,
       });
     }
 
