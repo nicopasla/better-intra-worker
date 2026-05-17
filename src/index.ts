@@ -165,8 +165,9 @@ export default {
       const data = existingData || { settings: {} };
       const tokensList = getTokens(data);
 
-      if (existingData && !tokensList.includes(authHeader))
+      if (existingData && !tokensList.includes(authHeader)) {
         return textRes("Unauthorized: Invalid Session Token", 401);
+      }
 
       if (request.method === "GET") {
         return jsonRes({
