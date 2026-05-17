@@ -55,10 +55,13 @@ export default {
       const extUri = url.searchParams.get("redirect_uri");
       if (!extUri) return textRes("Missing redirect_uri from extension", 400);
 
-      if (
-        !extUri.startsWith("chrome-extension://") &&
-        !extUri.startsWith("moz-extension://")
-      ) {
+      const isAllowedOrigin =
+        extUri.startsWith("chrome-extension://") ||
+        extUri.startsWith("moz-extension://") ||
+        extUri.startsWith("https://profile-v3.intra.42.fr") ||
+        new URL(extUri).hostname.endsWith(".42.fr");
+
+      if (!isAllowedOrigin) {
         return textRes("Invalid redirect_uri", 400);
       }
 
