@@ -13,6 +13,13 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
+async function hashLogin(login: string): Promise<string> {
+  const msgBuffer = new TextEncoder().encode(login.toLowerCase().trim());
+  const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -84,16 +91,18 @@ export default {
           headers: { Authorization: `Bearer ${tokenData.access_token}` },
         });
         const userData = (await userResponse.json()) as any;
-        const login = userData.login;
+        const rawLogin = userData.login;
 
-        if (!login)
+        if (!rawLogin)
           return new Response("Invalid 42 session", {
             status: 400,
             headers: corsHeaders,
           });
 
+        const hashedLogin = await hashLogin(rawLogin);
+
         const newSessionToken = crypto.randomUUID();
-        const existing = ((await env.BETTER_INTRA_KV.get(login, {
+        const existing = ((await env.BETTER_INTRA_KV.get(hashedLogin, {
           type: "json",
         })) as any) || { settings: {} };
 
@@ -110,7 +119,7 @@ export default {
         }
 
         await env.BETTER_INTRA_KV.put(
-          login,
+          hashedLogin,
           JSON.stringify({
             sessionTokens: activeTokens,
             settings: existing.settings || {},
@@ -138,7 +147,7 @@ export default {
                 window.opener.postMessage({
                   type: "42_AUTH_SUCCESS",
                   token: "${newSessionToken}",
-                  login: "${login}"
+                  login: "${rawLogin}"
                 }, "${new URL(extensionRedirectUri).origin}");
               }
             </script>
