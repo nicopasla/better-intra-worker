@@ -52,13 +52,6 @@ export default {
         });
       }
 
-      if (!env.CLIENT_ID || !env.CLIENT_SECRET) {
-        return new Response("Configuration Error: Missing API Credentials.", {
-          status: 500,
-          headers: corsHeaders,
-        });
-      }
-
       try {
         const tokenParams = new URLSearchParams();
         tokenParams.append("grant_type", "authorization_code");
@@ -100,23 +93,20 @@ export default {
           });
 
         const hashedLogin = await hashLogin(rawLogin);
-
         const newSessionToken = crypto.randomUUID();
+
         const existing = ((await env.BETTER_INTRA_KV.get(hashedLogin, {
           type: "json",
         })) as any) || { settings: {} };
 
-        let activeTokens: string[] = [];
-        if (Array.isArray(existing.sessionTokens)) {
-          activeTokens = existing.sessionTokens;
-        } else if (typeof existing.sessionToken === "string") {
-          activeTokens = [existing.sessionToken];
-        }
-        activeTokens.push(newSessionToken);
+        let activeTokens: string[] = Array.isArray(existing.sessionTokens)
+          ? existing.sessionTokens
+          : typeof existing.sessionToken === "string"
+            ? [existing.sessionToken]
+            : [];
 
-        if (activeTokens.length > 3) {
-          activeTokens.shift();
-        }
+        activeTokens.push(newSessionToken);
+        if (activeTokens.length > 3) activeTokens.shift();
 
         await env.BETTER_INTRA_KV.put(
           hashedLogin,
@@ -171,7 +161,7 @@ export default {
 
     const loginParam = url.searchParams.get("login");
     if (!loginParam) {
-      return new Response("Username required", {
+      return new Response("Username hash required", {
         status: 400,
         headers: corsHeaders,
       });
@@ -181,40 +171,16 @@ export default {
       type: "json",
     })) as any;
 
-    if (request.method === "POST") {
-      const authHeader = request.headers
-        .get("Authorization")
-        ?.replace("Bearer ", "");
-      const tokensList =
-        existingData?.sessionTokens ||
-        (existingData?.sessionToken ? [existingData.sessionToken] : []);
-
-      if (!existingData || !tokensList.includes(authHeader)) {
-        return new Response("Unauthorized", {
-          status: 401,
+    if (url.pathname === "/api/v1/public/visuals") {
+      if (request.method !== "GET") {
+        return new Response("Method not allowed", {
+          status: 405,
           headers: corsHeaders,
         });
       }
 
-      const body = (await request.json()) as any;
-      let settingsToSave = body.settings || {};
-      settingsToSave = { ...(existingData.settings || {}), ...settingsToSave };
-
-      await env.BETTER_INTRA_KV.put(
-        loginParam,
-        JSON.stringify({
-          sessionTokens: tokensList,
-          settings: settingsToSave,
-        }),
-      );
-
-      return new Response("Saved", { status: 200, headers: corsHeaders });
-    }
-
-    if (request.method === "GET") {
       const origin = request.headers.get("Origin") || "";
       const referer = request.headers.get("Referer") || "";
-
       const isAuthorized =
         origin.endsWith(".42.fr") ||
         referer.includes(".42.fr") ||
@@ -230,27 +196,18 @@ export default {
         "Access-Control-Allow-Origin": origin || "*",
       };
 
-      if (!existingData) {
-        return new Response(
-          JSON.stringify({ settings: {}, activeSessions: 0 }),
-          { headers: dynamicCorsHeaders },
-        );
-      }
-
-      const tokensList =
-        existingData.sessionTokens ||
-        (existingData.sessionToken ? [existingData.sessionToken] : []);
-      const publicData = {
-        settings: existingData.settings || {},
-        activeSessions: tokensList.length,
+      const publicVisuals = {
+        avatar: existingData?.settings?.PROFILE_IMAGE_URL || "",
+        banner: existingData?.settings?.PROFILE_BANNER_URL || "",
+        background: existingData?.settings?.PROFILE_BACKGROUND_URL || "",
       };
 
-      return new Response(JSON.stringify(publicData), {
+      return new Response(JSON.stringify({ settings: publicVisuals }), {
         headers: dynamicCorsHeaders,
       });
     }
 
-    if (request.method === "DELETE") {
+    if (url.pathname === "/api/v1/private/settings") {
       const authHeader = request.headers
         .get("Authorization")
         ?.replace("Bearer ", "");
@@ -258,42 +215,75 @@ export default {
         existingData?.sessionTokens ||
         (existingData?.sessionToken ? [existingData.sessionToken] : []);
 
-      if (!existingData || !tokensList.includes(authHeader)) {
+      if (!existingData || !authHeader || !tokensList.includes(authHeader)) {
         return new Response("Unauthorized", {
           status: 401,
           headers: corsHeaders,
         });
       }
 
-      const deleteAll = url.searchParams.get("all") === "true";
-
-      if (deleteAll) {
-        await env.BETTER_INTRA_KV.delete(loginParam);
-        return new Response("All cloud data deleted", {
-          status: 200,
-          headers: corsHeaders,
-        });
-      } else {
-        const updatedTokens = tokensList.filter(
-          (t: string) => t !== authHeader,
+      if (request.method === "GET") {
+        return new Response(
+          JSON.stringify({
+            settings: existingData.settings || {},
+            activeSessions: tokensList.length,
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
+      }
+
+      if (request.method === "POST") {
+        const body = (await request.json()) as any;
+        let settingsToSave = body.settings || {};
+        settingsToSave = {
+          ...(existingData.settings || {}),
+          ...settingsToSave,
+        };
+
         await env.BETTER_INTRA_KV.put(
           loginParam,
           JSON.stringify({
-            sessionTokens: updatedTokens,
-            settings: existingData.settings || {},
+            sessionTokens: tokensList,
+            settings: settingsToSave,
           }),
         );
-        return new Response("Session removed", {
-          status: 200,
-          headers: corsHeaders,
-        });
+
+        return new Response("Saved", { status: 200, headers: corsHeaders });
       }
+
+      if (request.method === "DELETE") {
+        const deleteAll = url.searchParams.get("all") === "true";
+
+        if (deleteAll) {
+          await env.BETTER_INTRA_KV.delete(loginParam);
+          return new Response("All cloud data deleted", {
+            status: 200,
+            headers: corsHeaders,
+          });
+        } else {
+          const updatedTokens = tokensList.filter(
+            (t: string) => t !== authHeader,
+          );
+          await env.BETTER_INTRA_KV.put(
+            loginParam,
+            JSON.stringify({
+              sessionTokens: updatedTokens,
+              settings: existingData.settings || {},
+            }),
+          );
+          return new Response("Session removed", {
+            status: 200,
+            headers: corsHeaders,
+          });
+        }
+      }
+
+      return new Response("Method not allowed", {
+        status: 405,
+        headers: corsHeaders,
+      });
     }
 
-    return new Response("Method not allowed", {
-      status: 405,
-      headers: corsHeaders,
-    });
+    return new Response("Not found", { status: 404, headers: corsHeaders });
   },
 };
