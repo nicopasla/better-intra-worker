@@ -211,12 +211,24 @@ export default {
       const authHeader = request.headers
         .get("Authorization")
         ?.replace("Bearer ", "");
-      const tokensList =
-        existingData?.sessionTokens ||
-        (existingData?.sessionToken ? [existingData.sessionToken] : []);
 
-      if (!existingData || !authHeader || !tokensList.includes(authHeader)) {
-        return new Response("Unauthorized", {
+      const data = existingData || { sessionTokens: [], settings: {} };
+
+      const tokensList = Array.isArray(data.sessionTokens)
+        ? data.sessionTokens
+        : typeof data.sessionToken === "string"
+          ? [data.sessionToken]
+          : [];
+
+      if (!authHeader) {
+        return new Response("Missing Authorization Token", {
+          status: 401,
+          headers: corsHeaders,
+        });
+      }
+
+      if (existingData && !tokensList.includes(authHeader)) {
+        return new Response("Unauthorized: Invalid Session Token", {
           status: 401,
           headers: corsHeaders,
         });
@@ -225,8 +237,8 @@ export default {
       if (request.method === "GET") {
         return new Response(
           JSON.stringify({
-            settings: existingData.settings || {},
-            activeSessions: tokensList.length,
+            settings: data.settings || {},
+            activeSessions: tokensList.length || 1,
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
@@ -236,14 +248,16 @@ export default {
         const body = (await request.json()) as any;
         let settingsToSave = body.settings || {};
         settingsToSave = {
-          ...(existingData.settings || {}),
+          ...(data.settings || {}),
           ...settingsToSave,
         };
+
+        const updatedTokens = tokensList.length > 0 ? tokensList : [authHeader];
 
         await env.BETTER_INTRA_KV.put(
           loginParam,
           JSON.stringify({
-            sessionTokens: tokensList,
+            sessionTokens: updatedTokens,
             settings: settingsToSave,
           }),
         );
@@ -268,7 +282,7 @@ export default {
             loginParam,
             JSON.stringify({
               sessionTokens: updatedTokens,
-              settings: existingData.settings || {},
+              settings: data.settings || {},
             }),
           );
           return new Response("Session removed", {
