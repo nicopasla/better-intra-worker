@@ -152,7 +152,9 @@ export default {
       return jsonRes({
         avatar: existingData?.settings?.PROFILE_IMAGE_URL || "",
         banner: existingData?.settings?.PROFILE_BANNER_URL || "",
+        bannerMode: existingData?.settings?.PROFILE_BANNER_MODE || "fill",
         background: existingData?.settings?.PROFILE_BACKGROUND_URL || "",
+        backgroundMode: existingData?.settings?.PROFILE_BACKGROUND_MODE || "fill",
       });
     }
 
