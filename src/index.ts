@@ -115,7 +115,7 @@ export default {
 
         const activeTokens = getTokens(existing);
         activeTokens.push(newSessionToken);
-        if (activeTokens.length > 3) activeTokens.shift();
+        if (activeTokens.length > 10) activeTokens.shift();
 
         await env.BETTER_INTRA_KV.put(
           hashedLogin,
@@ -154,7 +154,8 @@ export default {
         banner: existingData?.settings?.PROFILE_BANNER_URL || "",
         bannerMode: existingData?.settings?.PROFILE_BANNER_MODE || "fill",
         background: existingData?.settings?.PROFILE_BACKGROUND_URL || "",
-        backgroundMode: existingData?.settings?.PROFILE_BACKGROUND_MODE || "fill",
+        backgroundMode:
+          existingData?.settings?.PROFILE_BACKGROUND_MODE || "fill",
       });
     }
 
