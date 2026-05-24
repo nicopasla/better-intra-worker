@@ -6,12 +6,30 @@ export async function handlePublicVisuals(
   existingData: UserData | null,
 ): Promise<Response> {
   if (request.method !== "GET") return textRes("Method not allowed", 405);
+
+  const settings = existingData?.settings || {};
+
   return jsonRes({
-    avatar: existingData?.settings?.PROFILE_IMAGE_URL || "",
-    banner: existingData?.settings?.PROFILE_BANNER_URL || "",
-    bannerMode: existingData?.settings?.PROFILE_BANNER_MODE || "fill",
-    background: existingData?.settings?.PROFILE_BACKGROUND_URL || "",
-    backgroundMode: existingData?.settings?.PROFILE_BACKGROUND_MODE || "fill",
+    // Existing visual settings
+    avatar: settings.PROFILE_IMAGE_URL || "",
+    banner: settings.PROFILE_BANNER_URL || "",
+    bannerMode: settings.PROFILE_BANNER_MODE || "fill",
+    background: settings.PROFILE_BACKGROUND_URL || "",
+    backgroundMode: settings.PROFILE_BACKGROUND_MODE || "fill",
+
+    // Theme settings (for profile card)
+    theme: {
+      profileColor: settings.LOGTIME_CALENDAR_COLOR,
+    },
+
+    // Public Logtime settings
+    logtime: {
+      calendarColor: settings.LOGTIME_CALENDAR_COLOR,
+      labelsColor: settings.LOGTIME_LABELS_COLOR,
+      emoji: settings.LOGTIME_EMOJI,
+      emojiDivisor: settings.LOGTIME_EMOJI_DIVISOR,
+      emojiRate: settings.LOGTIME_EMOJI_RATE,
+    },
   });
 }
 
