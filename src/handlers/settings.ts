@@ -1,5 +1,6 @@
 import { Env, UserData } from "../types";
 import { getTokens, jsonRes, textRes } from "../utils";
+import { corsHeaders } from "../utils";
 
 export async function handlePublicVisuals(
   request: Request,
@@ -93,4 +94,36 @@ export async function handlePrivateSettings(
   }
 
   return textRes("Method not allowed", 405);
+}
+
+export async function handlePrivateEvaluations(
+  request: Request,
+  env: Env,
+  loginParam: string,
+  existingData: UserData | null,
+): Promise<Response> {
+  const authHeader = request.headers.get("Authorization")?.replace("Bearer ", "");
+  if (!authHeader) return textRes("Missing Authorization Token", 401);
+
+  const tokensList = getTokens(existingData);
+  if (!existingData || !tokensList.includes(authHeader)) {
+    return textRes("Unauthorized: Invalid Session Token", 401);
+  }
+
+  // Proxy the request to the Intra API using the user's session token
+  const apiRes = await fetch("https://intrapy.intra.42.fr/api/v1/users/me/scale_teams", {
+    headers: { Authorization: `Bearer ${authHeader}` },
+  });
+
+  const apiBody = await apiRes.text();
+  return new Response(
+    JSON.stringify({ evaluations: JSON.parse(apiBody) }),
+    {
+      status: apiRes.status,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "application/json",
+      },
+    },
+  );
 }
