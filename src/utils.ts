@@ -37,3 +37,34 @@ export async function hashLogin(login: string): Promise<string> {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }
+
+let cachedAppToken: { token: string; expires: number } | null = null;
+
+export async function getAppToken(env: {
+  CLIENT_ID: string;
+  CLIENT_SECRET: string;
+}): Promise<string> {
+  if (cachedAppToken && Date.now() < cachedAppToken.expires) {
+    return cachedAppToken.token;
+  }
+
+  const res = await fetch("https://api.intra.42.fr/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: env.CLIENT_ID,
+      client_secret: env.CLIENT_SECRET,
+    }),
+  });
+
+  if (!res.ok) throw new Error("Failed to get app token");
+
+  const data = (await res.json()) as any;
+  cachedAppToken = {
+    token: data.access_token,
+    expires: Date.now() + (data.expires_in - 60) * 1000,
+  };
+
+  return cachedAppToken.token;
+}
