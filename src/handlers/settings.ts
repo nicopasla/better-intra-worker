@@ -120,33 +120,31 @@ export async function handlePrivateEvaluations(
 
   const appToken = await getAppToken(env);
 
-  const [correctorRes, correctedRes] = await Promise.all([
-    fetch(
-      `https://api.intra.42.fr/v2/users/${intraLogin}/scale_teams/as_corrector?filter[future]=true&sort=begin_at&page[size]=10`,
-      {
-        headers: { Authorization: `Bearer ${appToken}` },
-      },
-    ),
-    fetch(
-      `https://api.intra.42.fr/v2/users/${intraLogin}/scale_teams/as_corrected?filter[future]=true&sort=begin_at&page[size]=10`,
-      {
-        headers: { Authorization: `Bearer ${appToken}` },
-      },
-    ),
-  ]);
+  const res = await fetch(
+    `https://api.intra.42.fr/v2/users/${intraLogin}/scale_teams?filter[future]=true&sort=begin_at&page[size]=20`,
+    {
+      headers: { Authorization: `Bearer ${appToken}` },
+    },
+  );
 
-  if (!correctorRes.ok || !correctedRes.ok)
-    return textRes("Failed to fetch from 42 API", 502);
+  if (!res.ok) return textRes("Failed to fetch from 42 API", 502);
 
-  const [corrector, corrected] = await Promise.all([
-    correctorRes.json() as Promise<any[]>,
-    correctedRes.json() as Promise<any[]>,
-  ]);
+  const scaleTeams = (await res.json()) as any[];
 
-  const evaluations = [
-    ...corrector.map((e: any) => ({ ...e, kind: "evaluator" })),
-    ...corrected.map((e: any) => ({ ...e, kind: "evaluated" })),
-  ];
+  const evaluations = scaleTeams
+  .map((e: any) => {
+    const isEvaluated = e.correcteds?.some((c: any) => c.login === intraLogin);
+    return {
+      id: e.id,
+      begin_at: e.begin_at,
+      project_name: e.team?.project_session?.project?.name ?? "Unknown project",
+      user: isEvaluated
+        ? (e.corrector?.login ?? "unknown")
+        : (e.correcteds?.[0]?.login ?? "unknown"),
+      kind: isEvaluated ? "evaluated" : "evaluator",
+    };
+  })
+  .filter((e) => e.kind === "evaluator");
 
   return jsonRes({ evaluations });
 }
