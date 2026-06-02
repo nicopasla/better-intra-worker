@@ -143,19 +143,17 @@ export async function handlePrivateEvaluations(
     return textRes("Unexpected API response", 502);
   }
 
-  const evaluations: Evaluation[] = scaleTeams.map(
-    (e: any): Evaluation => ({
+  const evaluations: Evaluation[] = scaleTeams.map((e: any): Evaluation => {
+    const projectName =
+      e.team?.project_gitlab_path?.split("/").pop() || "Unknown project";
+    return {
       id: e.id,
       begin_at: e.begin_at,
-      project_name:
-        e.team?.project_session?.project?.name ??
-        e.scale?.name ??
-        e.team?.project?.name ??
-        "Unknown project",
+      project_name: projectName,
       user: e.correcteds?.[0]?.login ?? "unknown",
       kind: "evaluator",
-    }),
-  );
+    };
+  });
 
   evaluations.sort(
     (a, b) => new Date(a.begin_at).getTime() - new Date(b.begin_at).getTime(),
