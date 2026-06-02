@@ -1,4 +1,4 @@
-import { Env, UserData } from "../types";
+import { Env, UserData, Evaluation } from "../types";
 import { getTokens, jsonRes, textRes } from "../utils";
 import { getAppToken } from "../utils";
 
@@ -121,7 +121,7 @@ export async function handlePrivateEvaluations(
   const appToken = await getAppToken(env);
 
   const res = await fetch(
-    `https://api.intra.42.fr/v2/users/${intraLogin}/scale_teams?filter[future]=true&sort=begin_at&page[size]=20`,
+    `https://api.intra.42.fr/v2/users/${intraLogin}/scale_teams/as_corrector?filter[future]=true&page[size]=20`,
     {
       headers: { Authorization: `Bearer ${appToken}` },
     },
@@ -129,22 +129,25 @@ export async function handlePrivateEvaluations(
 
   if (!res.ok) return textRes("Failed to fetch from 42 API", 502);
 
-  const scaleTeams = (await res.json()) as any[];
+  const scaleTeams = await res.json();
 
-  const evaluations = scaleTeams
-  .map((e: any) => {
-    const isEvaluated = e.correcteds?.some((c: any) => c.login === intraLogin);
-    return {
+  const evaluations: Evaluation[] = scaleTeams.map(
+    (e: any): Evaluation => ({
       id: e.id,
       begin_at: e.begin_at,
-      project_name: e.team?.project_session?.project?.name ?? "Unknown project",
-      user: isEvaluated
-        ? (e.corrector?.login ?? "unknown")
-        : (e.correcteds?.[0]?.login ?? "unknown"),
-      kind: isEvaluated ? "evaluated" : "evaluator",
-    };
-  })
-  .filter((e) => e.kind === "evaluator");
+      project_name:
+        e.team?.project_session?.project?.name ??
+        e.scale?.name ??
+        e.team?.project?.name ??
+        "Unknown project",
+      user: e.correcteds?.[0]?.login ?? "unknown",
+      kind: "evaluator",
+    }),
+  );
+
+  evaluations.sort(
+    (a, b) => new Date(a.begin_at).getTime() - new Date(b.begin_at).getTime(),
+  );
 
   return jsonRes({ evaluations });
 }

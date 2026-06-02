@@ -8,3 +8,11 @@ export type UserData = {
   sessionTokens?: string[];
   settings?: Record<string, any>;
 };
+
+export type Evaluation = {
+  id: number;
+  begin_at: string;
+  project_name: string;
+  user: string | null;
+  kind: "evaluator";
+};
