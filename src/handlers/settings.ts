@@ -120,16 +120,15 @@ export async function handlePrivateEvaluations(
 
   const appToken = await getAppToken(env);
 
-  // Forward any extra query params except internal ones (login, intra_login)
   const forwardParams = new URLSearchParams();
+  forwardParams.append("filter[future]", "true");
+
   for (const [k, v] of url.searchParams) {
     if (k === "login" || k === "intra_login") continue;
     forwardParams.append(k, v);
   }
 
-  const apiUrl =
-    `https://api.intra.42.fr/v2/users/${encodeURIComponent(intraLogin)}/scale_teams/as_corrector` +
-    (forwardParams.toString() ? `?${forwardParams.toString()}` : "");
+  const apiUrl = `https://api.intra.42.fr/v2/users/${encodeURIComponent(intraLogin)}/scale_teams/as_corrector?${forwardParams.toString()}`;
 
   const res = await fetch(apiUrl, {
     headers: { Authorization: `Bearer ${appToken}` },
@@ -142,10 +141,16 @@ export async function handlePrivateEvaluations(
     console.error("Unexpected 42 API response:", scaleTeams);
     return textRes("Unexpected API response", 502);
   }
+  const mapData = await env.BETTER_INTRA_KV.get("PROJECT_MAP");
+  const projectMap = mapData ? JSON.parse(mapData) : {};
 
   const evaluations: Evaluation[] = scaleTeams.map((e: any): Evaluation => {
+    const projectId = e.team?.project_id;
     const projectName =
-      e.team?.project_gitlab_path?.split("/").pop() || "Unknown project";
+      (projectId && projectMap[projectId]) ||
+      e.team?.project_gitlab_path?.split("/").pop() ||
+      e.scale?.name ||
+      "Unknown project";
     return {
       id: e.id,
       begin_at: e.begin_at,

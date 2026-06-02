@@ -5,7 +5,7 @@ import {
   handlePublicVisuals,
 } from "./handlers/settings";
 import { Env, UserData } from "./types";
-import { corsHeaders, textRes } from "./utils";
+import { corsHeaders, textRes, updateProjectMap, getAppToken } from "./utils";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -46,5 +46,9 @@ export default {
     }
 
     return textRes("Not found", 404);
+  },
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    const appToken = await getAppToken(env); 
+    ctx.waitUntil(updateProjectMap(env, appToken));
   },
 };

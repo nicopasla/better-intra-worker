@@ -1,3 +1,5 @@
+import { Env } from "./types";
+
 export const WORKER_CALLBACK_URL =
   "https://better-intra-worker.nicopasla.workers.dev/callback";
 
@@ -67,4 +69,36 @@ export async function getAppToken(env: {
   };
 
   return cachedAppToken.token;
+}
+
+export async function updateProjectMap(env: Env, appToken: string) {
+  let allProjects: any[] = [];
+  let page = 1;
+  let hasMore = true;
+
+  while (hasMore) {
+    const res = await fetch(
+      `https://api.intra.42.fr/v2/projects?per_page=100&page=${page}`,
+      {
+        headers: { Authorization: `Bearer ${appToken}` },
+      },
+    );
+
+    if (!res.ok) break;
+
+    const projects = (await res.json()) as any[];
+    if (projects.length === 0) {
+      hasMore = false;
+    } else {
+      allProjects = allProjects.concat(projects);
+      page++;
+    }
+  }
+
+  const map = allProjects.reduce((acc: Record<number, string>, p: any) => {
+    acc[p.id] = p.name;
+    return acc;
+  }, {});
+
+  await env.BETTER_INTRA_KV.put("PROJECT_MAP", JSON.stringify(map));
 }
