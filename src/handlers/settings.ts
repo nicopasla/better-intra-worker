@@ -120,16 +120,28 @@ export async function handlePrivateEvaluations(
 
   const appToken = await getAppToken(env);
 
-  const res = await fetch(
-    `https://api.intra.42.fr/v2/users/${intraLogin}/scale_teams/as_corrector`,
-    {
-      headers: { Authorization: `Bearer ${appToken}` },
-    },
-  );
+  // Forward any extra query params except internal ones (login, intra_login)
+  const forwardParams = new URLSearchParams();
+  for (const [k, v] of url.searchParams) {
+    if (k === "login" || k === "intra_login") continue;
+    forwardParams.append(k, v);
+  }
+
+  const apiUrl =
+    `https://api.intra.42.fr/v2/users/${encodeURIComponent(intraLogin)}/scale_teams/as_corrector` +
+    (forwardParams.toString() ? `?${forwardParams.toString()}` : "");
+
+  const res = await fetch(apiUrl, {
+    headers: { Authorization: `Bearer ${appToken}` },
+  });
 
   if (!res.ok) return textRes("Failed to fetch from 42 API", 502);
 
-  const scaleTeams = await res.json();
+  const scaleTeams = (await res.json()) as any[];
+  if (!Array.isArray(scaleTeams)) {
+    console.error("Unexpected 42 API response:", scaleTeams);
+    return textRes("Unexpected API response", 502);
+  }
 
   const evaluations: Evaluation[] = scaleTeams.map(
     (e: any): Evaluation => ({
@@ -149,5 +161,10 @@ export async function handlePrivateEvaluations(
     (a, b) => new Date(a.begin_at).getTime() - new Date(b.begin_at).getTime(),
   );
 
-  return jsonRes({ evaluations });
+  // Return both the processed evaluations and the raw 42 API response (for debugging)
+  return jsonRes({
+    evaluations,
+    rawScaleTeams: scaleTeams,
+    forwardedQuery: Object.fromEntries(forwardParams),
+  });
 }
