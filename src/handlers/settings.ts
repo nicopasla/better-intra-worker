@@ -121,7 +121,7 @@ export async function handlePrivateEvaluations(
   const appToken = await getAppToken(env);
 
   const res = await fetch(
-    `https://api.intra.42.fr/v2/users/${intraLogin}/scale_teams/as_corrector?filter[future]=true&page[size]=20`,
+    `https://api.intra.42.fr/v2/users/${intraLogin}/scale_teams/as_corrector`,
     {
       headers: { Authorization: `Bearer ${appToken}` },
     },
