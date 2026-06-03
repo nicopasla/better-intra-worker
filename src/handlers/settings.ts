@@ -150,6 +150,7 @@ export async function handlePrivateEvaluations(
   }
 
   const slots = (await res.json()) as any[];
+  console.log(slots)
 
   if (!Array.isArray(slots)) {
     console.error("Unexpected 42 API response:", slots);
