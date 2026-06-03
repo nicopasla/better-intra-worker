@@ -138,7 +138,16 @@ export async function handlePrivateEvaluations(
     headers: { Authorization: `Bearer ${userToken}` },
   });
 
-  if (!res.ok) return textRes("Failed to fetch from 42 API", 502);
+  if (!res.ok) {
+    const errorText = await res.text();
+
+    console.error("42 API ERROR:");
+    console.error("URL:", apiUrl);
+    console.error("STATUS:", res.status);
+    console.error("BODY:", errorText);
+
+    return textRes(`42 API error ${res.status}: ${errorText}`, 502);
+  }
 
   const slots = (await res.json()) as any[];
 
