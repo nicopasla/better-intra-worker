@@ -35,6 +35,16 @@ export async function handleFriendsData(
 
   if (logins.length === 0) return jsonRes({ friends: [] });
 
+  const CACHE_TTL = 60;
+  const cacheKey = `FRIENDS_DATA_${loginParam}`;
+  const cached = await env.BETTER_INTRA_KV.get<{ friends: any[]; ts: number }>(
+    cacheKey,
+    { type: "json" },
+  );
+  if (cached && Date.now() - cached.ts < CACHE_TTL * 1000) {
+    return jsonRes(cached);
+  }
+
   const intraToken = await getAppToken(env);
   if (!intraToken) {
     return textRes("Failed to get API token", 500);
@@ -78,5 +88,10 @@ export async function handleFriendsData(
     .map((r) => (r.status === "fulfilled" ? r.value : null))
     .filter(Boolean);
 
-  return jsonRes({ friends });
+  const payload = { friends, ts: Date.now() };
+  env.BETTER_INTRA_KV.put(cacheKey, JSON.stringify(payload), {
+    expirationTtl: CACHE_TTL,
+  });
+
+  return jsonRes(payload);
 }

@@ -40,6 +40,8 @@ export async function hashLogin(login: string): Promise<string> {
     .join("");
 }
 
+const pendingTokens = new WeakMap<Env, Promise<string>>();
+
 export async function getAppToken(env: Env): Promise<string> {
   const KV_KEY = "APP_TOKEN_CACHE";
   const cached = await env.BETTER_INTRA_KV.get<{
@@ -51,31 +53,42 @@ export async function getAppToken(env: Env): Promise<string> {
     return cached.token;
   }
 
-  const res = await fetch("https://api.intra.42.fr/oauth/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "client_credentials",
-      client_id: env.CLIENT_ID,
-      client_secret: env.CLIENT_SECRET,
-    }),
-  });
+  if (pendingTokens.has(env)) {
+    return pendingTokens.get(env)!;
+  }
 
-  if (!res.ok) throw new Error("Failed to get app token");
+  const promise = (async () => {
+    const res = await fetch("https://api.intra.42.fr/oauth/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: env.CLIENT_ID,
+        client_secret: env.CLIENT_SECRET,
+      }),
+    });
 
-  const data = (await res.json()) as any;
-  const expiresIn = (data.expires_in ?? 7200) - 60;
-  const expires = Date.now() + expiresIn * 1000;
+    if (!res.ok) throw new Error("Failed to get app token");
 
-  await env.BETTER_INTRA_KV.put(
-    KV_KEY,
-    JSON.stringify({ token: data.access_token, expires }),
-    {
-      expirationTtl: expiresIn,
-    },
-  );
+    const data = (await res.json()) as any;
+    const expiresIn = (data.expires_in ?? 7200) - 60;
+    const expires = Date.now() + expiresIn * 1000;
 
-  return data.access_token;
+    await env.BETTER_INTRA_KV.put(
+      KV_KEY,
+      JSON.stringify({ token: data.access_token, expires }),
+      { expirationTtl: expiresIn },
+    );
+
+    return data.access_token;
+  })();
+
+  pendingTokens.set(env, promise);
+  try {
+    return await promise;
+  } finally {
+    pendingTokens.delete(env);
+  }
 }
 
 export async function updateProjectMap(env: Env, appToken: string) {
