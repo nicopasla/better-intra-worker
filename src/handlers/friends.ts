@@ -61,7 +61,7 @@ export async function handleFriendsData(
       return {
         login: user.login,
         displayName: user.displayname ?? user.login,
-        avatar: user.image?.versions?.medium ?? user.image?.link ?? null,
+        avatar: user.image?.versions?.small ?? user.image?.link ?? null,
         level: main?.level ?? 0,
         grade: main?.grade ?? null,
         cursus: main?.cursus?.name ?? null,
