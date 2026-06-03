@@ -128,7 +128,7 @@ export async function handlePrivateEvaluations(
     forwardParams.append(k, v);
   }
 
-  const apiUrl = `https://api.intra.42.fr/v2/users/${encodeURIComponent(intraLogin)}/scale_teams/as_corrector`;
+  const apiUrl = `https://api.intra.42.fr/v2/users/${encodeURIComponent(intraLogin)}/scale_teams`;
 
   const res = await fetch(apiUrl, {
     headers: { Authorization: `Bearer ${appToken}` },
