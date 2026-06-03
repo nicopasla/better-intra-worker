@@ -5,21 +5,35 @@ import {
 } from "./handlers/settings";
 import { handleFriendsData } from "./handlers/friends";
 import { Env, UserData } from "./types";
-import { corsHeaders, textRes, updateProjectMap, getAppToken } from "./utils";
+import { isOriginAllowed, textRes, updateProjectMap, getAppToken } from "./utils";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    const origin = request.headers.get("Origin");
+
+    if (origin && !isOriginAllowed(origin)) {
+      return new Response("Origin not allowed", { status: 403 });
+    }
 
     if (request.method === "OPTIONS") {
-      return new Response(null, { headers: corsHeaders });
+      const acao = origin || "*";
+      return new Response(null, {
+        headers: {
+          "Access-Control-Allow-Origin": acao,
+          "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        },
+      });
     }
 
     if (url.pathname === "/login") {
+      if (request.method !== "GET") return textRes("Method not allowed", 405);
       return handleLogin(request, env);
     }
 
     if (url.pathname === "/callback") {
+      if (request.method !== "GET") return textRes("Method not allowed", 405);
       return handleCallback(request, env);
     }
 

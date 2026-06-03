@@ -1,5 +1,5 @@
 import { Env, UserData } from "../types";
-import { getAppToken, getTokens, jsonRes, textRes } from "../utils";
+import { getAppToken, getBearerToken, jsonRes, textRes, validateSession } from "../utils";
 
 const INTRA_API = "https://api.intra.42.fr/v2";
 
@@ -11,15 +11,12 @@ export async function handleFriendsData(
 ): Promise<Response> {
   if (request.method !== "GET") return textRes("Method not allowed", 405);
 
-  const authHeader = request.headers
-    .get("Authorization")
-    ?.replace("Bearer ", "");
+  const authHeader = getBearerToken(request);
   if (!authHeader) return textRes("Missing Authorization Token", 401);
 
   if (!existingData) return textRes("User not found", 404);
 
-  const tokensList = getTokens(existingData);
-  if (!tokensList.includes(authHeader)) {
+  if (!validateSession(existingData, authHeader)) {
     return textRes("Unauthorized: Invalid Session Token", 401);
   }
 
@@ -36,7 +33,10 @@ export async function handleFriendsData(
   if (logins.length === 0) return jsonRes({ friends: [] });
 
   const CACHE_TTL = 60;
-  const cacheKey = `FRIENDS_DATA_${loginParam}`;
+  const loginsHash = Array.from(new TextEncoder().encode(loginsParam))
+    .reduce((h, b) => ((h << 5) - h + b) | 0, 0)
+    .toString(36);
+  const cacheKey = `FRIENDS_DATA_${loginsHash}`;
   const cached = await env.BETTER_INTRA_KV.get<{ friends: any[]; ts: number }>(
     cacheKey,
     { type: "json" },
@@ -87,7 +87,7 @@ export async function handleFriendsData(
           correctionPoints: user.correction_point ?? 0,
         };
 
-        env.BETTER_INTRA_KV.put(userCacheKey, JSON.stringify({ data, ts: Date.now() }), { expirationTtl: 300 });
+        env.BETTER_INTRA_KV.put(userCacheKey, JSON.stringify({ data, ts: Date.now() }), { expirationTtl: 300 }).catch(() => {});
         return data;
       }
 
@@ -116,7 +116,7 @@ export async function handleFriendsData(
     .filter(Boolean);
 
   const payload = { friends, ts: Date.now() };
-  env.BETTER_INTRA_KV.put(cacheKey, JSON.stringify(payload), {
+  await env.BETTER_INTRA_KV.put(cacheKey, JSON.stringify(payload), {
     expirationTtl: CACHE_TTL,
   });
 

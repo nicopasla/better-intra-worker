@@ -2,6 +2,7 @@ export interface Env {
   BETTER_INTRA_KV: KVNamespace;
   CLIENT_ID: string;
   CLIENT_SECRET: string;
+  CALLBACK_URL?: string;
 }
 
 export type UserData = {

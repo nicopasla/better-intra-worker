@@ -1,5 +1,5 @@
 import { Env, UserData } from "../types";
-import { getTokens, hashLogin, textRes, WORKER_CALLBACK_URL } from "../utils";
+import { getTokens, hashLogin, textRes, getCallbackUrl } from "../utils";
 
 export async function handleLogin(
   request: Request,
@@ -9,21 +9,28 @@ export async function handleLogin(
   const extUri = url.searchParams.get("redirect_uri");
   if (!extUri) return textRes("Missing redirect_uri from extension", 400);
 
-  const isAllowedOrigin =
-    extUri.startsWith("chrome-extension://") ||
-    extUri.startsWith("moz-extension://") ||
-    extUri.startsWith("https://profile-v3.intra.42.fr") ||
-    new URL(extUri).hostname.endsWith(".42.fr");
+  let parsed: URL;
+  try { parsed = new URL(extUri); }
+  catch { return textRes("Invalid redirect_uri", 400); }
 
-  if (!isAllowedOrigin) {
+  const { hostname, protocol } = parsed;
+
+  const isExtension = protocol === "chrome-extension:" || protocol === "moz-extension:";
+  const parts = hostname.split(".");
+  const isIntra =
+    hostname === "profile-v3.intra.42.fr" ||
+    (hostname.endsWith(".42.fr") && (parts.length === 3 || parts.length === 4));
+
+  if (!isExtension && !isIntra) {
     return textRes("Invalid redirect_uri", 400);
   }
 
+  const cbUrl = getCallbackUrl(env);
   return Response.redirect(
     `https://api.intra.42.fr/oauth/authorize?client_id=${
       env.CLIENT_ID
     }&redirect_uri=${encodeURIComponent(
-      WORKER_CALLBACK_URL,
+      cbUrl,
     )}&response_type=code&scope=public&state=${encodeURIComponent(extUri)}`,
     302,
   );
@@ -38,13 +45,26 @@ export async function handleCallback(
   const extUri = url.searchParams.get("state");
   if (!code || !extUri) return textRes("Missing code or state", 400);
 
+  let redirectTarget: URL;
+  try { redirectTarget = new URL(extUri); }
+  catch { return textRes("Invalid state", 400); }
+
+  const { hostname: cbHostname, protocol: cbProtocol } = redirectTarget;
+  const cbParts = cbHostname.split(".");
+  const cbIsExtension = cbProtocol === "chrome-extension:" || cbProtocol === "moz-extension:";
+  const cbIsIntra = cbHostname === "profile-v3.intra.42.fr" || (cbHostname.endsWith(".42.fr") && (cbParts.length === 3 || cbParts.length === 4));
+  if (!cbIsExtension && !cbIsIntra) {
+    return textRes("Invalid state", 400);
+  }
+
   try {
+    const cbUrl = getCallbackUrl(env);
     const tokenParams = new URLSearchParams({
       grant_type: "authorization_code",
       client_id: env.CLIENT_ID,
       client_secret: env.CLIENT_SECRET,
       code,
-      redirect_uri: WORKER_CALLBACK_URL,
+      redirect_uri: cbUrl,
     });
 
     const tokenResponse = await fetch("https://api.intra.42.fr/oauth/token", {
@@ -52,6 +72,9 @@ export async function handleCallback(
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: tokenParams.toString(),
     });
+    if (!tokenResponse.ok) {
+      return textRes("42 OAuth token exchange failed", 502);
+    }
     const tokenData = (await tokenResponse.json()) as any;
     if (tokenData.error)
       return textRes(
@@ -62,6 +85,9 @@ export async function handleCallback(
     const userResponse = await fetch("https://api.intra.42.fr/v2/me", {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
+    if (!userResponse.ok) {
+      return textRes("Failed to fetch user info from 42", 502);
+    }
     const rawLogin = ((await userResponse.json()) as any).login;
     if (!rawLogin) return textRes("Invalid 42 session", 400);
 
@@ -89,9 +115,7 @@ export async function handleCallback(
       <!DOCTYPE html>
       <html lang="en"><head><meta charset="UTF-8"><title>Successful Authentication</title><style>body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f5f5f7; }</style></head>
       <body><div style="text-align: center; padding: 30px; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);"><h2>Login Successful!</h2><p>Transferring credentials...</p></div>
-      <script>if (window.opener) { window.opener.postMessage({ type: "42_AUTH_SUCCESS", token: "${newSessionToken}", login: "${rawLogin}" }, "${
-        new URL(extUri).origin
-      }"); }</script></body></html>
+      <script>if (window.opener) { window.opener.postMessage({ type: "42_AUTH_SUCCESS", token: "${newSessionToken}", login: "${rawLogin}" }, "${redirectTarget.origin}"); }</script></body></html>
     `,
       200,
       "text/html; charset=utf-8",

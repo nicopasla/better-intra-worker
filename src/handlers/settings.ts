@@ -1,5 +1,5 @@
 import { Env, UserData } from "../types";
-import { getTokens, jsonRes, textRes } from "../utils";
+import { getBearerToken, getTokens, jsonRes, textRes, validateSession } from "../utils";
 
 export async function handlePublicVisuals(
   request: Request,
@@ -39,37 +39,42 @@ export async function handlePrivateSettings(
   loginParam: string,
   existingData: UserData | null,
 ): Promise<Response> {
-  const authHeader = request.headers
-    .get("Authorization")
-    ?.replace("Bearer ", "");
+  const authHeader = getBearerToken(request);
   if (!authHeader) return textRes("Missing Authorization Token", 401);
 
-  const data = existingData || { settings: {} };
-  const tokensList = getTokens(data);
+  if (!existingData) return textRes("User not found", 404);
 
-  if (existingData && !tokensList.includes(authHeader)) {
+  if (!validateSession(existingData, authHeader)) {
     return textRes("Unauthorized: Invalid Session Token", 401);
   }
 
+  const tokensList = getTokens(existingData);
+
   if (request.method === "GET") {
     return jsonRes({
-      settings: data.settings || {},
+      settings: existingData.settings || {},
       activeSessions: tokensList.length,
     });
   }
 
   if (request.method === "POST") {
-    const body = (await request.json()) as any;
+    let body: any;
+    try { body = await request.json(); }
+    catch { return textRes("Invalid JSON body", 400); }
+
+    if (typeof body?.settings !== "object" || body.settings === null) {
+      return textRes("Invalid settings payload", 400);
+    }
+
     const settingsToSave = {
-      ...(data.settings || {}),
-      ...(body.settings || {}),
+      ...(existingData.settings || {}),
+      ...body.settings,
     };
-    const updatedTokens = tokensList.length > 0 ? tokensList : [authHeader];
 
     await env.BETTER_INTRA_KV.put(
       loginParam,
       JSON.stringify({
-        sessionTokens: updatedTokens,
+        sessionTokens: tokensList,
         settings: settingsToSave,
       }),
     );
@@ -86,7 +91,7 @@ export async function handlePrivateSettings(
       loginParam,
       JSON.stringify({
         sessionTokens: tokensList.filter((t) => t !== authHeader),
-        settings: data.settings || {},
+        settings: existingData.settings || {},
       }),
     );
     return textRes("Session removed");

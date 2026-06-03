@@ -1,7 +1,21 @@
 import { Env } from "./types";
 
-export const WORKER_CALLBACK_URL =
-  "https://better-intra-worker.nicopasla.workers.dev/callback";
+export function getCallbackUrl(env?: { CALLBACK_URL?: string }): string {
+  const base = env?.CALLBACK_URL?.replace(/\/+$/, "");
+  return base ? `${base}/callback` : "https://better-intra-worker.nicopasla.workers.dev/callback";
+}
+
+const ALLOWED_ORIGINS = [
+  "https://profile-v3.intra.42.fr",
+  "https://meta.intra.42.fr",
+];
+
+export function isOriginAllowed(origin: string): boolean {
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  if (origin.startsWith("chrome-extension://")) return true;
+  if (origin.startsWith("moz-extension://")) return true;
+  return false;
+}
 
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -24,6 +38,20 @@ export const textRes = (
     status,
     headers: { ...corsHeaders, "Content-Type": contentType },
   });
+
+export function getBearerToken(request: Request): string | null {
+  return request.headers
+    .get("Authorization")
+    ?.match(/^Bearer\s+(.+)$/i)?.[1] ?? null;
+}
+
+export function validateSession(
+  existingData: { sessionTokens?: string[]; sessionToken?: string },
+  token: string,
+): boolean {
+  const tokens = getTokens(existingData);
+  return tokens.includes(token);
+}
 
 export const getTokens = (data: any): string[] =>
   Array.isArray(data?.sessionTokens)
@@ -94,9 +122,8 @@ export async function getAppToken(env: Env): Promise<string> {
 export async function updateProjectMap(env: Env, appToken: string) {
   let allProjects: any[] = [];
   let page = 1;
-  let hasMore = true;
 
-  while (hasMore) {
+  while (true) {
     const res = await fetch(
       `https://api.intra.42.fr/v2/projects?per_page=100&page=${page}`,
       {
@@ -104,15 +131,13 @@ export async function updateProjectMap(env: Env, appToken: string) {
       },
     );
 
-    if (!res.ok) break;
+    if (!res.ok) return;
 
     const projects = (await res.json()) as any[];
-    if (projects.length === 0) {
-      hasMore = false;
-    } else {
-      allProjects = allProjects.concat(projects);
-      page++;
-    }
+    if (projects.length === 0) break;
+
+    allProjects = allProjects.concat(projects);
+    page++;
   }
 
   const map = allProjects.reduce((acc: Record<number, string>, p: any) => {
