@@ -40,14 +40,15 @@ export async function hashLogin(login: string): Promise<string> {
     .join("");
 }
 
-let cachedAppToken: { token: string; expires: number } | null = null;
+export async function getAppToken(env: Env): Promise<string> {
+  const KV_KEY = "APP_TOKEN_CACHE";
+  const cached = await env.BETTER_INTRA_KV.get<{
+    token: string;
+    expires: number;
+  }>(KV_KEY, { type: "json" });
 
-export async function getAppToken(env: {
-  CLIENT_ID: string;
-  CLIENT_SECRET: string;
-}): Promise<string> {
-  if (cachedAppToken && Date.now() < cachedAppToken.expires) {
-    return cachedAppToken.token;
+  if (cached && Date.now() < cached.expires) {
+    return cached.token;
   }
 
   const res = await fetch("https://api.intra.42.fr/oauth/token", {
@@ -63,12 +64,18 @@ export async function getAppToken(env: {
   if (!res.ok) throw new Error("Failed to get app token");
 
   const data = (await res.json()) as any;
-  cachedAppToken = {
-    token: data.access_token,
-    expires: Date.now() + (data.expires_in - 60) * 1000,
-  };
+  const expiresIn = (data.expires_in ?? 7200) - 60;
+  const expires = Date.now() + expiresIn * 1000;
 
-  return cachedAppToken.token;
+  await env.BETTER_INTRA_KV.put(
+    KV_KEY,
+    JSON.stringify({ token: data.access_token, expires }),
+    {
+      expirationTtl: expiresIn,
+    },
+  );
+
+  return data.access_token;
 }
 
 export async function updateProjectMap(env: Env, appToken: string) {
