@@ -50,39 +50,57 @@ export async function handleFriendsData(
     return textRes("Failed to get API token", 500);
   }
 
-  const results = await Promise.allSettled(
-    logins.map(async (login) => {
+  async function fetchUser(login: string, retries = 2): Promise<any> {
+    for (let attempt = 0; attempt <= retries; attempt++) {
       const res = await fetch(`${INTRA_API}/users/${login}`, {
         headers: { Authorization: `Bearer ${intraToken}` },
       });
 
-      if (!res.ok) return null;
+      if (res.ok) {
+        const user = (await res.json()) as any;
 
-      const user = (await res.json()) as any;
+        const cursusUsers: any[] = user.cursus_users ?? [];
+        const main =
+          cursusUsers.find((c: any) => c.cursus_id === 21) ??
+          cursusUsers[cursusUsers.length - 1] ??
+          null;
 
-      const cursusUsers: any[] = user.cursus_users ?? [];
-      const main =
-        cursusUsers.find((c: any) => c.cursus_id === 21) ??
-        cursusUsers[cursusUsers.length - 1] ??
-        null;
+        const lastSeen = user.location ?? null;
 
-      const lastSeen = user.location ?? null;
+        return {
+          login: user.login,
+          displayName: user.displayname ?? user.login,
+          avatar: user.image?.versions?.small ?? user.image?.link ?? null,
+          level: main?.level ?? 0,
+          grade: main?.grade ?? null,
+          cursus: main?.cursus?.name ?? null,
+          isOnline: user.location !== null,
+          lastSeen,
+          poolYear: user.pool_year ?? null,
+          wallet: user.wallet ?? 0,
+          correctionPoints: user.correction_point ?? 0,
+        };
+      }
 
-      return {
-        login: user.login,
-        displayName: user.displayname ?? user.login,
-        avatar: user.image?.versions?.small ?? user.image?.link ?? null,
-        level: main?.level ?? 0,
-        grade: main?.grade ?? null,
-        cursus: main?.cursus?.name ?? null,
-        isOnline: user.location !== null,
-        lastSeen,
-        poolYear: user.pool_year ?? null,
-        wallet: user.wallet ?? 0,
-        correctionPoints: user.correction_point ?? 0,
-      };
-    }),
-  );
+      if (res.status === 429 || res.status >= 500) {
+        if (attempt < retries) {
+          await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+          continue;
+        }
+      }
+
+      return null;
+    }
+    return null;
+  }
+
+  const results: any[] = [];
+  const CONCURRENCY = 2;
+  for (let i = 0; i < logins.length; i += CONCURRENCY) {
+    const batch = logins.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.allSettled(batch.map((login) => fetchUser(login)));
+    results.push(...batchResults);
+  }
 
   const friends = results
     .map((r) => (r.status === "fulfilled" ? r.value : null))
