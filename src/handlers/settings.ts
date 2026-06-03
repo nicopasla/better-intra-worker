@@ -149,8 +149,28 @@ export async function handlePrivateEvaluations(
     return textRes(`42 API error ${res.status}: ${errorText}`, 502);
   }
 
-  const slots = (await res.json()) as any[];
-  console.log(slots)
+  const rawBody = await res.text();
+
+  console.log("42 API REQUEST URL:", apiUrl);
+  console.log("42 API STATUS:", res.status);
+  console.log("42 API RAW RESPONSE:");
+  console.log(rawBody);
+
+  if (!res.ok) {
+    console.error("42 API ERROR RESPONSE BODY:", rawBody);
+    return textRes(`42 API error ${res.status}: ${rawBody}`, 502);
+  }
+
+  let slots: any;
+  try {
+    slots = JSON.parse(rawBody);
+  } catch (err) {
+    console.error("JSON parse error:", err);
+    console.error("Invalid JSON body:", rawBody);
+    return textRes("Invalid JSON from 42 API", 502);
+  }
+
+  console.log("42 API PARSED RESPONSE (slots):", slots);
 
   if (!Array.isArray(slots)) {
     console.error("Unexpected 42 API response:", slots);
