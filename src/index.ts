@@ -3,6 +3,7 @@ import {
   handlePrivateSettings,
   handlePublicVisuals,
 } from "./handlers/settings";
+import { handleFriendsData } from "./handlers/friends";
 import { Env, UserData } from "./types";
 import { corsHeaders, textRes, updateProjectMap, getAppToken } from "./utils";
 
@@ -40,10 +41,14 @@ export default {
       return handlePrivateSettings(request, env, loginParam, existingData);
     }
 
+    if (url.pathname === "/api/v1/private/friends/data") {
+      return handleFriendsData(request, env, loginParam, existingData);
+    }
+
     return textRes("Not found", 404);
   },
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    const appToken = await getAppToken(env); 
+    const appToken = await getAppToken(env);
     ctx.waitUntil(updateProjectMap(env, appToken));
   },
 };
