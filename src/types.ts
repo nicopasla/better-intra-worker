@@ -14,10 +14,3 @@ export type UserData = {
   };
 };
 
-export type Evaluation = {
-  id: number;
-  begin_at: string;
-  project_name: string;
-  user: string | null;
-  kind: "evaluator";
-};
