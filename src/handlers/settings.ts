@@ -129,51 +129,47 @@ export async function handlePrivateEvaluations(
     params.set(k, v);
   }
 
-  const apiUrl = `https://api.intra.42.fr/v2/users/${encodeURIComponent(intraLogin)}/scale_teams?${params.toString()}`;
+  const apiUrl = `https://api.intra.42.fr/v2/me/slots?${params.toString()}`;
   const res = await fetch(apiUrl, {
     headers: { Authorization: `Bearer ${appToken}` },
   });
 
   if (!res.ok) return textRes("Failed to fetch from 42 API", 502);
 
-  const scaleTeams = (await res.json()) as any[];
-  if (!Array.isArray(scaleTeams)) {
-    console.error("Unexpected 42 API response:", scaleTeams);
+  const slots = (await res.json()) as any[];
+
+  if (!Array.isArray(slots)) {
+    console.error("Unexpected 42 API response:", slots);
     return textRes("Unexpected API response", 502);
   }
+
   console.log("API URL:", apiUrl);
   console.log("future filter:", params.get("filter[future]"));
-  console.log("count:", scaleTeams.length);
+  console.log("count:", slots.length);
   console.log(
     "dates:",
-    scaleTeams.map((e) => e.begin_at),
+    slots.map((s) => s.begin_at),
   );
-  const mapData = await env.BETTER_INTRA_KV.get("PROJECT_MAP");
-  const projectMap = mapData ? JSON.parse(mapData) : {};
 
-  const evaluations: Evaluation[] = scaleTeams.map((e: any): Evaluation => {
-    const projectId = e.team?.project_id;
-    const projectName =
-      (projectId && projectMap[projectId]) ||
-      e.team?.project_gitlab_path?.split("/").pop() ||
-      e.scale?.name ||
-      "Unknown project";
-    return {
-      id: e.id,
-      begin_at: e.begin_at,
-      project_name: projectName,
-      user: e.correcteds?.[0]?.login ?? "unknown",
+  const evaluations: Evaluation[] = slots
+    .filter((slot) => slot.scale_team !== null)
+    .map((slot) => ({
+      id: slot.scale_team?.id ?? slot.id,
+      begin_at: slot.begin_at,
+      project_name:
+        slot.scale_team?.team?.project?.name ??
+        slot.scale_team?.name ??
+        "Unknown project",
+      user: slot.scale_team?.correcteds?.[0]?.login ?? "unknown",
       kind: "evaluator",
-    };
-  });
+    }));
 
   evaluations.sort(
     (a, b) => new Date(a.begin_at).getTime() - new Date(b.begin_at).getTime(),
   );
 
-  // Return both the processed evaluations and the raw 42 API response (for debugging)
   return jsonRes({
     evaluations,
-    rawScaleTeams: scaleTeams,
+    rawSlots: slots,
   });
 }
