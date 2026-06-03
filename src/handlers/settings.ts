@@ -120,16 +120,16 @@ export async function handlePrivateEvaluations(
 
   const appToken = await getAppToken(env);
 
-  const forwardParams = new URLSearchParams();
-  forwardParams.append("filter[future]", "true");
+  const params = new URLSearchParams();
+
+  params.set("filter[future]", "true");
 
   for (const [k, v] of url.searchParams) {
     if (k === "login" || k === "intra_login") continue;
-    forwardParams.append(k, v);
+    params.set(k, v);
   }
 
-  const apiUrl = `https://api.intra.42.fr/v2/users/${encodeURIComponent(intraLogin)}/scale_teams`;
-
+  const apiUrl = `https://api.intra.42.fr/v2/users/${encodeURIComponent(intraLogin)}/scale_teams?${params.toString()}`;
   const res = await fetch(apiUrl, {
     headers: { Authorization: `Bearer ${appToken}` },
   });
@@ -141,6 +141,13 @@ export async function handlePrivateEvaluations(
     console.error("Unexpected 42 API response:", scaleTeams);
     return textRes("Unexpected API response", 502);
   }
+  console.log("API URL:", apiUrl);
+  console.log("future filter:", params.get("filter[future]"));
+  console.log("count:", scaleTeams.length);
+  console.log(
+    "dates:",
+    scaleTeams.map((e) => e.begin_at),
+  );
   const mapData = await env.BETTER_INTRA_KV.get("PROJECT_MAP");
   const projectMap = mapData ? JSON.parse(mapData) : {};
 
@@ -168,6 +175,5 @@ export async function handlePrivateEvaluations(
   return jsonRes({
     evaluations,
     rawScaleTeams: scaleTeams,
-    forwardedQuery: Object.fromEntries(forwardParams),
   });
 }
