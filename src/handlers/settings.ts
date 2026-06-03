@@ -133,7 +133,7 @@ export async function handlePrivateEvaluations(
     params.set(k, v);
   }
 
-  const apiUrl = `https://api.intra.42.fr/v2/me`;
+  const apiUrl = `https://api.intra.42.fr/v2/me/slots`;
   const res = await fetch(apiUrl, {
     headers: { Authorization: `Bearer ${userToken}` },
   });
