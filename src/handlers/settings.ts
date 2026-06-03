@@ -118,11 +118,15 @@ export async function handlePrivateEvaluations(
   const intraLogin = url.searchParams.get("intra_login");
   if (!intraLogin) return textRes("Missing intra_login", 400);
 
-  const appToken = await getAppToken(env);
+  const userData = existingData;
+
+  if (!userData?.intra?.accessToken) {
+    return textRes("Missing 42 user token. Please re-login.", 401);
+  }
+
+  const userToken = userData.intra.accessToken;
 
   const params = new URLSearchParams();
-
-  params.set("filter[future]", "true");
 
   for (const [k, v] of url.searchParams) {
     if (k === "login" || k === "intra_login") continue;
@@ -131,7 +135,7 @@ export async function handlePrivateEvaluations(
 
   const apiUrl = `https://api.intra.42.fr/v2/me/slots?${params.toString()}`;
   const res = await fetch(apiUrl, {
-    headers: { Authorization: `Bearer ${appToken}` },
+    headers: { Authorization: `Bearer ${userToken}` },
   });
 
   if (!res.ok) return textRes("Failed to fetch from 42 API", 502);
@@ -144,7 +148,6 @@ export async function handlePrivateEvaluations(
   }
 
   console.log("API URL:", apiUrl);
-  console.log("future filter:", params.get("filter[future]"));
   console.log("count:", slots.length);
   console.log(
     "dates:",

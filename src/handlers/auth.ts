@@ -81,6 +81,11 @@ export async function handleCallback(
       JSON.stringify({
         sessionTokens: activeTokens,
         settings: existing.settings || {},
+        intra: {
+          accessToken: tokenData.access_token,
+          refreshToken: tokenData.refresh_token,
+          expiresAt: Date.now() + (tokenData.expires_in ?? 7200) * 1000,
+        },
       }),
     );
 

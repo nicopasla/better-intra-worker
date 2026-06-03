@@ -7,6 +7,11 @@ export interface Env {
 export type UserData = {
   sessionTokens?: string[];
   settings?: Record<string, any>;
+  intra?: {
+    accessToken: string;
+    refreshToken?: string;
+    expiresAt?: number;
+  };
 };
 
 export type Evaluation = {
