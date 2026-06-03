@@ -51,6 +51,12 @@ export async function handleFriendsData(
   }
 
   async function fetchUser(login: string, retries = 2): Promise<any> {
+    const userCacheKey = `FRIENDS_USER_${login}`;
+    const cached = await env.BETTER_INTRA_KV.get<{ data: any; ts: number }>(userCacheKey, { type: "json" });
+    if (cached && Date.now() - cached.ts < 300 * 1000) {
+      return cached.data;
+    }
+
     for (let attempt = 0; attempt <= retries; attempt++) {
       const res = await fetch(`${INTRA_API}/users/${login}`, {
         headers: { Authorization: `Bearer ${intraToken}` },
@@ -67,7 +73,7 @@ export async function handleFriendsData(
 
         const lastSeen = user.location ?? null;
 
-        return {
+        const data = {
           login: user.login,
           displayName: user.displayname ?? user.login,
           avatar: user.image?.versions?.small ?? user.image?.link ?? null,
@@ -80,6 +86,9 @@ export async function handleFriendsData(
           wallet: user.wallet ?? 0,
           correctionPoints: user.correction_point ?? 0,
         };
+
+        env.BETTER_INTRA_KV.put(userCacheKey, JSON.stringify({ data, ts: Date.now() }), { expirationTtl: 300 });
+        return data;
       }
 
       if (res.status === 429 || res.status >= 500) {
