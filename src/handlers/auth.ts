@@ -24,7 +24,7 @@ export async function handleLogin(
       env.CLIENT_ID
     }&redirect_uri=${encodeURIComponent(
       WORKER_CALLBACK_URL,
-    )}&response_type=code&scope=public%20projects&state=${encodeURIComponent(extUri)}`,
+    )}&response_type=code&scope=public%20projects%20profile&state=${encodeURIComponent(extUri)}`,
     302,
   );
 }
