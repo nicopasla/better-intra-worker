@@ -92,6 +92,9 @@ export async function handleFriendsData(
     if (!user?.login) continue;
 
     const lastSeen = user.location ?? null;
+    const poolLabel = user.pool_month && user.pool_year
+      ? `${String(new Date(`${user.pool_month} 1, 2000`).getMonth() + 1).padStart(2, "0")}/${user.pool_year}`
+      : null;
 
     friends.push({
       login: user.login,
@@ -99,10 +102,9 @@ export async function handleFriendsData(
       avatar: user.image?.versions?.small ?? user.image?.link ?? null,
       level: entry.level ?? 0,
       grade: entry.grade ?? null,
-      cursus: entry.cursus?.name ?? null,
       isOnline: user.location !== null,
       lastSeen,
-      poolYear: user.pool_year ?? null,
+      poolLabel,
       wallet: user.wallet ?? 0,
       correctionPoints: user.correction_point ?? 0,
     });
