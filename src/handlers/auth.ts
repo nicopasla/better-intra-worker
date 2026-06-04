@@ -110,6 +110,13 @@ export async function handleCallback(
       }),
     );
 
+    if (cbIsExtension) {
+      return Response.redirect(
+        `https://profile-v3.intra.42.fr/?token=${encodeURIComponent(newSessionToken)}&login=${encodeURIComponent(rawLogin)}`,
+        302,
+      );
+    }
+
     return textRes(
       `
       <!DOCTYPE html>
