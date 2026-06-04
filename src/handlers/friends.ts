@@ -1,7 +1,14 @@
 import { Env, UserData } from "../types";
-import { getAppToken, getBearerToken, jsonRes, textRes, validateSession } from "../utils";
+import {
+  getAppToken,
+  getBearerToken,
+  jsonRes,
+  textRes,
+  validateSession,
+} from "../utils";
 
 const INTRA_API = "https://api.intra.42.fr/v2";
+const PAGE_SIZE = 100;
 
 export async function handleFriendsData(
   request: Request,
@@ -13,9 +20,7 @@ export async function handleFriendsData(
 
   const authHeader = getBearerToken(request);
   if (!authHeader) return textRes("Missing Authorization Token", 401);
-
   if (!existingData) return textRes("User not found", 404);
-
   if (!validateSession(existingData, authHeader)) {
     return textRes("Unauthorized: Invalid Session Token", 401);
   }
@@ -24,101 +29,66 @@ export async function handleFriendsData(
   const loginsParam = url.searchParams.get("logins");
   if (!loginsParam) return jsonRes({ friends: [] });
 
-  const logins = loginsParam
-    .split(",")
-    .map((l) => l.trim().toLowerCase())
-    .filter(Boolean)
-    .slice(0, 50);
+  const logins = [
+    ...new Set(
+      loginsParam
+        .split(",")
+        .map((l) => l.trim().toLowerCase())
+        .filter(Boolean)
+        .slice(0, 50),
+    ),
+  ];
 
   if (logins.length === 0) return jsonRes({ friends: [] });
-
-  const CACHE_TTL = 60;
-  const loginsHash = Array.from(new TextEncoder().encode(loginsParam))
-    .reduce((h, b) => ((h << 5) - h + b) | 0, 0)
-    .toString(36);
-  const cacheKey = `FRIENDS_DATA_${loginsHash}`;
-  const cached = await env.BETTER_INTRA_KV.get<{ friends: any[]; ts: number }>(
-    cacheKey,
-    { type: "json" },
-  );
-  if (cached && Date.now() - cached.ts < CACHE_TTL * 1000) {
-    return jsonRes(cached);
-  }
 
   const intraToken = await getAppToken(env);
   if (!intraToken) {
     return textRes("Failed to get API token", 500);
   }
 
-  async function fetchUser(login: string, retries = 2): Promise<any> {
-    const userCacheKey = `FRIENDS_USER_${login}`;
-    const cached = await env.BETTER_INTRA_KV.get<{ data: any; ts: number }>(userCacheKey, { type: "json" });
-    if (cached && Date.now() - cached.ts < 300 * 1000) {
-      return cached.data;
-    }
+  const users = await fetchAllPages<any>(
+    `${INTRA_API}/users?filter[login]=${logins.join(",")}&page[size]=${PAGE_SIZE}`,
+    intraToken,
+  );
 
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      const res = await fetch(`${INTRA_API}/users/${login}`, {
-        headers: { Authorization: `Bearer ${intraToken}` },
-      });
+  const friends: any[] = [];
+  for (const user of users) {
+    if (!user?.login) continue;
 
-      if (res.ok) {
-        const user = (await res.json()) as any;
+    const lastSeen = user.location ?? null;
 
-        const cursusUsers: any[] = user.cursus_users ?? [];
-        const main =
-          cursusUsers.find((c: any) => c.cursus_id === 21) ??
-          cursusUsers[cursusUsers.length - 1] ??
-          null;
-
-        const lastSeen = user.location ?? null;
-
-        const data = {
-          login: user.login,
-          displayName: user.displayname ?? user.login,
-          avatar: user.image?.versions?.small ?? user.image?.link ?? null,
-          level: main?.level ?? 0,
-          grade: main?.grade ?? null,
-          cursus: main?.cursus?.name ?? null,
-          isOnline: user.location !== null,
-          lastSeen,
-          poolYear: user.pool_year ?? null,
-          wallet: user.wallet ?? 0,
-          correctionPoints: user.correction_point ?? 0,
-        };
-
-        env.BETTER_INTRA_KV.put(userCacheKey, JSON.stringify({ data, ts: Date.now() }), { expirationTtl: 300 }).catch(() => {});
-        return data;
-      }
-
-      if (res.status === 429 || res.status >= 500) {
-        if (attempt < retries) {
-          await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
-          continue;
-        }
-      }
-
-      return null;
-    }
-    return null;
+    friends.push({
+      login: user.login,
+      displayName: user.displayname ?? user.login,
+      avatar: user.image?.versions?.small ?? user.image?.link ?? null,
+      level: user.level ?? 0,
+      grade: user.grade ?? null,
+      cursus: user.cursus ?? null,
+      isOnline: user.location !== null,
+      lastSeen,
+      poolYear: user.pool_year ?? null,
+      wallet: user.wallet ?? 0,
+      correctionPoints: user.correction_point ?? 0,
+    });
   }
 
-  const results: any[] = [];
-  const CONCURRENCY = 2;
-  for (let i = 0; i < logins.length; i += CONCURRENCY) {
-    const batch = logins.slice(i, i + CONCURRENCY);
-    const batchResults = await Promise.allSettled(batch.map((login) => fetchUser(login)));
-    results.push(...batchResults);
+  return jsonRes({ friends });
+}
+
+async function fetchAllPages<T>(url: string, token: string): Promise<T[]> {
+  const results: T[] = [];
+  let page = 1;
+  while (true) {
+    const sep = url.includes("?") ? "&" : "?";
+    const res = await fetch(`${url}${sep}page[number]=${page}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) break;
+    const data = (await res.json()) as T[];
+    if (data.length === 0) break;
+    results.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    page++;
   }
-
-  const friends = results
-    .map((r) => (r.status === "fulfilled" ? r.value : null))
-    .filter(Boolean);
-
-  const payload = { friends, ts: Date.now() };
-  await env.BETTER_INTRA_KV.put(cacheKey, JSON.stringify(payload), {
-    expirationTtl: CACHE_TTL,
-  });
-
-  return jsonRes(payload);
+  return results;
 }
