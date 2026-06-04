@@ -9,6 +9,7 @@ import {
 
 const INTRA_API = "https://api.intra.42.fr/v2";
 const PAGE_SIZE = 100;
+const USER_IDS_KV_KEY = "FRIEND_USER_IDS";
 
 export async function handleFriendsData(
   request: Request,
@@ -46,13 +47,48 @@ export async function handleFriendsData(
     return textRes("Failed to get API token", 500);
   }
 
-  const users = await fetchAllPages<any>(
-    `${INTRA_API}/users?filter[login]=${logins.join(",")}&page[size]=${PAGE_SIZE}`,
+  const idMap =
+    (await env.BETTER_INTRA_KV.get<Record<string, number>>(USER_IDS_KV_KEY, {
+      type: "json",
+    })) ?? {};
+
+  const loginToId: Record<string, number> = {};
+  const unknownLogins: string[] = [];
+  for (const login of logins) {
+    if (typeof idMap[login] === "number") {
+      loginToId[login] = idMap[login];
+    } else {
+      unknownLogins.push(login);
+    }
+  }
+
+  if (unknownLogins.length > 0) {
+    const users = await fetchAllPages<any>(
+      `${INTRA_API}/users?filter[login]=${unknownLogins.join(",")}&page[size]=${PAGE_SIZE}`,
+      intraToken,
+    );
+    for (const u of users) {
+      if (u?.id && u?.login) {
+        loginToId[u.login] = u.id;
+        idMap[u.login] = u.id;
+      }
+    }
+    env.BETTER_INTRA_KV.put(USER_IDS_KV_KEY, JSON.stringify(idMap)).catch(
+      () => {},
+    );
+  }
+
+  const allIds = Object.values(loginToId);
+  if (allIds.length === 0) return jsonRes({ friends: [] });
+
+  const cursusUsers = await fetchAllPages<any>(
+    `${INTRA_API}/cursus_users?filter[user_id]=${allIds.join(",")}&filter[cursus_id]=21&page[size]=${PAGE_SIZE}`,
     intraToken,
   );
 
   const friends: any[] = [];
-  for (const user of users) {
+  for (const entry of cursusUsers) {
+    const user = entry?.user;
     if (!user?.login) continue;
 
     const lastSeen = user.location ?? null;
@@ -61,9 +97,9 @@ export async function handleFriendsData(
       login: user.login,
       displayName: user.displayname ?? user.login,
       avatar: user.image?.versions?.small ?? user.image?.link ?? null,
-      level: user.level ?? 0,
-      grade: user.grade ?? null,
-      cursus: user.cursus ?? null,
+      level: entry.level ?? 0,
+      grade: entry.grade ?? null,
+      cursus: entry.cursus?.name ?? null,
       isOnline: user.location !== null,
       lastSeen,
       poolYear: user.pool_year ?? null,
