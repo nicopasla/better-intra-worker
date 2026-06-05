@@ -87,9 +87,11 @@ export async function handleFriendsData(
   );
 
   const friends: any[] = [];
+  const friendLogins: string[] = [];
   for (const entry of cursusUsers) {
     const user = entry?.user;
     if (!user?.login) continue;
+    friendLogins.push(user.login);
 
     const lastSeen = user.location ?? null;
     const poolLabel = user.pool_month && user.pool_year
@@ -108,6 +110,37 @@ export async function handleFriendsData(
       wallet: user.wallet ?? 0,
       correctionPoints: user.correction_point ?? 0,
     });
+  }
+
+  const statsResults = await Promise.allSettled(
+    friendLogins.map((l) =>
+      fetch(`${INTRA_API}/users/${l}/locations_stats`, {
+        headers: { Authorization: `Bearer ${intraToken}` },
+      }).then((r) => r.ok ? r.json() : null),
+    ),
+  );
+
+  const friendMap = new Map(friends.map((f) => [f.login, f]));
+  for (let i = 0; i < friendLogins.length; i++) {
+    const stat = statsResults[i];
+    if (stat.status !== "fulfilled" || !stat.value) continue;
+    const friend = friendMap.get(friendLogins[i]);
+    if (!friend) continue;
+
+    const entries = Object.entries(stat.value as Record<string, string>);
+    let totalSeconds = 0;
+    let lastActiveDate: string | null = null;
+    for (const [date, duration] of entries) {
+      const [h, m, s] = duration.split(":").map(Number);
+      totalSeconds += h * 3600 + m * 60 + s;
+      if (!lastActiveDate || date > lastActiveDate) lastActiveDate = date;
+    }
+
+    friend.logtime = {
+      totalHours: Math.round((totalSeconds / 3600) * 100) / 100,
+      lastActiveDate,
+      dailyStats: stat.value,
+    };
   }
 
   return jsonRes({ friends });
