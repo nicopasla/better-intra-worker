@@ -121,8 +121,9 @@ async function fetchAllPages<T>(url: string, token: string): Promise<T[]> {
     const res = await fetch(`${url}${sep}page[number]=${page}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    const headers = [...res.headers.entries()].map(h => `${h[0]}: ${h[1]}`).join(", ");
-    console.log(`[42 API] ${url} page=${page} status=${res.status} headers=${headers}`);
+    const hourly = res.headers.get("x-hourly-ratelimit-remaining") ?? "?";
+    const secondly = res.headers.get("x-secondly-ratelimit-remaining") ?? "?";
+    console.log(`[42 API] page=${page} status=${res.status} hourly=${hourly} secondly=${secondly}`);
     if (!res.ok) break;
     const data = (await res.json()) as T[];
     if (data.length === 0) break;
