@@ -1,7 +1,7 @@
 import { Env, UserData } from "../types";
 import {
-  getAppToken,
   getBearerToken,
+  getUserToken,
   jsonRes,
   textRes,
   validateSession,
@@ -42,7 +42,7 @@ export async function handleFriendsData(
 
   if (logins.length === 0) return jsonRes({ friends: [] });
 
-  const intraToken = await getAppToken(env);
+  const intraToken = await getUserToken(env, existingData, loginParam);
   if (!intraToken) {
     return textRes("Failed to get API token", 500);
   }

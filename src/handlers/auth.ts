@@ -1,5 +1,5 @@
 import { Env, UserData } from "../types";
-import { getTokens, hashLogin, textRes, getCallbackUrl } from "../utils";
+import { encryptTokenData, getTokens, hashLogin, textRes, getCallbackUrl } from "../utils";
 
 export async function handleLogin(
   request: Request,
@@ -102,11 +102,18 @@ export async function handleCallback(
     activeTokens.push(newSessionToken);
     if (activeTokens.length > 10) activeTokens.shift();
 
+    const encryptedTokens = await encryptTokenData(env, {
+      access_token: tokenData.access_token,
+      refresh_token: tokenData.refresh_token ?? "",
+      expires_at: Date.now() + ((tokenData.expires_in ?? 7200) * 1000),
+    });
+
     await env.BETTER_INTRA_KV.put(
       hashedLogin,
       JSON.stringify({
         sessionTokens: activeTokens,
         settings: existing.settings || {},
+        fortyTwoToken: encryptedTokens,
       }),
     );
 
