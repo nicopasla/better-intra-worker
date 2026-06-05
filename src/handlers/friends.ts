@@ -1,5 +1,7 @@
 import { Env, UserData } from "../types";
 import {
+  decryptTokenData,
+  encryptTokenData,
   getBearerToken,
   getUserToken,
   jsonRes,
@@ -88,10 +90,15 @@ export async function handleFriendsData(
 
   const friends: any[] = [];
   const now = Date.now();
-  const onlineCache =
-    (await env.BETTER_INTRA_KV.get<Record<string, { location: string; seenAt: number }>>(
-      "ONLINE_CACHE", { type: "json" },
-    )) ?? {};
+  const rawCache = await env.BETTER_INTRA_KV.get("ONLINE_CACHE");
+  let onlineCache: Record<string, { location: string; seenAt: number }> = {};
+  if (rawCache) {
+    try {
+      onlineCache = await decryptTokenData(env, rawCache);
+    } catch {
+      onlineCache = {};
+    }
+  }
   let cacheDirty = false;
 
   for (const entry of cursusUsers) {
@@ -127,7 +134,8 @@ export async function handleFriendsData(
   }
 
   if (cacheDirty) {
-    await env.BETTER_INTRA_KV.put("ONLINE_CACHE", JSON.stringify(onlineCache));
+    const encrypted = await encryptTokenData(env, onlineCache);
+    await env.BETTER_INTRA_KV.put("ONLINE_CACHE", encrypted);
   }
 
   return jsonRes({ friends });
