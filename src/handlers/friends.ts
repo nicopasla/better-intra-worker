@@ -127,7 +127,7 @@ export async function handleFriendsData(
   }
 
   if (cacheDirty) {
-    env.BETTER_INTRA_KV.put("ONLINE_CACHE", JSON.stringify(onlineCache)).catch(() => {});
+    await env.BETTER_INTRA_KV.put("ONLINE_CACHE", JSON.stringify(onlineCache));
   }
 
   return jsonRes({ friends });
