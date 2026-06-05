@@ -121,6 +121,8 @@ async function fetchAllPages<T>(url: string, token: string): Promise<T[]> {
     const res = await fetch(`${url}${sep}page[number]=${page}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+    const remaining = res.headers.get("X-RateLimit-Remaining") ?? "?";
+    console.log(`[42 API] ${url} page=${page} status=${res.status} rate_limit_remaining=${remaining}`);
     if (!res.ok) break;
     const data = (await res.json()) as T[];
     if (data.length === 0) break;
