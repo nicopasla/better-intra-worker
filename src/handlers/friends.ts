@@ -87,27 +87,47 @@ export async function handleFriendsData(
   );
 
   const friends: any[] = [];
+  const now = Date.now();
+  const onlineCache =
+    (await env.BETTER_INTRA_KV.get<Record<string, { location: string; seenAt: number }>>(
+      "ONLINE_CACHE", { type: "json" },
+    )) ?? {};
+  let cacheDirty = false;
+
   for (const entry of cursusUsers) {
     const user = entry?.user;
     if (!user?.login) continue;
 
+    const isOnline = user.location !== null;
     const lastSeen = user.location ?? null;
+
+    if (isOnline) {
+      onlineCache[user.login] = { location: user.location, seenAt: now };
+      cacheDirty = true;
+    }
+
     const poolLabel = user.pool_month && user.pool_year
       ? `${String(new Date(`${user.pool_month} 1, 2000`).getMonth() + 1).padStart(2, "0")}/${user.pool_year}`
       : null;
 
+    const cached = onlineCache[user.login];
     friends.push({
       login: user.login,
       displayName: user.displayname ?? user.login,
       avatar: user.image?.versions?.small ?? user.image?.link ?? null,
       level: entry.level ?? 0,
       grade: entry.grade ?? null,
-      isOnline: user.location !== null,
+      isOnline,
       lastSeen,
       poolLabel,
       wallet: user.wallet ?? 0,
       correctionPoints: user.correction_point ?? 0,
+      lastOnlineTimestamp: cached?.seenAt ?? null,
     });
+  }
+
+  if (cacheDirty) {
+    env.BETTER_INTRA_KV.put("ONLINE_CACHE", JSON.stringify(onlineCache)).catch(() => {});
   }
 
   return jsonRes({ friends });
