@@ -112,34 +112,84 @@ export async function handleFriendsData(
     });
   }
 
-  const statsResults = await Promise.allSettled(
-    friendLogins.map((l) =>
-      fetch(`${INTRA_API}/users/${l}/locations_stats`, {
+  console.log(`[friends] fetching locations_stats for ${friendLogins.length} users`);
+  const LOGTIME_CACHE_KEY = "LOGTIME_CACHE";
+  const LOGTIME_CACHE_TTL = 3600;
+  const cachedBundle =
+    await env.BETTER_INTRA_KV.get<Record<string, any> & { _ts: number }>(
+      LOGTIME_CACHE_KEY,
+      { type: "json" },
+    );
+  const cacheValid =
+    cachedBundle && Date.now() - cachedBundle._ts < LOGTIME_CACHE_TTL * 1000;
+
+  const statsResults: any[] = [];
+  const fetchLogins: string[] = [];
+  for (const l of friendLogins) {
+    if (cacheValid && cachedBundle[l]) {
+      statsResults.push(cachedBundle[l]);
+    } else {
+      statsResults.push(null);
+      fetchLogins.push(l);
+    }
+  }
+
+  for (let i = 0; i < friendLogins.length; i++) {
+    if (statsResults[i]) continue;
+    if (i > 0) await new Promise((r) => setTimeout(r, 350));
+    try {
+      const res = await fetch(`${INTRA_API}/users/${friendLogins[i]}/locations_stats`, {
         headers: { Authorization: `Bearer ${intraToken}` },
-      }).then((r) => r.ok ? r.json() : null),
-    ),
-  );
+      });
+      const hourly = res.headers.get("x-hourly-ratelimit-remaining") ?? "?";
+      console.log(`[42 API] locations_stats/${friendLogins[i]} status=${res.status} hourly=${hourly}`);
+      if (res.ok) statsResults[i] = await res.json();
+    } catch {
+      // stays null
+    }
+  }
+
+  // Update cache bundle if any were fetched
+  if (fetchLogins.length > 0 && cacheValid) {
+    for (let i = 0; i < friendLogins.length; i++) {
+      if (statsResults[i]) cachedBundle[friendLogins[i]] = statsResults[i];
+    }
+    cachedBundle._ts = Date.now();
+    env.BETTER_INTRA_KV.put(LOGTIME_CACHE_KEY, JSON.stringify(cachedBundle), {
+      expirationTtl: LOGTIME_CACHE_TTL,
+    }).catch(() => {});
+  } else if (fetchLogins.length > 0) {
+    const bundle: Record<string, any> = { _ts: Date.now() };
+    for (let i = 0; i < friendLogins.length; i++) {
+      if (statsResults[i]) bundle[friendLogins[i]] = statsResults[i];
+    }
+    env.BETTER_INTRA_KV.put(LOGTIME_CACHE_KEY, JSON.stringify(bundle), {
+      expirationTtl: LOGTIME_CACHE_TTL,
+    }).catch(() => {});
+  }
+  const statsOk = statsResults.filter(Boolean).length;
+  console.log(`[friends] locations_stats ok=${statsOk} total=${friendLogins.length} cached=${friendLogins.length - fetchLogins.length}`);
 
   const friendMap = new Map(friends.map((f) => [f.login, f]));
   for (let i = 0; i < friendLogins.length; i++) {
     const stat = statsResults[i];
-    if (stat.status !== "fulfilled" || !stat.value) continue;
+    if (!stat) continue;
     const friend = friendMap.get(friendLogins[i]);
     if (!friend) continue;
 
-    const entries = Object.entries(stat.value as Record<string, string>);
+    const entries = Object.entries(stat as Record<string, string>);
     let totalSeconds = 0;
     let lastActiveDate: string | null = null;
     for (const [date, duration] of entries) {
       const [h, m, s] = duration.split(":").map(Number);
-      totalSeconds += h * 3600 + m * 60 + s;
+      totalSeconds += h * 3600 + m * 60 + (isNaN(s) ? 0 : s);
       if (!lastActiveDate || date > lastActiveDate) lastActiveDate = date;
     }
 
     friend.logtime = {
       totalHours: Math.round((totalSeconds / 3600) * 100) / 100,
       lastActiveDate,
-      dailyStats: stat.value,
+      dailyStats: stat,
     };
   }
 
