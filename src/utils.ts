@@ -210,7 +210,10 @@ export async function getUserToken(
   userData: UserData | null,
   loginParam: string,
 ): Promise<string> {
-  if (!userData?.fortyTwoToken) return getAppToken(env);
+  if (!userData?.fortyTwoToken) {
+    console.log(`[getUserToken] ${loginParam}: no fortyTwoToken, using app token`);
+    return getAppToken(env);
+  }
 
   let tokenData: {
     access_token: string;
@@ -220,15 +223,18 @@ export async function getUserToken(
   try {
     tokenData = await decryptTokenData(env, userData.fortyTwoToken);
   } catch {
+    console.log(`[getUserToken] ${loginParam}: decryption failed, using app token`);
     return getAppToken(env);
   }
 
   if (Date.now() < tokenData.expires_at - 60000) {
+    console.log(`[getUserToken] ${loginParam}: using cached user token`);
     return tokenData.access_token;
   }
 
   if (tokenData.refresh_token) {
     try {
+      console.log(`[getUserToken] ${loginParam}: refreshing user token`);
       const res = await fetch("https://api.intra.42.fr/oauth/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -250,11 +256,16 @@ export async function getUserToken(
         const encrypted = await encryptTokenData(env, newTokenData);
         userData.fortyTwoToken = encrypted;
         await env.BETTER_INTRA_KV.put(loginParam, JSON.stringify(userData));
+        console.log(`[getUserToken] ${loginParam}: refreshed and stored new user token`);
         return data.access_token;
       }
+
+      console.log(`[getUserToken] ${loginParam}: refresh failed (${res.status}), using app token`);
     } catch {
-      // fall through to app token
+      console.log(`[getUserToken] ${loginParam}: refresh error, using app token`);
     }
+  } else {
+    console.log(`[getUserToken] ${loginParam}: no refresh_token, using app token`);
   }
 
   return getAppToken(env);
