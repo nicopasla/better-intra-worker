@@ -134,7 +134,8 @@ export async function handleCallback(
       200,
       "text/html; charset=utf-8",
     );
-  } catch {
-    return textRes("Auth Server Error", 500);
+  } catch (e) {
+    console.error("Auth callback error:", e);
+    return textRes(`Auth Server Error: ${e instanceof Error ? e.message : String(e)}`, 500);
   }
 }
