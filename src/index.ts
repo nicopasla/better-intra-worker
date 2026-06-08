@@ -4,6 +4,7 @@ import {
   handlePublicVisuals,
 } from "./handlers/settings";
 import { handleFriendsData } from "./handlers/friends";
+import { handleProxy } from "./handlers/proxy";
 import { Env, UserData } from "./types";
 import { isOriginAllowed, textRes, updateProjectMap, getAppToken } from "./utils";
 
@@ -57,6 +58,10 @@ export default {
 
     if (url.pathname === "/api/v1/private/friends/data") {
       return handleFriendsData(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/proxy") {
+      return handleProxy(request, env, loginParam, existingData);
     }
 
     return textRes("Not found", 404);
