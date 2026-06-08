@@ -76,6 +76,7 @@ export async function handlePrivateSettings(
       JSON.stringify({
         sessionTokens: tokensList,
         settings: settingsToSave,
+        fortyTwoToken: existingData.fortyTwoToken,
       }),
     );
     return textRes("Saved");
@@ -92,6 +93,7 @@ export async function handlePrivateSettings(
       JSON.stringify({
         sessionTokens: tokensList.filter((t) => t !== authHeader),
         settings: existingData.settings || {},
+        fortyTwoToken: existingData.fortyTwoToken,
       }),
     );
     return textRes("Session removed");
