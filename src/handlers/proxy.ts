@@ -24,7 +24,9 @@ export async function handleProxy(
     return textRes("Only GET is supported", 405);
   }
 
+  const hasUserToken = !!existingData?.fortyTwoToken;
   const fortyTwoToken = await getUserToken(env, existingData, loginParam);
+  const tokenPrefix = fortyTwoToken.substring(0, 8);
 
   const apiUrl = new URL(`${API_BASE}${path}`);
   url.searchParams.forEach((value, key) => {
@@ -46,6 +48,9 @@ export async function handleProxy(
   const responseHeaders: Record<string, string> = {
     ...corsHeaders,
     "Content-Type": apiRes.headers.get("content-type") || "application/json",
+    "x-proxy-has-user-token": String(hasUserToken),
+    "x-proxy-token-prefix": tokenPrefix,
+    "x-proxy-api-status": String(apiRes.status),
   };
 
   for (const name of [
