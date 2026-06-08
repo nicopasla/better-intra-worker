@@ -10,10 +10,9 @@ export async function handleProxy(
   existingData: UserData | null,
 ): Promise<Response> {
   const token = getBearerToken(request);
-  if (!token) return textRes("Unauthorized", 401);
-  if (!existingData || !validateSession(existingData, token)) {
-    return textRes("Unauthorized", 401);
-  }
+  if (!token) return textRes("Missing Authorization header", 401);
+  if (!existingData) return textRes("User not found in KV", 401);
+  if (!validateSession(existingData, token)) return textRes("Invalid session token", 401);
 
   const url = new URL(request.url);
   const path = url.searchParams.get("path");
