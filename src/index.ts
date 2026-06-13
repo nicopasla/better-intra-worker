@@ -6,7 +6,7 @@ import {
 import { handleFriendsData } from "./handlers/friends";
 import { handleProxy } from "./handlers/proxy";
 import { handleEvaluations } from "./handlers/evaluations";
-import { handleDiscordLink, handleDiscordUnlink } from "./handlers/discord";
+import { handleDiscordLink, handleDiscordUnlink, handleDiscordTest } from "./handlers/discord";
 import { handleCron } from "./handlers/cron";
 import { Env, UserData } from "./types";
 import { isOriginAllowed, textRes } from "./utils";
@@ -39,6 +39,10 @@ export default {
     if (url.pathname === "/callback") {
       if (request.method !== "GET") return textRes("Method not allowed", 405);
       return handleCallback(request, env);
+    }
+
+    if (url.pathname === "/api/v1/private/discord/test") {
+      return handleDiscordTest(request, env);
     }
 
     const loginParam = url.searchParams.get("login");

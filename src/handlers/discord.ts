@@ -1,5 +1,5 @@
 import { Env } from "../types";
-import { getBearerToken, jsonRes, textRes, validateSession } from "../utils";
+import { getBearerToken, hashLogin, jsonRes, textRes, validateSession } from "../utils";
 
 export async function handleDiscordLink(
   request: Request,
@@ -59,6 +59,45 @@ export async function handleDiscordUnlink(
   }
 
   return jsonRes({ unlinked: true });
+}
+
+export async function handleDiscordTest(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  if (request.method !== "POST") return textRes("Method not allowed", 405);
+
+  const authHeader = getBearerToken(request);
+  if (!authHeader) return textRes("Missing Authorization Token", 401);
+
+  let body: any;
+  try { body = await request.json(); } catch { return textRes("Invalid JSON body", 400); }
+  const rawLogin = String(body?.login || "").trim();
+  if (!rawLogin) return textRes("Missing login", 400);
+
+  const loginParam = await hashLogin(rawLogin);
+  const existingData = await env.BETTER_INTRA_KV.get<any>(loginParam, { type: "json" });
+  if (!existingData) return textRes("User not found", 404);
+  if (!validateSession(existingData, authHeader)) {
+    return textRes("Unauthorized: Invalid Session Token", 401);
+  }
+
+  const discordId: string | undefined = existingData.discordId;
+  if (!discordId) {
+    return textRes("No Discord linked. Set your Discord User ID first.", 400);
+  }
+
+  const embed: DiscordEmbed = {
+    title: "Test Notification",
+    color: 0x57F287,
+    fields: [
+      { name: "42 Login", value: rawLogin, inline: true },
+      { name: "Status", value: "Discord notifications working!", inline: false },
+    ],
+  };
+
+  await sendDiscordDm(discordId, embed, env);
+  return jsonRes({ sent: true });
 }
 
 export async function sendDiscordDm(
