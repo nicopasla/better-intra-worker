@@ -86,7 +86,7 @@ export async function handleDiscordTest(
     return textRes("Discord bot not configured on the server. Contact admin.", 500);
   }
 
-  const discordId: string | undefined = existingData.discordId;
+  const discordId = existingData.discordId || String(body?.discordId || "").trim();
   if (!discordId) {
     return textRes("No Discord linked. Set your Discord User ID first.", 400);
   }
