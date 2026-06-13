@@ -82,6 +82,10 @@ export async function handleDiscordTest(
     return textRes("Unauthorized: Invalid Session Token", 401);
   }
 
+  if (!env.DISCORD_BOT_TOKEN) {
+    return textRes("Discord bot not configured on the server. Contact admin.", 500);
+  }
+
   const discordId: string | undefined = existingData.discordId;
   if (!discordId) {
     return textRes("No Discord linked. Set your Discord User ID first.", 400);
@@ -96,7 +100,11 @@ export async function handleDiscordTest(
     ],
   };
 
-  await sendDiscordDm(discordId, embed, env);
+  const result = await sendDiscordDm(discordId, embed, env);
+  if (!result.ok) {
+    return textRes(`Discord API error (${result.status}): ${result.body}`, 502);
+  }
+
   return jsonRes({ sent: true });
 }
 
@@ -104,32 +112,54 @@ export async function sendDiscordDm(
   discordId: string,
   embed: DiscordEmbed,
   env: Env,
-): Promise<void> {
+): Promise<{ ok: boolean; status?: number; body?: string }> {
   const botToken = env.DISCORD_BOT_TOKEN;
-  if (!botToken) return;
+  if (!botToken) return { ok: false, body: "DISCORD_BOT_TOKEN not set" };
 
-  const channelRes = await fetch("https://discord.com/api/v10/users/@me/channels", {
-    method: "POST",
-    headers: {
-      Authorization: `Bot ${botToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ recipient_id: discordId }),
-  });
+  let channelRes: Response;
+  try {
+    channelRes = await fetch("https://discord.com/api/v10/users/@me/channels", {
+      method: "POST",
+      headers: {
+        Authorization: `Bot ${botToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ recipient_id: discordId }),
+    });
+  } catch {
+    return { ok: false, body: "Network error creating DM channel" };
+  }
 
-  if (!channelRes.ok) return;
-  const channel = (await channelRes.json()) as any;
+  if (!channelRes.ok) {
+    const err = await channelRes.text().catch(() => "Unknown");
+    return { ok: false, status: channelRes.status, body: err };
+  }
+
+  let channel: any;
+  try { channel = await channelRes.json(); } catch { return { ok: false, body: "Invalid channel response" }; }
   const channelId = channel.id;
-  if (!channelId) return;
+  if (!channelId) return { ok: false, body: "No channel id in response" };
 
-  await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bot ${botToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ embeds: [embed] }),
-  });
+  let msgRes: Response;
+  try {
+    msgRes = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bot ${botToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ embeds: [embed] }),
+    });
+  } catch {
+    return { ok: false, body: "Network error sending message" };
+  }
+
+  if (!msgRes.ok) {
+    const err = await msgRes.text().catch(() => "Unknown");
+    return { ok: false, status: msgRes.status, body: err };
+  }
+
+  return { ok: true };
 }
 
 export interface DiscordEmbed {
