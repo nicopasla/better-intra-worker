@@ -20,11 +20,26 @@ export async function handleEvaluations(
   const action = url.searchParams.get("action") || "";
 
   if (action === "pending") {
-    const pendingKey = `PENDING_${loginParam}`;
-    const pending: any[] =
-      (await env.EVAL_KV.get(pendingKey, { type: "json" })) ?? [];
-    await env.EVAL_KV.delete(pendingKey);
-    return jsonRes({ notifications: pending });
+    const prefix = `PENDING_${loginParam}_`;
+    const list = await env.EVAL_KV.list({ prefix });
+
+    const notifications: any[] = [];
+    for (const key of list.keys) {
+      const notif = await env.EVAL_KV.get<any>(key.name, { type: "json" });
+      if (notif) notifications.push(notif);
+      await env.EVAL_KV.delete(key.name);
+    }
+
+    // Also handle legacy array-format PENDING key (without suffix)
+    const legacyKey = `PENDING_${loginParam}`;
+    const legacy: any[] =
+      (await env.EVAL_KV.get<any[]>(legacyKey, { type: "json" })) ?? [];
+    if (legacy.length > 0) {
+      notifications.push(...legacy);
+      await env.EVAL_KV.delete(legacyKey);
+    }
+
+    return jsonRes({ notifications });
   }
 
   if (action === "register") {
