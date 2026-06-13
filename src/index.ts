@@ -6,8 +6,10 @@ import {
 import { handleFriendsData } from "./handlers/friends";
 import { handleProxy } from "./handlers/proxy";
 import { handleEvaluations } from "./handlers/evaluations";
+import { handleDiscordLink, handleDiscordUnlink } from "./handlers/discord";
+import { handleCron } from "./handlers/cron";
 import { Env, UserData } from "./types";
-import { isOriginAllowed, textRes, updateProjectMap, getAppToken } from "./utils";
+import { isOriginAllowed, textRes } from "./utils";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -69,10 +71,19 @@ export default {
       return handleEvaluations(request, env, loginParam, existingData);
     }
 
+    if (url.pathname === "/api/v1/private/discord/link") {
+      return handleDiscordLink(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/discord/unlink") {
+      return handleDiscordUnlink(request, env, loginParam, existingData);
+    }
+
     return textRes("Not found", 404);
   },
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    const appToken = await getAppToken(env);
-    ctx.waitUntil(updateProjectMap(env, appToken));
+    if (event.cron === "*/5 * * * *") {
+      await handleCron(env, ctx);
+    }
   },
 };
