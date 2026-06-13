@@ -43,23 +43,12 @@ export async function handleEvaluations(
   }
 
   if (action === "register") {
-    const hashes: string[] =
-      (await env.EVAL_KV.get("EVAL_ENABLED_HASHES", { type: "json" })) ?? [];
-    if (!hashes.includes(loginParam)) {
-      hashes.push(loginParam);
-      await env.EVAL_KV.put("EVAL_ENABLED_HASHES", JSON.stringify(hashes));
-    }
+    await env.EVAL_KV.put(`EVAL_REG_${loginParam}`, "1");
     return jsonRes({ registered: true });
   }
 
   if (action === "unregister") {
-    const hashes: string[] =
-      (await env.EVAL_KV.get("EVAL_ENABLED_HASHES", { type: "json" })) ?? [];
-    const idx = hashes.indexOf(loginParam);
-    if (idx !== -1) {
-      hashes.splice(idx, 1);
-      await env.EVAL_KV.put("EVAL_ENABLED_HASHES", JSON.stringify(hashes));
-    }
+    await env.EVAL_KV.delete(`EVAL_REG_${loginParam}`);
     return jsonRes({ unregistered: true });
   }
 

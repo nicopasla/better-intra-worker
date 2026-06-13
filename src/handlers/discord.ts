@@ -24,11 +24,7 @@ export async function handleDiscordLink(
   existingData.discordId = discordId;
   await env.BETTER_INTRA_KV.put(loginParam, JSON.stringify(existingData));
 
-  const hashes: string[] = (await env.EVAL_KV.get("DISCORD_HASHES", { type: "json" })) ?? [];
-  if (!hashes.includes(loginParam)) {
-    hashes.push(loginParam);
-    await env.EVAL_KV.put("DISCORD_HASHES", JSON.stringify(hashes));
-  }
+  await env.EVAL_KV.put(`DISCORD_REG_${loginParam}`, "1");
 
   return jsonRes({ linked: true });
 }
@@ -51,12 +47,7 @@ export async function handleDiscordUnlink(
   delete existingData.discordId;
   await env.BETTER_INTRA_KV.put(loginParam, JSON.stringify(existingData));
 
-  const hashes: string[] = (await env.EVAL_KV.get("DISCORD_HASHES", { type: "json" })) ?? [];
-  const idx = hashes.indexOf(loginParam);
-  if (idx !== -1) {
-    hashes.splice(idx, 1);
-    await env.EVAL_KV.put("DISCORD_HASHES", JSON.stringify(hashes));
-  }
+  await env.EVAL_KV.delete(`DISCORD_REG_${loginParam}`);
 
   return jsonRes({ unlinked: true });
 }

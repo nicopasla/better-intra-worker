@@ -199,13 +199,20 @@ export async function handleCron(
 ): Promise<void> {
   const all: Set<string> = new Set();
 
-  const evalHashes: string[] =
-    (await env.EVAL_KV.get("EVAL_ENABLED_HASHES", { type: "json" })) ?? [];
-  for (const h of evalHashes) all.add(h);
+  // Per-user registration keys (no read-modify-write race)
+  const evalList = await env.EVAL_KV.list({ prefix: "EVAL_REG_" });
+  for (const key of evalList.keys) all.add(key.name.slice("EVAL_REG_".length));
 
-  const discordHashes: string[] =
+  const discordList = await env.EVAL_KV.list({ prefix: "DISCORD_REG_" });
+  for (const key of discordList.keys) all.add(key.name.slice("DISCORD_REG_".length));
+
+  // Legacy fallback: old shared-array keys (transitional)
+  const legacyEval: string[] =
+    (await env.EVAL_KV.get("EVAL_ENABLED_HASHES", { type: "json" })) ?? [];
+  for (const h of legacyEval) all.add(h);
+  const legacyDiscord: string[] =
     (await env.EVAL_KV.get("DISCORD_HASHES", { type: "json" })) ?? [];
-  for (const h of discordHashes) all.add(h);
+  for (const h of legacyDiscord) all.add(h);
 
   if (all.size === 0) return;
 
