@@ -1,4 +1,4 @@
-import { Env, UserData } from "../types";
+import { Env, UserData, FortyTwoUser, CursusUser } from "../types";
 import {
   decryptTokenData,
   encryptTokenData,
@@ -8,10 +8,10 @@ import {
   textRes,
   validateSession,
 } from "../utils";
+import { FRIEND_USER_IDS, ONLINE_CACHE } from "../constants";
 
 const INTRA_API = "https://api.intra.42.fr/v2";
 const PAGE_SIZE = 100;
-const USER_IDS_KV_KEY = "FRIEND_USER_IDS";
 
 export async function handleFriendsData(
   request: Request,
@@ -50,7 +50,7 @@ export async function handleFriendsData(
   }
 
   const idMap =
-    (await env.BETTER_INTRA_KV.get<Record<string, number>>(USER_IDS_KV_KEY, {
+    (await env.BETTER_INTRA_KV.get<Record<string, number>>(FRIEND_USER_IDS, {
       type: "json",
     })) ?? {};
 
@@ -65,7 +65,7 @@ export async function handleFriendsData(
   }
 
   if (unknownLogins.length > 0) {
-    const users = await fetchAllPages<any>(
+    const users = await fetchAllPages<FortyTwoUser>(
       `${INTRA_API}/users?filter[login]=${unknownLogins.join(",")}&page[size]=${PAGE_SIZE}`,
       intraToken,
     );
@@ -75,7 +75,7 @@ export async function handleFriendsData(
         idMap[u.login] = u.id;
       }
     }
-    env.BETTER_INTRA_KV.put(USER_IDS_KV_KEY, JSON.stringify(idMap)).catch(
+    env.BETTER_INTRA_KV.put(FRIEND_USER_IDS, JSON.stringify(idMap)).catch(
       () => {},
     );
   }
@@ -83,14 +83,14 @@ export async function handleFriendsData(
   const allIds = Object.values(loginToId);
   if (allIds.length === 0) return jsonRes({ friends: [] });
 
-  const cursusUsers = await fetchAllPages<any>(
+  const cursusUsers = await fetchAllPages<CursusUser>(
     `${INTRA_API}/cursus_users?filter[user_id]=${allIds.join(",")}&filter[cursus_id]=21&page[size]=${PAGE_SIZE}`,
     intraToken,
   );
 
   const friends: any[] = [];
   const now = Date.now();
-  const rawCache = await env.BETTER_INTRA_KV.get("ONLINE_CACHE");
+  const rawCache = await env.BETTER_INTRA_KV.get(ONLINE_CACHE);
   let onlineCache: Record<string, { location: string; seenAt: number }> = {};
   if (rawCache) {
     try {
@@ -108,7 +108,7 @@ export async function handleFriendsData(
     const isOnline = user.location !== null;
     const lastSeen = user.location ?? null;
 
-    if (isOnline) {
+    if (isOnline && user.location) {
       onlineCache[user.login] = { location: user.location, seenAt: now };
       cacheDirty = true;
     }
@@ -135,7 +135,7 @@ export async function handleFriendsData(
 
   if (cacheDirty) {
     const encrypted = await encryptTokenData(env, onlineCache);
-    await env.BETTER_INTRA_KV.put("ONLINE_CACHE", encrypted);
+    await env.BETTER_INTRA_KV.put(ONLINE_CACHE, encrypted);
   }
 
   return jsonRes({ friends });

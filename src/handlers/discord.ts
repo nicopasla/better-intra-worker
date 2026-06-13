@@ -1,11 +1,12 @@
-import { Env } from "../types";
+import { Env, UserData } from "../types";
 import { getBearerToken, hashLogin, jsonRes, textRes, validateSession } from "../utils";
+import { DISCORD_REG_PREFIX } from "../constants";
 
 export async function handleDiscordLink(
   request: Request,
   env: Env,
   loginParam: string,
-  existingData: any,
+  existingData: UserData | null,
 ): Promise<Response> {
   if (request.method !== "POST") return textRes("Method not allowed", 405);
 
@@ -24,7 +25,7 @@ export async function handleDiscordLink(
   existingData.discordId = discordId;
   await env.BETTER_INTRA_KV.put(loginParam, JSON.stringify(existingData));
 
-  await env.EVAL_KV.put(`DISCORD_REG_${loginParam}`, "1");
+  await env.EVAL_KV.put(`${DISCORD_REG_PREFIX}${loginParam}`, "1");
 
   return jsonRes({ linked: true });
 }
@@ -33,7 +34,7 @@ export async function handleDiscordUnlink(
   request: Request,
   env: Env,
   loginParam: string,
-  existingData: any,
+  existingData: UserData | null,
 ): Promise<Response> {
   if (request.method !== "POST") return textRes("Method not allowed", 405);
 
@@ -47,7 +48,7 @@ export async function handleDiscordUnlink(
   delete existingData.discordId;
   await env.BETTER_INTRA_KV.put(loginParam, JSON.stringify(existingData));
 
-  await env.EVAL_KV.delete(`DISCORD_REG_${loginParam}`);
+  await env.EVAL_KV.delete(`${DISCORD_REG_PREFIX}${loginParam}`);
 
   return jsonRes({ unlinked: true });
 }
@@ -67,7 +68,7 @@ export async function handleDiscordTest(
   if (!rawLogin) return textRes("Missing login", 400);
 
   const loginParam = await hashLogin(rawLogin);
-  const existingData = await env.BETTER_INTRA_KV.get<any>(loginParam, { type: "json" });
+  const existingData = await env.BETTER_INTRA_KV.get<UserData>(loginParam, { type: "json" });
   if (!existingData) return textRes("User not found", 404);
   if (!validateSession(existingData, authHeader)) {
     return textRes("Unauthorized: Invalid Session Token", 401);

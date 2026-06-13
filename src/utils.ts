@@ -1,4 +1,5 @@
-import { Env, UserData } from "./types";
+import { Env, UserData, TokenResponse, ProjectResponse } from "./types";
+import { APP_TOKEN_CACHE, PROJECT_MAP } from "./constants";
 
 export function getCallbackUrl(env?: { CALLBACK_URL?: string }): string {
   const base = env?.CALLBACK_URL?.replace(/\/+$/, "");
@@ -71,11 +72,10 @@ export async function hashLogin(login: string): Promise<string> {
 const pendingTokens = new WeakMap<Env, Promise<string>>();
 
 export async function getAppToken(env: Env): Promise<string> {
-  const KV_KEY = "APP_TOKEN_CACHE";
   const cached = await env.BETTER_INTRA_KV.get<{
     token: string;
     expires: number;
-  }>(KV_KEY, { type: "json" });
+  }>(APP_TOKEN_CACHE, { type: "json" });
 
   if (cached && Date.now() < cached.expires) {
     return cached.token;
@@ -98,17 +98,19 @@ export async function getAppToken(env: Env): Promise<string> {
 
     if (!res.ok) throw new Error("Failed to get app token");
 
-    const data = (await res.json()) as any;
+    const data = (await res.json()) as TokenResponse;
+    const token = data.access_token;
+    if (!token) throw new Error("Missing access_token in app token response");
     const expiresIn = (data.expires_in ?? 7200) - 60;
     const expires = Date.now() + expiresIn * 1000;
 
     await env.BETTER_INTRA_KV.put(
-      KV_KEY,
-      JSON.stringify({ token: data.access_token, expires }),
+      APP_TOKEN_CACHE,
+      JSON.stringify({ token, expires }),
       { expirationTtl: expiresIn },
     );
 
-    return data.access_token;
+    return token;
   })();
 
   pendingTokens.set(env, promise);
@@ -133,7 +135,7 @@ export async function updateProjectMap(env: Env, appToken: string) {
 
     if (!res.ok) return;
 
-    const projects = (await res.json()) as any[];
+    const projects = (await res.json()) as ProjectResponse[];
     if (projects.length === 0) break;
 
     allProjects = allProjects.concat(projects);
@@ -145,7 +147,7 @@ export async function updateProjectMap(env: Env, appToken: string) {
     return acc;
   }, {});
 
-  await env.BETTER_INTRA_KV.put("PROJECT_MAP", JSON.stringify(map));
+  await env.BETTER_INTRA_KV.put(PROJECT_MAP, JSON.stringify(map));
 }
 
 const keyCache = new WeakMap<Env, CryptoKey>();
@@ -189,10 +191,10 @@ export async function encryptTokenData(
   return btoa(String.fromCharCode(...combined));
 }
 
-export async function decryptTokenData(
+export async function decryptTokenData<T = Record<string, unknown>>(
   env: Env,
   encrypted: string,
-): Promise<any> {
+): Promise<T> {
   const key = await getEncryptionKey(env);
   const combined = Uint8Array.from(atob(encrypted), (c) => c.charCodeAt(0));
   const iv = combined.slice(0, 12);
@@ -202,7 +204,7 @@ export async function decryptTokenData(
     key,
     ciphertext,
   );
-  return JSON.parse(new TextDecoder().decode(decrypted));
+  return JSON.parse(new TextDecoder().decode(decrypted)) as T;
 }
 
 export async function getUserToken(
@@ -221,7 +223,7 @@ export async function getUserToken(
     expires_at: number;
   };
   try {
-    tokenData = await decryptTokenData(env, userData.fortyTwoToken);
+    tokenData = await decryptTokenData<typeof tokenData>(env, userData.fortyTwoToken);
   } catch {
     console.log(`[getUserToken] ${loginParam}: decryption failed, using app token`);
     return getAppToken(env);
@@ -247,17 +249,22 @@ export async function getUserToken(
       });
 
       if (res.ok) {
-        const data = (await res.json()) as any;
+        const data = (await res.json()) as TokenResponse;
+        const newAccessToken = data.access_token;
+        if (!newAccessToken) {
+          console.log(`[getUserToken] ${loginParam}: refresh response missing access_token`);
+          return getAppToken(env);
+        }
         const newTokenData = {
-          access_token: data.access_token,
+          access_token: newAccessToken,
           refresh_token: data.refresh_token ?? tokenData.refresh_token,
-          expires_at: Date.now() + (data.expires_in * 1000),
+          expires_at: Date.now() + ((data.expires_in ?? 7200) * 1000),
         };
         const encrypted = await encryptTokenData(env, newTokenData);
         userData.fortyTwoToken = encrypted;
         await env.BETTER_INTRA_KV.put(loginParam, JSON.stringify(userData));
         console.log(`[getUserToken] ${loginParam}: refreshed and stored new user token`);
-        return data.access_token;
+        return newAccessToken;
       }
 
       console.log(`[getUserToken] ${loginParam}: refresh failed (${res.status}), using app token`);

@@ -1,4 +1,4 @@
-import { Env, UserData } from "../types";
+import { Env, UserData, TokenResponse, UserResponse } from "../types";
 import { encryptTokenData, getTokens, hashLogin, textRes, getCallbackUrl } from "../utils";
 
 export async function handleLogin(
@@ -75,7 +75,7 @@ export async function handleCallback(
     if (!tokenResponse.ok) {
       return textRes("42 OAuth token exchange failed", 502);
     }
-    const tokenData = (await tokenResponse.json()) as any;
+    const tokenData = (await tokenResponse.json()) as TokenResponse;
     if (tokenData.error)
       return textRes(
         `42 OAuth Error: ${tokenData.error_description || tokenData.error}`,
@@ -88,7 +88,7 @@ export async function handleCallback(
     if (!userResponse.ok) {
       return textRes("Failed to fetch user info from 42", 502);
     }
-    const rawLogin = ((await userResponse.json()) as any).login;
+    const rawLogin = ((await userResponse.json()) as UserResponse).login;
     if (!rawLogin) return textRes("Invalid 42 session", 400);
 
     const hashedLogin = await hashLogin(rawLogin);

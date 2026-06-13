@@ -1,8 +1,15 @@
-import { Env } from "../types";
+import { Env, UserData } from "../types";
 import { getUserToken } from "../utils";
 import { sendDiscordDm, DiscordEmbed } from "./discord";
-
-const PROJECT_MAP_KEY = "PROJECT_MAP";
+import {
+  PROJECT_MAP as PROJECT_MAP_KEY,
+  EVAL_REG_PREFIX,
+  DISCORD_REG_PREFIX,
+  LEGACY_EVAL_ENABLED,
+  LEGACY_DISCORD_HASHES,
+  PENDING_PREFIX,
+  EVAL_STATE_PREFIX,
+} from "../constants";
 
 async function fetchScaleTeamsPage(
   fortyTwoToken: string,
@@ -45,7 +52,7 @@ async function processItem(
 
   if (isInvisible(item.correcteds) || Array.isArray(item.correcteds)) {
     const role = "evaluator";
-    const evalKey = `EVAL_${hash}_${id}_${role}`;
+      const evalKey = `${EVAL_STATE_PREFIX}${hash}_${id}_${role}`;
     const currentState: string | null = await env.EVAL_KV.get(evalKey);
     const correctedsVisible =
       Array.isArray(item.correcteds) && item.correcteds.length > 0;
@@ -76,7 +83,7 @@ async function processItem(
         teamName,
       };
       await env.EVAL_KV.put(
-        `PENDING_${hash}_${id}_${role}`,
+        `${PENDING_PREFIX}${hash}_${id}_${role}`,
         JSON.stringify(notif),
       );
 
@@ -106,7 +113,7 @@ async function processItem(
         teamName,
       };
       await env.EVAL_KV.put(
-        `PENDING_${hash}_${id}_${role}`,
+        `${PENDING_PREFIX}${hash}_${id}_${role}`,
         JSON.stringify(notif),
       );
 
@@ -121,7 +128,7 @@ async function processItem(
     (item.corrector && typeof item.corrector === "object")
   ) {
     const role = "evaluated";
-    const evalKey = `EVAL_${hash}_${id}_${role}`;
+      const evalKey = `${EVAL_STATE_PREFIX}${hash}_${id}_${role}`;
     const currentState: string | null = await env.EVAL_KV.get(evalKey);
     const correctorVisible =
       item.corrector && typeof item.corrector === "object";
@@ -152,7 +159,7 @@ async function processItem(
         teamName,
       };
       await env.EVAL_KV.put(
-        `PENDING_${hash}_${id}_${role}`,
+        `${PENDING_PREFIX}${hash}_${id}_${role}`,
         JSON.stringify(notif),
       );
 
@@ -182,7 +189,7 @@ async function processItem(
         teamName,
       };
       await env.EVAL_KV.put(
-        `PENDING_${hash}_${id}_${role}`,
+        `${PENDING_PREFIX}${hash}_${id}_${role}`,
         JSON.stringify(notif),
       );
 
@@ -200,18 +207,18 @@ export async function handleCron(
   const all: Set<string> = new Set();
 
   // Per-user registration keys (no read-modify-write race)
-  const evalList = await env.EVAL_KV.list({ prefix: "EVAL_REG_" });
-  for (const key of evalList.keys) all.add(key.name.slice("EVAL_REG_".length));
+  const evalList = await env.EVAL_KV.list({ prefix: EVAL_REG_PREFIX });
+  for (const key of evalList.keys) all.add(key.name.slice(EVAL_REG_PREFIX.length));
 
-  const discordList = await env.EVAL_KV.list({ prefix: "DISCORD_REG_" });
-  for (const key of discordList.keys) all.add(key.name.slice("DISCORD_REG_".length));
+  const discordList = await env.EVAL_KV.list({ prefix: DISCORD_REG_PREFIX });
+  for (const key of discordList.keys) all.add(key.name.slice(DISCORD_REG_PREFIX.length));
 
   // Legacy fallback: old shared-array keys (transitional)
   const legacyEval: string[] =
-    (await env.EVAL_KV.get("EVAL_ENABLED_HASHES", { type: "json" })) ?? [];
+    (await env.EVAL_KV.get(LEGACY_EVAL_ENABLED, { type: "json" })) ?? [];
   for (const h of legacyEval) all.add(h);
   const legacyDiscord: string[] =
-    (await env.EVAL_KV.get("DISCORD_HASHES", { type: "json" })) ?? [];
+    (await env.EVAL_KV.get(LEGACY_DISCORD_HASHES, { type: "json" })) ?? [];
   for (const h of legacyDiscord) all.add(h);
 
   if (all.size === 0) return;
@@ -222,7 +229,7 @@ export async function handleCron(
     })) ?? {};
 
   for (const hash of all) {
-    const userData = await env.BETTER_INTRA_KV.get<any>(hash, { type: "json" });
+    const userData = await env.BETTER_INTRA_KV.get<UserData>(hash, { type: "json" });
     if (!userData?.fortyTwoToken) continue;
 
     const fortyTwoToken = await getUserToken(env, userData, hash);
