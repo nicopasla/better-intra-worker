@@ -1,6 +1,5 @@
 import { Env, UserData } from "../types";
 import { getBearerToken, jsonRes, textRes, validateSession } from "../utils";
-import { EVAL_REG_PREFIX, PENDING_PREFIX } from "../constants";
 
 export async function handleEvaluations(
   request: Request,
@@ -21,35 +20,36 @@ export async function handleEvaluations(
   const action = url.searchParams.get("action") || "";
 
   if (action === "pending") {
-    const prefix = `${PENDING_PREFIX}${loginParam}_`;
-    const list = await env.EVAL_KV.list({ prefix });
+    const { results } = await env.DB.prepare(
+      "SELECT data FROM pending_notifs WHERE hash = ? AND consumed = 0",
+    )
+      .bind(loginParam)
+      .all<{ data: string }>();
 
-    const notifications: any[] = [];
-    for (const key of list.keys) {
-      const notif = await env.EVAL_KV.get<Record<string, unknown>>(key.name, { type: "json" });
-      if (notif) notifications.push(notif);
-      await env.EVAL_KV.delete(key.name);
-    }
+    const notifications = (results || []).map((r) => JSON.parse(r.data));
 
-    // Also handle legacy array-format PENDING key (without suffix)
-    const legacyKey = `${PENDING_PREFIX}${loginParam}`;
-    const legacy: any[] =
-      (await env.EVAL_KV.get<any[]>(legacyKey, { type: "json" })) ?? [];
-    if (legacy.length > 0) {
-      notifications.push(...legacy);
-      await env.EVAL_KV.delete(legacyKey);
-    }
+    await env.DB.prepare(
+      "UPDATE pending_notifs SET consumed = 1 WHERE hash = ? AND consumed = 0",
+    )
+      .bind(loginParam)
+      .run();
 
     return jsonRes({ notifications });
   }
 
   if (action === "register") {
-    await env.EVAL_KV.put(`${EVAL_REG_PREFIX}${loginParam}`, "1");
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO eval_users (hash) VALUES (?)",
+    )
+      .bind(loginParam)
+      .run();
     return jsonRes({ registered: true });
   }
 
   if (action === "unregister") {
-    await env.EVAL_KV.delete(`${EVAL_REG_PREFIX}${loginParam}`);
+    await env.DB.prepare("DELETE FROM eval_users WHERE hash = ?")
+      .bind(loginParam)
+      .run();
     return jsonRes({ unregistered: true });
   }
 

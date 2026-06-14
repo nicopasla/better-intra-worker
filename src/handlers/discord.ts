@@ -1,6 +1,5 @@
 import { Env, UserData } from "../types";
 import { getBearerToken, hashLogin, jsonRes, textRes, validateSession } from "../utils";
-import { DISCORD_REG_PREFIX } from "../constants";
 
 export async function handleDiscordLink(
   request: Request,
@@ -25,8 +24,6 @@ export async function handleDiscordLink(
   existingData.discordId = discordId;
   await env.BETTER_INTRA_KV.put(loginParam, JSON.stringify(existingData));
 
-  await env.EVAL_KV.put(`${DISCORD_REG_PREFIX}${loginParam}`, "1");
-
   return jsonRes({ linked: true });
 }
 
@@ -47,8 +44,6 @@ export async function handleDiscordUnlink(
 
   delete existingData.discordId;
   await env.BETTER_INTRA_KV.put(loginParam, JSON.stringify(existingData));
-
-  await env.EVAL_KV.delete(`${DISCORD_REG_PREFIX}${loginParam}`);
 
   return jsonRes({ unlinked: true });
 }

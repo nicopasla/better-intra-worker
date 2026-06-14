@@ -1,11 +1,12 @@
 export interface Env {
   BETTER_INTRA_KV: KVNamespace;
-  EVAL_KV: KVNamespace;
+  DB: D1Database;
   CLIENT_ID: string;
   CLIENT_SECRET: string;
   CALLBACK_URL?: string;
   TOKEN_ENCRYPTION_KEY?: string; // base64-encoded 256-bit key for AES-GCM
   DISCORD_BOT_TOKEN?: string;
+  DISCORD_ENABLED?: string;
 }
 
 export type UserData = {

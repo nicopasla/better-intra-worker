@@ -1,17 +1,9 @@
 import { Env, UserData } from "../types";
 import { getUserToken } from "../utils";
 import { sendDiscordDm, DiscordEmbed } from "./discord";
-import {
-  PROJECT_MAP as PROJECT_MAP_KEY,
-  EVAL_REG_PREFIX,
-  DISCORD_REG_PREFIX,
-  LEGACY_EVAL_ENABLED,
-  LEGACY_DISCORD_HASHES,
-  PENDING_PREFIX,
-  EVAL_STATE_PREFIX,
-} from "../constants";
+import { PROJECT_MAP } from "../constants";
 
-async function fetchScaleTeamsPage(
+async function fetchScaleTeams(
   fortyTwoToken: string,
   page: number,
 ): Promise<{ data: any[]; rateLimited: boolean }> {
@@ -52,25 +44,33 @@ async function processItem(
 
   if (isInvisible(item.correcteds) || Array.isArray(item.correcteds)) {
     const role = "evaluator";
-      const evalKey = `${EVAL_STATE_PREFIX}${hash}_${id}_${role}`;
-    const currentState: string | null = await env.EVAL_KV.get(evalKey);
     const correctedsVisible =
       Array.isArray(item.correcteds) && item.correcteds.length > 0;
 
+    const row = await env.DB.prepare(
+      "SELECT state FROM eval_states WHERE hash = ? AND eval_id = ? AND role = ?",
+    )
+      .bind(hash, id, role)
+      .first<{ state: string }>();
+
+    const currentState = row?.state ?? null;
+
     if (correctedsVisible && currentState !== "revealed") {
       const logins = item.correcteds.map((c: any) => c.login).join(", ");
-      const embed: DiscordEmbed = {
-        title: "Evaluation in 15 min",
-        color: 0x57f287,
-        fields: [
-          { name: "Project", value: projectName || "Unknown", inline: true },
-          { name: "Time", value: formatTime(beginAt), inline: true },
-          { name: "Role", value: "Evaluator", inline: true },
-          { name: "Correcting", value: logins },
-        ],
-        timestamp: beginAt,
-      };
-      await env.EVAL_KV.put(evalKey, "revealed");
+
+      if (currentState === "booked") {
+        await env.DB.prepare(
+          "UPDATE eval_states SET state = 'revealed', updated_at = unixepoch() WHERE hash = ? AND eval_id = ? AND role = ?",
+        )
+          .bind(hash, id, role)
+          .run();
+      } else {
+        await env.DB.prepare(
+          "INSERT OR REPLACE INTO eval_states (hash, eval_id, role, state) VALUES (?, ?, ?, 'revealed')",
+        )
+          .bind(hash, id, role)
+          .run();
+      }
 
       const notif = {
         type: "revealed",
@@ -82,26 +82,32 @@ async function processItem(
         logins,
         teamName,
       };
-      await env.EVAL_KV.put(
-        `${PENDING_PREFIX}${hash}_${id}_${role}`,
-        JSON.stringify(notif),
-      );
+      await env.DB.prepare(
+        "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
+      )
+        .bind(hash, id, role, JSON.stringify(notif))
+        .run();
 
-      if (discordId) {
+      if (env.DISCORD_ENABLED === "true" && discordId) {
+        const embed: DiscordEmbed = {
+          title: "Evaluation in 15 min",
+          color: 0x57f287,
+          fields: [
+            { name: "Project", value: projectName || "Unknown", inline: true },
+            { name: "Time", value: formatTime(beginAt), inline: true },
+            { name: "Role", value: "Evaluator", inline: true },
+            { name: "Correcting", value: logins },
+          ],
+          timestamp: beginAt,
+        };
         ctx.waitUntil(sendDiscordDm(discordId, embed, env));
       }
     } else if (!correctedsVisible && currentState === null) {
-      const embed: DiscordEmbed = {
-        title: "Evaluation Booked",
-        color: 0x5865f2,
-        fields: [
-          { name: "Project", value: projectName || "Unknown", inline: true },
-          { name: "Time", value: formatTime(beginAt), inline: true },
-          { name: "Role", value: "Evaluator", inline: true },
-        ],
-        timestamp: beginAt,
-      };
-      await env.EVAL_KV.put(evalKey, "booked");
+      await env.DB.prepare(
+        "INSERT OR IGNORE INTO eval_states (hash, eval_id, role, state) VALUES (?, ?, ?, 'booked')",
+      )
+        .bind(hash, id, role)
+        .run();
 
       const notif = {
         type: "booked",
@@ -112,12 +118,23 @@ async function processItem(
         endAt,
         teamName,
       };
-      await env.EVAL_KV.put(
-        `${PENDING_PREFIX}${hash}_${id}_${role}`,
-        JSON.stringify(notif),
-      );
+      await env.DB.prepare(
+        "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
+      )
+        .bind(hash, id, role, JSON.stringify(notif))
+        .run();
 
-      if (discordId) {
+      if (env.DISCORD_ENABLED === "true" && discordId) {
+        const embed: DiscordEmbed = {
+          title: "Evaluation Booked",
+          color: 0x5865f2,
+          fields: [
+            { name: "Project", value: projectName || "Unknown", inline: true },
+            { name: "Time", value: formatTime(beginAt), inline: true },
+            { name: "Role", value: "Evaluator", inline: true },
+          ],
+          timestamp: beginAt,
+        };
         ctx.waitUntil(sendDiscordDm(discordId, embed, env));
       }
     }
@@ -128,25 +145,33 @@ async function processItem(
     (item.corrector && typeof item.corrector === "object")
   ) {
     const role = "evaluated";
-      const evalKey = `${EVAL_STATE_PREFIX}${hash}_${id}_${role}`;
-    const currentState: string | null = await env.EVAL_KV.get(evalKey);
     const correctorVisible =
       item.corrector && typeof item.corrector === "object";
 
+    const row = await env.DB.prepare(
+      "SELECT state FROM eval_states WHERE hash = ? AND eval_id = ? AND role = ?",
+    )
+      .bind(hash, id, role)
+      .first<{ state: string }>();
+
+    const currentState = row?.state ?? null;
+
     if (correctorVisible && currentState !== "revealed") {
       const login = item.corrector?.login || "Unknown";
-      const embed: DiscordEmbed = {
-        title: "Evaluation in 15 min",
-        color: 0x57f287,
-        fields: [
-          { name: "Project", value: projectName || "Unknown", inline: true },
-          { name: "Time", value: formatTime(beginAt), inline: true },
-          { name: "Role", value: "Being evaluated", inline: true },
-          { name: "Evaluator", value: login },
-        ],
-        timestamp: beginAt,
-      };
-      await env.EVAL_KV.put(evalKey, "revealed");
+
+      if (currentState === "booked") {
+        await env.DB.prepare(
+          "UPDATE eval_states SET state = 'revealed', updated_at = unixepoch() WHERE hash = ? AND eval_id = ? AND role = ?",
+        )
+          .bind(hash, id, role)
+          .run();
+      } else {
+        await env.DB.prepare(
+          "INSERT OR REPLACE INTO eval_states (hash, eval_id, role, state) VALUES (?, ?, ?, 'revealed')",
+        )
+          .bind(hash, id, role)
+          .run();
+      }
 
       const notif = {
         type: "revealed",
@@ -158,26 +183,32 @@ async function processItem(
         login,
         teamName,
       };
-      await env.EVAL_KV.put(
-        `${PENDING_PREFIX}${hash}_${id}_${role}`,
-        JSON.stringify(notif),
-      );
+      await env.DB.prepare(
+        "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
+      )
+        .bind(hash, id, role, JSON.stringify(notif))
+        .run();
 
-      if (discordId) {
+      if (env.DISCORD_ENABLED === "true" && discordId) {
+        const embed: DiscordEmbed = {
+          title: "Evaluation in 15 min",
+          color: 0x57f287,
+          fields: [
+            { name: "Project", value: projectName || "Unknown", inline: true },
+            { name: "Time", value: formatTime(beginAt), inline: true },
+            { name: "Role", value: "Being evaluated", inline: true },
+            { name: "Evaluator", value: login },
+          ],
+          timestamp: beginAt,
+        };
         ctx.waitUntil(sendDiscordDm(discordId, embed, env));
       }
     } else if (!correctorVisible && currentState === null) {
-      const embed: DiscordEmbed = {
-        title: "Evaluation Booked",
-        color: 0x5865f2,
-        fields: [
-          { name: "Project", value: projectName || "Unknown", inline: true },
-          { name: "Time", value: formatTime(beginAt), inline: true },
-          { name: "Role", value: "Being evaluated", inline: true },
-        ],
-        timestamp: beginAt,
-      };
-      await env.EVAL_KV.put(evalKey, "booked");
+      await env.DB.prepare(
+        "INSERT OR IGNORE INTO eval_states (hash, eval_id, role, state) VALUES (?, ?, ?, 'booked')",
+      )
+        .bind(hash, id, role)
+        .run();
 
       const notif = {
         type: "booked",
@@ -188,12 +219,23 @@ async function processItem(
         endAt,
         teamName,
       };
-      await env.EVAL_KV.put(
-        `${PENDING_PREFIX}${hash}_${id}_${role}`,
-        JSON.stringify(notif),
-      );
+      await env.DB.prepare(
+        "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
+      )
+        .bind(hash, id, role, JSON.stringify(notif))
+        .run();
 
-      if (discordId) {
+      if (env.DISCORD_ENABLED === "true" && discordId) {
+        const embed: DiscordEmbed = {
+          title: "Evaluation Booked",
+          color: 0x5865f2,
+          fields: [
+            { name: "Project", value: projectName || "Unknown", inline: true },
+            { name: "Time", value: formatTime(beginAt), inline: true },
+            { name: "Role", value: "Being evaluated", inline: true },
+          ],
+          timestamp: beginAt,
+        };
         ctx.waitUntil(sendDiscordDm(discordId, embed, env));
       }
     }
@@ -204,31 +246,15 @@ export async function handleCron(
   env: Env,
   ctx: ExecutionContext,
 ): Promise<void> {
-  const all: Set<string> = new Set();
-
-  // Per-user registration keys (no read-modify-write race)
-  const evalList = await env.EVAL_KV.list({ prefix: EVAL_REG_PREFIX });
-  for (const key of evalList.keys) all.add(key.name.slice(EVAL_REG_PREFIX.length));
-
-  const discordList = await env.EVAL_KV.list({ prefix: DISCORD_REG_PREFIX });
-  for (const key of discordList.keys) all.add(key.name.slice(DISCORD_REG_PREFIX.length));
-
-  // Legacy fallback: old shared-array keys (transitional)
-  const legacyEval: string[] =
-    (await env.EVAL_KV.get(LEGACY_EVAL_ENABLED, { type: "json" })) ?? [];
-  for (const h of legacyEval) all.add(h);
-  const legacyDiscord: string[] =
-    (await env.EVAL_KV.get(LEGACY_DISCORD_HASHES, { type: "json" })) ?? [];
-  for (const h of legacyDiscord) all.add(h);
-
-  if (all.size === 0) return;
+  const { results } = await env.DB.prepare("SELECT hash FROM eval_users").all<{ hash: string }>();
+  if (!results || results.length === 0) return;
 
   const projectMap: Record<string, string> =
-    (await env.BETTER_INTRA_KV.get<Record<string, string>>(PROJECT_MAP_KEY, {
+    (await env.BETTER_INTRA_KV.get<Record<string, string>>(PROJECT_MAP, {
       type: "json",
     })) ?? {};
 
-  for (const hash of all) {
+  for (const { hash } of results) {
     const userData = await env.BETTER_INTRA_KV.get<UserData>(hash, { type: "json" });
     if (!userData?.fortyTwoToken) continue;
 
@@ -237,33 +263,14 @@ export async function handleCron(
 
     const discordId: string | undefined = userData.discordId;
 
-    let page = 1;
-    let rateLimited = false;
-    while (true) {
-      const { data: rawData, rateLimited: rl } = await fetchScaleTeamsPage(
-        fortyTwoToken,
-        page,
-      );
-
-      if (rl) {
-        rateLimited = true;
-        console.warn(`[cron] 429 rate limited for ${hash} at page ${page}`);
-        break;
-      }
-
-      if (rawData.length === 0) break;
-
-      for (const item of rawData) {
-        await processItem(env, ctx, item, hash, projectMap, discordId);
-      }
-
-      page++;
+    const { data: rawData, rateLimited } = await fetchScaleTeams(fortyTwoToken, 1);
+    if (rateLimited) {
+      console.warn(`[cron] 429 rate limited for ${hash}`);
+      continue;
     }
 
-    if (rateLimited) {
-      console.warn(
-        `[cron] skipping remaining pages for ${hash} due to rate limit`,
-      );
+    for (const item of rawData) {
+      await processItem(env, ctx, item, hash, projectMap, discordId);
     }
   }
 }

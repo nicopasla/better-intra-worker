@@ -6,14 +6,18 @@
     {
       "binding": "BETTER_INTRA_KV",
       "id": "76d494582f944fd6b0f7e02b51fed387"
-    },
+    }
+  ],
+  "d1_databases": [
     {
-      "binding": "EVAL_KV",
-      "id": "16c0355fd50d44ad89c892ff327a16c3"
+      "binding": "better_intra_d1",
+      "database_name": "better-intra-d1",
+      "database_id": "42210594-bca8-4d11-a89c-b5e63bdf218d"
     }
   ],
   "vars": {
-    "CLIENT_ID": "u-s4t2ud-8a3189d9af041af2f8775dc0f3b6ea37d1ee7b3c1a9cb8581dac62b631144138"
+    "CLIENT_ID": "u-s4t2ud-8a3189d9af041af2f8775dc0f3b6ea37d1ee7b3c1a9cb8581dac62b631144138",
+    "DISCORD_ENABLED": "false"
   },
   "triggers": {
     "crons": ["*/5 * * * *"]
