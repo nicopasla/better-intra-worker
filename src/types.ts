@@ -1,6 +1,6 @@
 export interface Env {
   BETTER_INTRA_KV: KVNamespace;
-  DB: D1Database;
+  better_intra_d1: D1Database;
   CLIENT_ID: string;
   CLIENT_SECRET: string;
   CALLBACK_URL?: string;

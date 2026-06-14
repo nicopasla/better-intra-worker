@@ -47,7 +47,7 @@ async function processItem(
     const correctedsVisible =
       Array.isArray(item.correcteds) && item.correcteds.length > 0;
 
-    const row = await env.DB.prepare(
+    const row = await env.better_intra_d1.prepare(
       "SELECT state FROM eval_states WHERE hash = ? AND eval_id = ? AND role = ?",
     )
       .bind(hash, id, role)
@@ -59,13 +59,13 @@ async function processItem(
       const logins = item.correcteds.map((c: any) => c.login).join(", ");
 
       if (currentState === "booked") {
-        await env.DB.prepare(
+        await env.better_intra_d1.prepare(
           "UPDATE eval_states SET state = 'revealed', updated_at = unixepoch() WHERE hash = ? AND eval_id = ? AND role = ?",
         )
           .bind(hash, id, role)
           .run();
       } else {
-        await env.DB.prepare(
+        await env.better_intra_d1.prepare(
           "INSERT OR REPLACE INTO eval_states (hash, eval_id, role, state) VALUES (?, ?, ?, 'revealed')",
         )
           .bind(hash, id, role)
@@ -82,7 +82,7 @@ async function processItem(
         logins,
         teamName,
       };
-      await env.DB.prepare(
+      await env.better_intra_d1.prepare(
         "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
       )
         .bind(hash, id, role, JSON.stringify(notif))
@@ -103,7 +103,7 @@ async function processItem(
         ctx.waitUntil(sendDiscordDm(discordId, embed, env));
       }
     } else if (!correctedsVisible && currentState === null) {
-      await env.DB.prepare(
+      await env.better_intra_d1.prepare(
         "INSERT OR IGNORE INTO eval_states (hash, eval_id, role, state) VALUES (?, ?, ?, 'booked')",
       )
         .bind(hash, id, role)
@@ -118,7 +118,7 @@ async function processItem(
         endAt,
         teamName,
       };
-      await env.DB.prepare(
+      await env.better_intra_d1.prepare(
         "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
       )
         .bind(hash, id, role, JSON.stringify(notif))
@@ -148,7 +148,7 @@ async function processItem(
     const correctorVisible =
       item.corrector && typeof item.corrector === "object";
 
-    const row = await env.DB.prepare(
+    const row = await env.better_intra_d1.prepare(
       "SELECT state FROM eval_states WHERE hash = ? AND eval_id = ? AND role = ?",
     )
       .bind(hash, id, role)
@@ -160,13 +160,13 @@ async function processItem(
       const login = item.corrector?.login || "Unknown";
 
       if (currentState === "booked") {
-        await env.DB.prepare(
+        await env.better_intra_d1.prepare(
           "UPDATE eval_states SET state = 'revealed', updated_at = unixepoch() WHERE hash = ? AND eval_id = ? AND role = ?",
         )
           .bind(hash, id, role)
           .run();
       } else {
-        await env.DB.prepare(
+        await env.better_intra_d1.prepare(
           "INSERT OR REPLACE INTO eval_states (hash, eval_id, role, state) VALUES (?, ?, ?, 'revealed')",
         )
           .bind(hash, id, role)
@@ -183,7 +183,7 @@ async function processItem(
         login,
         teamName,
       };
-      await env.DB.prepare(
+      await env.better_intra_d1.prepare(
         "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
       )
         .bind(hash, id, role, JSON.stringify(notif))
@@ -204,7 +204,7 @@ async function processItem(
         ctx.waitUntil(sendDiscordDm(discordId, embed, env));
       }
     } else if (!correctorVisible && currentState === null) {
-      await env.DB.prepare(
+      await env.better_intra_d1.prepare(
         "INSERT OR IGNORE INTO eval_states (hash, eval_id, role, state) VALUES (?, ?, ?, 'booked')",
       )
         .bind(hash, id, role)
@@ -219,7 +219,7 @@ async function processItem(
         endAt,
         teamName,
       };
-      await env.DB.prepare(
+      await env.better_intra_d1.prepare(
         "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
       )
         .bind(hash, id, role, JSON.stringify(notif))
@@ -246,7 +246,7 @@ export async function handleCron(
   env: Env,
   ctx: ExecutionContext,
 ): Promise<void> {
-  const { results } = await env.DB.prepare("SELECT hash FROM eval_users").all<{ hash: string }>();
+  const { results } = await env.better_intra_d1.prepare("SELECT hash FROM eval_users").all<{ hash: string }>();
   if (!results || results.length === 0) return;
 
   const projectMap: Record<string, string> =
