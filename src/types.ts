@@ -17,6 +17,7 @@ export type UserData = {
   settings?: Record<string, unknown>;
   fortyTwoToken?: string; // AES-GCM encrypted JSON: { access_token, refresh_token, expires_at }
   discordId?: string;
+  discordUsername?: string;
 };
 
 export interface TokenResponse {

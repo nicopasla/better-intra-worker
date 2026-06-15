@@ -54,6 +54,8 @@ export async function handlePrivateSettings(
     return jsonRes({
       settings: existingData.settings || {},
       activeSessions: tokensList.length,
+      discordId: existingData.discordId,
+      discordUsername: existingData.discordUsername,
     });
   }
 
@@ -77,6 +79,8 @@ export async function handlePrivateSettings(
         sessionTokens: tokensList,
         settings: settingsToSave,
         fortyTwoToken: existingData.fortyTwoToken,
+        discordId: existingData.discordId,
+        discordUsername: existingData.discordUsername,
       }),
     );
     return textRes("Saved");
@@ -94,6 +98,8 @@ export async function handlePrivateSettings(
         sessionTokens: tokensList.filter((t) => t !== authHeader),
         settings: existingData.settings || {},
         fortyTwoToken: existingData.fortyTwoToken,
+        discordId: existingData.discordId,
+        discordUsername: existingData.discordUsername,
       }),
     );
     return textRes("Session removed");

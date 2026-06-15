@@ -262,6 +262,7 @@ export async function handleDiscordCallback(
   const userData = await env.BETTER_INTRA_KV.get<UserData>(hashedLogin, { type: "json" });
   if (userData) {
     userData.discordId = discordId;
+    userData.discordUsername = discordUsername;
     await env.BETTER_INTRA_KV.put(hashedLogin, JSON.stringify(userData));
   }
 
