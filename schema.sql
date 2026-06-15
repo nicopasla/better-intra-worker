@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS eval_users (
 CREATE TABLE IF NOT EXISTS eval_states (
   hash TEXT NOT NULL,
   eval_id INTEGER NOT NULL,
-  role TEXT NOT NULL CHECK(role IN ('evaluator', 'evaluated')),
+  role TEXT NOT NULL CHECK(role IN ('evaluator')),
   state TEXT NOT NULL CHECK(state IN ('booked', 'revealed')),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
   PRIMARY KEY (hash, eval_id, role)

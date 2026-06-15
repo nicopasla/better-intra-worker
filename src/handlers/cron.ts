@@ -7,7 +7,7 @@ async function fetchScaleTeams(
   fortyTwoToken: string,
   page: number,
 ): Promise<{ data: any[]; rateLimited: boolean }> {
-  const url = `https://api.intra.42.fr/v2/me/scale_teams?page[size]=100&page[number]=${page}`;
+  const url = `https://api.intra.42.fr/v2/me/scale_teams/as_corrector?page[size]=100&page[number]=${page}`;
   const apiRes = await fetch(url, {
     headers: { Authorization: `Bearer ${fortyTwoToken}` },
   });
@@ -140,106 +140,6 @@ async function processItem(
     }
   }
 
-  if (
-    isInvisible(item.corrector) ||
-    (item.corrector && typeof item.corrector === "object")
-  ) {
-    const role = "evaluated";
-    const correctorVisible =
-      item.corrector && typeof item.corrector === "object";
-
-    const row = await env.better_intra_d1.prepare(
-      "SELECT state FROM eval_states WHERE hash = ? AND eval_id = ? AND role = ?",
-    )
-      .bind(hash, id, role)
-      .first<{ state: string }>();
-
-    const currentState = row?.state ?? null;
-
-    if (correctorVisible && currentState !== "revealed") {
-      const login = item.corrector?.login || "Unknown";
-
-      if (currentState === "booked") {
-        await env.better_intra_d1.prepare(
-          "UPDATE eval_states SET state = 'revealed', updated_at = unixepoch() WHERE hash = ? AND eval_id = ? AND role = ?",
-        )
-          .bind(hash, id, role)
-          .run();
-      } else {
-        await env.better_intra_d1.prepare(
-          "INSERT OR REPLACE INTO eval_states (hash, eval_id, role, state) VALUES (?, ?, ?, 'revealed')",
-        )
-          .bind(hash, id, role)
-          .run();
-      }
-
-      const notif = {
-        type: "revealed",
-        role,
-        id,
-        projectName,
-        beginAt,
-        endAt,
-        login,
-        teamName,
-      };
-      await env.better_intra_d1.prepare(
-        "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
-      )
-        .bind(hash, id, role, JSON.stringify(notif))
-        .run();
-
-      if (env.DISCORD_ENABLED === "true" && discordId) {
-        const embed: DiscordEmbed = {
-          title: "Evaluation in 15 min",
-          color: 0x57f287,
-          fields: [
-            { name: "Project", value: projectName || "Unknown", inline: true },
-            { name: "Time", value: formatTime(beginAt), inline: true },
-            { name: "Role", value: "Being evaluated", inline: true },
-            { name: "Evaluator", value: login },
-          ],
-          timestamp: beginAt,
-        };
-        ctx.waitUntil(sendDiscordDm(discordId, embed, env));
-      }
-    } else if (!correctorVisible && currentState === null) {
-      await env.better_intra_d1.prepare(
-        "INSERT OR IGNORE INTO eval_states (hash, eval_id, role, state) VALUES (?, ?, ?, 'booked')",
-      )
-        .bind(hash, id, role)
-        .run();
-
-      const notif = {
-        type: "booked",
-        role,
-        id,
-        projectName,
-        beginAt,
-        endAt,
-        teamName,
-      };
-      await env.better_intra_d1.prepare(
-        "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
-      )
-        .bind(hash, id, role, JSON.stringify(notif))
-        .run();
-
-      if (env.DISCORD_ENABLED === "true" && discordId) {
-        const embed: DiscordEmbed = {
-          title: "Evaluation Booked",
-          color: 0x5865f2,
-          fields: [
-            { name: "Project", value: projectName || "Unknown", inline: true },
-            { name: "Time", value: formatTime(beginAt), inline: true },
-            { name: "Role", value: "Being evaluated", inline: true },
-          ],
-          timestamp: beginAt,
-        };
-        ctx.waitUntil(sendDiscordDm(discordId, embed, env));
-      }
-    }
-  }
 }
 
 export async function handleCron(
