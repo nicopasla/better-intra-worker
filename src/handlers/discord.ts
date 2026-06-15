@@ -78,13 +78,21 @@ export async function handleDiscordTest(
     return textRes("No Discord linked. Set your Discord User ID first.", 400);
   }
 
+  const testBeginAt = new Date(Date.now() + 15 * 60000).toISOString();
+  const hours = new Date(testBeginAt).getHours().toString().padStart(2, "0");
+  const minutes = new Date(testBeginAt).getMinutes().toString().padStart(2, "0");
+  const timeStr = `${hours}:${minutes}`;
+
   const embed: DiscordEmbed = {
-    title: "Test Notification",
-    color: 0x57F287,
+    title: "Evaluation in 15 min",
+    color: 0x57f287,
     fields: [
-      { name: "42 Login", value: rawLogin, inline: true },
-      { name: "Status", value: "Discord notifications working!", inline: false },
+      { name: "Project", value: "ft_transcendence", inline: true },
+      { name: "Time", value: timeStr, inline: true },
+      { name: "Role", value: "Evaluator", inline: true },
+      { name: "Correcting", value: "elmo, kermit" },
     ],
+    timestamp: testBeginAt,
   };
 
   const result = await sendDiscordDm(discordId, embed, env);
