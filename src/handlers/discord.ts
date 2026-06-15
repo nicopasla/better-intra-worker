@@ -155,3 +155,110 @@ export interface DiscordEmbed {
   fields: { name: string; value: string; inline?: boolean }[];
   timestamp?: string;
 }
+
+export async function handleDiscordAuth(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const redirectUri = url.searchParams.get("redirect_uri") || "";
+  const token = url.searchParams.get("token") || "";
+  const login = url.searchParams.get("login") || "";
+  if (!redirectUri || !token || !login) {
+    return textRes("Missing redirect_uri, token, or login", 400);
+  }
+
+  const hashedLogin = await hashLogin(login);
+  const userData = await env.BETTER_INTRA_KV.get<UserData>(hashedLogin, { type: "json" });
+  if (!userData || !validateSession(userData, token)) {
+    return textRes("Unauthorized", 401);
+  }
+
+  const nonce = crypto.randomUUID();
+  await env.BETTER_INTRA_KV.put(
+    `discord_oauth_${nonce}`,
+    JSON.stringify({ hashedLogin, redirectUri }),
+    { expirationTtl: 300 },
+  );
+
+  const callbackUrl =
+    new URL(request.url).origin + "/discord/callback";
+
+  const authUrl = new URL("https://discord.com/oauth2/authorize");
+  authUrl.searchParams.set("client_id", env.DISCORD_CLIENT_ID || "");
+  authUrl.searchParams.set("redirect_uri", callbackUrl);
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("scope", "identify");
+  authUrl.searchParams.set("state", nonce);
+  return Response.redirect(authUrl.toString(), 302);
+}
+
+export async function handleDiscordCallback(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+  const nonce = url.searchParams.get("state");
+  if (!code || !nonce) return textRes("Missing code or state", 400);
+
+  const stored = await env.BETTER_INTRA_KV.get(`discord_oauth_${nonce}`);
+  await env.BETTER_INTRA_KV.delete(`discord_oauth_${nonce}`);
+  if (!stored) return textRes("Session expired", 400);
+
+  const { hashedLogin, redirectUri } = JSON.parse(stored) as {
+    hashedLogin: string;
+    redirectUri: string;
+  };
+
+  const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: new URL(request.url).origin + "/discord/callback",
+      client_id: env.DISCORD_CLIENT_ID || "",
+      client_secret: env.DISCORD_CLIENT_SECRET || "",
+    }),
+  });
+  if (!tokenRes.ok) {
+    return textRes("Failed to exchange Discord code", 500);
+  }
+
+  const tokens = (await tokenRes.json()) as { access_token?: string };
+  const accessToken = tokens.access_token;
+  if (!accessToken) return textRes("No access token in Discord response", 500);
+
+  const userRes = await fetch("https://discord.com/api/v10/users/@me", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!userRes.ok) {
+    return textRes("Failed to fetch Discord user", 500);
+  }
+
+  const discordUser = (await userRes.json()) as { id: string; username: string };
+  const discordId = discordUser.id;
+  const discordUsername = discordUser.username || "";
+
+  await fetch("https://discord.com/api/oauth2/token/revoke", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      token: accessToken,
+      client_id: env.DISCORD_CLIENT_ID || "",
+      client_secret: env.DISCORD_CLIENT_SECRET || "",
+    }),
+  });
+
+  const userData = await env.BETTER_INTRA_KV.get<UserData>(hashedLogin, { type: "json" });
+  if (userData) {
+    userData.discordId = discordId;
+    await env.BETTER_INTRA_KV.put(hashedLogin, JSON.stringify(userData));
+  }
+
+  const finalUrl = new URL(redirectUri);
+  finalUrl.searchParams.set("discord_id", discordId);
+  finalUrl.searchParams.set("discord_username", discordUsername);
+  return Response.redirect(finalUrl.toString(), 302);
+}

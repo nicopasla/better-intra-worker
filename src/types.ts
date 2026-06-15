@@ -6,6 +6,8 @@ export interface Env {
   CALLBACK_URL?: string;
   TOKEN_ENCRYPTION_KEY?: string; // base64-encoded 256-bit key for AES-GCM
   DISCORD_BOT_TOKEN?: string;
+  DISCORD_CLIENT_ID?: string;
+  DISCORD_CLIENT_SECRET?: string;
   DISCORD_ENABLED?: string;
 }
 
