@@ -120,7 +120,7 @@ export async function handleDiscordTest(
         { name: "Project", value: "ft_transcendence", inline: true },
         { name: "Time", value: timeStr, inline: true },
         { name: "Role", value: "Evaluator", inline: true },
-        { name: "Correcting", value: "elmo, kermit" },
+        { name: "Correcting", value: "elmo" },
       ],
       timestamp: testBeginAt,
     },
