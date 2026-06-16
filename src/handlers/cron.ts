@@ -57,7 +57,7 @@ async function processItem(
     const currentState = row?.state ?? null;
 
     if (correctedsVisible && currentState !== "revealed") {
-      const logins = item.correcteds.map((c: any) => c.login).join(", ");
+      const logins = item.correcteds.map((c: any) => `[${c.login}](https://profile-v3.intra.42.fr/users/${c.login})`).join(", ");
 
       if (currentState === "booked") {
         await env.better_intra_d1
