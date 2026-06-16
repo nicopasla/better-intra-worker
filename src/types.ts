@@ -10,6 +10,7 @@ export interface Env {
   DISCORD_CLIENT_SECRET?: string;
   DISCORD_ENABLED?: string;
   PROJECT_REFRESH_SECRET?: string;
+  DISCORD_GUILD_ID?: string;
 }
 
 export type UserData = {
@@ -70,4 +71,3 @@ export interface CursusUser {
   grade?: string;
   cursus_id: number;
 }
-

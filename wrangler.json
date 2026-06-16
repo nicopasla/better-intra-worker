@@ -18,7 +18,8 @@
   "vars": {
     "CLIENT_ID": "u-s4t2ud-8a3189d9af041af2f8775dc0f3b6ea37d1ee7b3c1a9cb8581dac62b631144138",
     "DISCORD_CLIENT_ID": "1515309907795251300",
-    "DISCORD_ENABLED": "true"
+    "DISCORD_ENABLED": "true",
+    "DISCORD_GUILD_ID": "1515328967807336518"
   },
   "triggers": {
     "crons": ["*/5 * * * *"]

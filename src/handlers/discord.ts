@@ -116,9 +116,18 @@ export async function handleDiscordTest(
       title: "Evaluation in 15 min",
       color: 0x57f287,
       fields: [
-        { name: "Project", value: "[ft_transcendence](https://projects.intra.42.fr/projects/ft_transcendence)", inline: true },
+        {
+          name: "Project",
+          value:
+            "[ft_transcendence](https://projects.intra.42.fr/projects/ft_transcendence)",
+          inline: true,
+        },
         { name: "Time", value: timeStr, inline: true },
-        { name: "Correcting", value: "[elmo](https://profile-v3.intra.42.fr/users/elmo), [kermit](https://profile-v3.intra.42.fr/users/kermit)" },
+        {
+          name: "Correcting",
+          value:
+            "[elmo](https://profile-v3.intra.42.fr/users/elmo), [kermit](https://profile-v3.intra.42.fr/users/kermit)",
+        },
       ],
       timestamp: testBeginAt,
     },
@@ -233,7 +242,7 @@ export async function handleDiscordAuth(
   authUrl.searchParams.set("client_id", env.DISCORD_CLIENT_ID || "");
   authUrl.searchParams.set("redirect_uri", callbackUrl);
   authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("scope", "identify");
+  authUrl.searchParams.set("scope", "identify guilds.join");
   authUrl.searchParams.set("state", nonce);
   return Response.redirect(authUrl.toString(), 302);
 }
@@ -288,6 +297,20 @@ export async function handleDiscordCallback(
   };
   const discordId = discordUser.id;
   const discordUsername = discordUser.username || "";
+
+  if (env.DISCORD_GUILD_ID) {
+    await fetch(
+      `https://discord.com/api/v10/guilds/${env.DISCORD_GUILD_ID}/members/${discordId}`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ access_token: accessToken }),
+      },
+    );
+  }
 
   await fetch("https://discord.com/api/oauth2/token/revoke", {
     method: "POST",
