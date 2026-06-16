@@ -9,6 +9,7 @@ export interface Env {
   DISCORD_CLIENT_ID?: string;
   DISCORD_CLIENT_SECRET?: string;
   DISCORD_ENABLED?: string;
+  PROJECT_REFRESH_SECRET?: string;
 }
 
 export type UserData = {
@@ -35,6 +36,7 @@ export interface UserResponse {
 export interface ProjectResponse {
   id: number;
   name: string;
+  slug: string;
 }
 
 export interface ScaleTeamItem {

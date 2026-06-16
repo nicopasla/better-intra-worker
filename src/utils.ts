@@ -1,5 +1,5 @@
 import { Env, UserData, TokenResponse, ProjectResponse } from "./types";
-import { APP_TOKEN_CACHE, PROJECT_MAP } from "./constants";
+import { APP_TOKEN_CACHE } from "./constants";
 
 export function getCallbackUrl(env?: { CALLBACK_URL?: string }): string {
   const base = env?.CALLBACK_URL?.replace(/\/+$/, "");
@@ -142,12 +142,12 @@ export async function updateProjectMap(env: Env, appToken: string) {
     page++;
   }
 
-  const map = allProjects.reduce((acc: Record<number, string>, p: any) => {
-    acc[p.id] = p.name;
-    return acc;
-  }, {});
-
-  await env.BETTER_INTRA_KV.put(PROJECT_MAP, JSON.stringify(map));
+  const stmt = env.better_intra_d1.prepare(
+    "INSERT OR REPLACE INTO projects (id, name, slug) VALUES (?, ?, ?)",
+  );
+  for (const p of allProjects) {
+    await stmt.bind(p.id, p.name, p.slug).run();
+  }
 }
 
 const keyCache = new WeakMap<Env, CryptoKey>();

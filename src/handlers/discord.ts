@@ -117,10 +117,10 @@ export async function handleDiscordTest(
       title: "Evaluation in 15 min",
       color: 0x57f287,
       fields: [
-        { name: "Project", value: "ft_transcendence", inline: true },
+        { name: "Project", value: "[ft_transcendence](https://projects.intra.42.fr/projects/ft_transcendence)", inline: true },
         { name: "Time", value: timeStr, inline: true },
         { name: "Role", value: "Evaluator", inline: true },
-        { name: "Correcting", value: "[elmo](https://profile-v3.intra.42.fr/users/elmo)" },
+        { name: "Correcting", value: "[elmo](https://profile-v3.intra.42.fr/users/elmo), [kermit](https://profile-v3.intra.42.fr/users/kermit)" },
       ],
       timestamp: testBeginAt,
     },

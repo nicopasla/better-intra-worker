@@ -1,7 +1,6 @@
 import { Env, UserData } from "../types";
 import { getUserToken } from "../utils";
 import { sendDiscordDm, DiscordEmbed } from "./discord";
-import { PROJECT_MAP } from "../constants";
 
 async function fetchScaleTeams(
   fortyTwoToken: string,
@@ -24,7 +23,7 @@ async function processItem(
   ctx: ExecutionContext,
   item: any,
   hash: string,
-  projectMap: Record<string, string>,
+  projectMap: Record<string, { name: string; slug: string }>,
   discordId: string | undefined,
 ) {
   const id = item.id;
@@ -35,9 +34,9 @@ async function processItem(
   ).toISOString();
   const team = item.team ?? null;
   const projectId = team?.project_id ?? null;
-  const projectName = projectId
-    ? (projectMap[String(projectId)] ?? null)
-    : null;
+  const project = projectId ? (projectMap[String(projectId)] ?? null) : null;
+  const projectName = project?.name ?? null;
+  const projectSlug = project?.slug ?? null;
   const teamName = team?.name ?? null;
 
   const isInvisible = (v: any) => typeof v === "string" && v === "invisible";
@@ -97,7 +96,7 @@ async function processItem(
           title: "Evaluation in 15 min",
           color: 0x57f287,
           fields: [
-            { name: "Project", value: projectName || "Unknown", inline: true },
+            { name: "Project", value: projectName ? `[${projectName}](https://projects.intra.42.fr/projects/${projectSlug})` : "Unknown", inline: true },
             { name: "Time", value: formatTime(beginAt), inline: true },
             { name: "Role", value: "Evaluator", inline: true },
             { name: "Correcting", value: logins },
@@ -135,7 +134,7 @@ async function processItem(
           title: "Evaluation Booked",
           color: 0x5865f2,
           fields: [
-            { name: "Project", value: projectName || "Unknown", inline: true },
+            { name: "Project", value: projectName ? `[${projectName}](https://projects.intra.42.fr/projects/${projectSlug})` : "Unknown", inline: true },
             { name: "Time", value: formatTime(beginAt), inline: true },
             { name: "Role", value: "Evaluator", inline: true },
           ],
@@ -156,10 +155,13 @@ export async function handleCron(
     .all<{ hash: string }>();
   if (!results || results.length === 0) return;
 
-  const projectMap: Record<string, string> =
-    (await env.BETTER_INTRA_KV.get<Record<string, string>>(PROJECT_MAP, {
-      type: "json",
-    })) ?? {};
+  const { results: projectResults } = await env.better_intra_d1
+    .prepare("SELECT id, name, slug FROM projects")
+    .all<{ id: number; name: string; slug: string }>();
+  const projectMap: Record<string, { name: string; slug: string }> = {};
+  for (const row of projectResults) {
+    projectMap[String(row.id)] = { name: row.name, slug: row.slug };
+  }
 
   for (const { hash } of results) {
     const userData = await env.BETTER_INTRA_KV.get<UserData>(hash, {
