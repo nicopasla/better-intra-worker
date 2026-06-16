@@ -47,9 +47,10 @@ async function processItem(
     const correctedsVisible =
       Array.isArray(item.correcteds) && item.correcteds.length > 0;
 
-    const row = await env.better_intra_d1.prepare(
-      "SELECT state FROM eval_states WHERE hash = ? AND eval_id = ? AND role = ?",
-    )
+    const row = await env.better_intra_d1
+      .prepare(
+        "SELECT state FROM eval_states WHERE hash = ? AND eval_id = ? AND role = ?",
+      )
       .bind(hash, id, role)
       .first<{ state: string }>();
 
@@ -59,15 +60,17 @@ async function processItem(
       const logins = item.correcteds.map((c: any) => c.login).join(", ");
 
       if (currentState === "booked") {
-        await env.better_intra_d1.prepare(
-          "UPDATE eval_states SET state = 'revealed', updated_at = unixepoch() WHERE hash = ? AND eval_id = ? AND role = ?",
-        )
+        await env.better_intra_d1
+          .prepare(
+            "UPDATE eval_states SET state = 'revealed', updated_at = unixepoch() WHERE hash = ? AND eval_id = ? AND role = ?",
+          )
           .bind(hash, id, role)
           .run();
       } else {
-        await env.better_intra_d1.prepare(
-          "INSERT OR REPLACE INTO eval_states (hash, eval_id, role, state) VALUES (?, ?, ?, 'revealed')",
-        )
+        await env.better_intra_d1
+          .prepare(
+            "INSERT OR REPLACE INTO eval_states (hash, eval_id, role, state) VALUES (?, ?, ?, 'revealed')",
+          )
           .bind(hash, id, role)
           .run();
       }
@@ -82,9 +85,10 @@ async function processItem(
         logins,
         teamName,
       };
-      await env.better_intra_d1.prepare(
-        "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
-      )
+      await env.better_intra_d1
+        .prepare(
+          "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
+        )
         .bind(hash, id, role, JSON.stringify(notif))
         .run();
 
@@ -103,9 +107,10 @@ async function processItem(
         ctx.waitUntil(sendDiscordDm(discordId, embed, env));
       }
     } else if (!correctedsVisible && currentState === null) {
-      await env.better_intra_d1.prepare(
-        "INSERT OR IGNORE INTO eval_states (hash, eval_id, role, state) VALUES (?, ?, ?, 'booked')",
-      )
+      await env.better_intra_d1
+        .prepare(
+          "INSERT OR IGNORE INTO eval_states (hash, eval_id, role, state) VALUES (?, ?, ?, 'booked')",
+        )
         .bind(hash, id, role)
         .run();
 
@@ -118,9 +123,10 @@ async function processItem(
         endAt,
         teamName,
       };
-      await env.better_intra_d1.prepare(
-        "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
-      )
+      await env.better_intra_d1
+        .prepare(
+          "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
+        )
         .bind(hash, id, role, JSON.stringify(notif))
         .run();
 
@@ -139,14 +145,15 @@ async function processItem(
       }
     }
   }
-
 }
 
 export async function handleCron(
   env: Env,
   ctx: ExecutionContext,
 ): Promise<void> {
-  const { results } = await env.better_intra_d1.prepare("SELECT hash FROM eval_users").all<{ hash: string }>();
+  const { results } = await env.better_intra_d1
+    .prepare("SELECT hash FROM eval_users")
+    .all<{ hash: string }>();
   if (!results || results.length === 0) return;
 
   const projectMap: Record<string, string> =
@@ -155,7 +162,9 @@ export async function handleCron(
     })) ?? {};
 
   for (const { hash } of results) {
-    const userData = await env.BETTER_INTRA_KV.get<UserData>(hash, { type: "json" });
+    const userData = await env.BETTER_INTRA_KV.get<UserData>(hash, {
+      type: "json",
+    });
     if (!userData?.fortyTwoToken) continue;
 
     const fortyTwoToken = await getUserToken(env, userData, hash);
@@ -163,7 +172,10 @@ export async function handleCron(
 
     const discordId: string | undefined = userData.discordId;
 
-    const { data: rawData, rateLimited } = await fetchScaleTeams(fortyTwoToken, 1);
+    const { data: rawData, rateLimited } = await fetchScaleTeams(
+      fortyTwoToken,
+      1,
+    );
     if (rateLimited) {
       console.warn(`[cron] 429 rate limited for ${hash}`);
       continue;
@@ -176,8 +188,6 @@ export async function handleCron(
 }
 
 function formatTime(iso: string): string {
-  const d = new Date(iso);
-  const hours = d.getHours().toString().padStart(2, "0");
-  const minutes = d.getMinutes().toString().padStart(2, "0");
-  return `${hours}:${minutes}`;
+  const unix = Math.floor(new Date(iso).getTime() / 1000);
+  return `<t:${unix}:t>`;
 }

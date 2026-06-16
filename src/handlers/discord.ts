@@ -1,5 +1,11 @@
 import { Env, UserData } from "../types";
-import { getBearerToken, hashLogin, jsonRes, textRes, validateSession } from "../utils";
+import {
+  getBearerToken,
+  hashLogin,
+  jsonRes,
+  textRes,
+  validateSession,
+} from "../utils";
 
 export async function handleDiscordLink(
   request: Request,
@@ -17,7 +23,11 @@ export async function handleDiscordLink(
   }
 
   let body: any;
-  try { body = await request.json(); } catch { return textRes("Invalid JSON body", 400); }
+  try {
+    body = await request.json();
+  } catch {
+    return textRes("Invalid JSON body", 400);
+  }
   const discordId = String(body?.discordId || "").trim();
   if (!discordId) return textRes("Missing discordId", 400);
 
@@ -58,30 +68,39 @@ export async function handleDiscordTest(
   if (!authHeader) return textRes("Missing Authorization Token", 401);
 
   let body: any;
-  try { body = await request.json(); } catch { return textRes("Invalid JSON body", 400); }
+  try {
+    body = await request.json();
+  } catch {
+    return textRes("Invalid JSON body", 400);
+  }
   const rawLogin = String(body?.login || "").trim();
   if (!rawLogin) return textRes("Missing login", 400);
 
   const loginParam = await hashLogin(rawLogin);
-  const existingData = await env.BETTER_INTRA_KV.get<UserData>(loginParam, { type: "json" });
+  const existingData = await env.BETTER_INTRA_KV.get<UserData>(loginParam, {
+    type: "json",
+  });
   if (!existingData) return textRes("User not found", 404);
   if (!validateSession(existingData, authHeader)) {
     return textRes("Unauthorized: Invalid Session Token", 401);
   }
 
   if (!env.DISCORD_BOT_TOKEN) {
-    return textRes("Discord bot not configured on the server. Contact admin.", 500);
+    return textRes(
+      "Discord bot not configured on the server. Contact admin.",
+      500,
+    );
   }
 
-  const discordId = existingData.discordId || String(body?.discordId || "").trim();
+  const discordId =
+    existingData.discordId || String(body?.discordId || "").trim();
   if (!discordId) {
     return textRes("No Discord linked. Set your Discord User ID first.", 400);
   }
 
   const testBeginAt = new Date(Date.now() + 15 * 60000).toISOString();
-  const hours = new Date(testBeginAt).getHours().toString().padStart(2, "0");
-  const minutes = new Date(testBeginAt).getMinutes().toString().padStart(2, "0");
-  const timeStr = `${hours}:${minutes}`;
+  const unix = Math.floor(new Date(testBeginAt).getTime() / 1000);
+  const timeStr = `<t:${unix}:t>`;
 
   const embed: DiscordEmbed = {
     title: "Evaluation in 15 min",
@@ -131,20 +150,27 @@ export async function sendDiscordDm(
   }
 
   let channel: any;
-  try { channel = await channelRes.json(); } catch { return { ok: false, body: "Invalid channel response" }; }
+  try {
+    channel = await channelRes.json();
+  } catch {
+    return { ok: false, body: "Invalid channel response" };
+  }
   const channelId = channel.id;
   if (!channelId) return { ok: false, body: "No channel id in response" };
 
   let msgRes: Response;
   try {
-    msgRes = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bot ${botToken}`,
-        "Content-Type": "application/json",
+    msgRes = await fetch(
+      `https://discord.com/api/v10/channels/${channelId}/messages`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bot ${botToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ embeds: [embed] }),
       },
-      body: JSON.stringify({ embeds: [embed] }),
-    });
+    );
   } catch {
     return { ok: false, body: "Network error sending message" };
   }
@@ -177,7 +203,9 @@ export async function handleDiscordAuth(
   }
 
   const hashedLogin = await hashLogin(login);
-  const userData = await env.BETTER_INTRA_KV.get<UserData>(hashedLogin, { type: "json" });
+  const userData = await env.BETTER_INTRA_KV.get<UserData>(hashedLogin, {
+    type: "json",
+  });
   if (!userData || !validateSession(userData, token)) {
     return textRes("Unauthorized", 401);
   }
@@ -189,8 +217,7 @@ export async function handleDiscordAuth(
     { expirationTtl: 300 },
   );
 
-  const callbackUrl =
-    new URL(request.url).origin + "/discord/callback";
+  const callbackUrl = new URL(request.url).origin + "/discord/callback";
 
   const authUrl = new URL("https://discord.com/oauth2/authorize");
   authUrl.searchParams.set("client_id", env.DISCORD_CLIENT_ID || "");
@@ -245,7 +272,10 @@ export async function handleDiscordCallback(
     return textRes("Failed to fetch Discord user", 500);
   }
 
-  const discordUser = (await userRes.json()) as { id: string; username: string };
+  const discordUser = (await userRes.json()) as {
+    id: string;
+    username: string;
+  };
   const discordId = discordUser.id;
   const discordUsername = discordUser.username || "";
 
@@ -259,7 +289,9 @@ export async function handleDiscordCallback(
     }),
   });
 
-  const userData = await env.BETTER_INTRA_KV.get<UserData>(hashedLogin, { type: "json" });
+  const userData = await env.BETTER_INTRA_KV.get<UserData>(hashedLogin, {
+    type: "json",
+  });
   if (userData) {
     userData.discordId = discordId;
     userData.discordUsername = discordUsername;
