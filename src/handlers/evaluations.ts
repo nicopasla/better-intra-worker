@@ -20,17 +20,19 @@ export async function handleEvaluations(
   const action = url.searchParams.get("action") || "";
 
   if (action === "pending") {
-    const { results } = await env.better_intra_d1.prepare(
-      "SELECT data FROM pending_notifs WHERE hash = ? AND consumed = 0",
-    )
+    const { results } = await env.better_intra_d1
+      .prepare(
+        "SELECT data FROM pending_notifs WHERE hash = ? AND consumed = 0",
+      )
       .bind(loginParam)
       .all<{ data: string }>();
 
     const notifications = (results || []).map((r) => JSON.parse(r.data));
 
-    await env.better_intra_d1.prepare(
-      "UPDATE pending_notifs SET consumed = 1 WHERE hash = ? AND consumed = 0",
-    )
+    await env.better_intra_d1
+      .prepare(
+        "UPDATE pending_notifs SET consumed = 1 WHERE hash = ? AND consumed = 0",
+      )
       .bind(loginParam)
       .run();
 
@@ -38,16 +40,19 @@ export async function handleEvaluations(
   }
 
   if (action === "register") {
-    await env.better_intra_d1.prepare(
-      "INSERT OR IGNORE INTO eval_users (hash) VALUES (?)",
-    )
+    if (!existingData?.fortyTwoToken) {
+      return jsonRes({ registered: false, reason: "missing_42_token" });
+    }
+    await env.better_intra_d1
+      .prepare("INSERT OR IGNORE INTO eval_users (hash) VALUES (?)")
       .bind(loginParam)
       .run();
     return jsonRes({ registered: true });
   }
 
   if (action === "unregister") {
-    await env.better_intra_d1.prepare("DELETE FROM eval_users WHERE hash = ?")
+    await env.better_intra_d1
+      .prepare("DELETE FROM eval_users WHERE hash = ?")
       .bind(loginParam)
       .run();
     return jsonRes({ unregistered: true });
