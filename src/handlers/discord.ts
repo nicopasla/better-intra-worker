@@ -109,7 +109,6 @@ export async function handleDiscordTest(
       fields: [
         { name: "Project", value: "Unknown", inline: true },
         { name: "Time", value: timeStr, inline: true },
-        { name: "Role", value: "Evaluator", inline: true },
       ],
       timestamp: testBeginAt,
     },
@@ -119,7 +118,6 @@ export async function handleDiscordTest(
       fields: [
         { name: "Project", value: "[ft_transcendence](https://projects.intra.42.fr/projects/ft_transcendence)", inline: true },
         { name: "Time", value: timeStr, inline: true },
-        { name: "Role", value: "Evaluator", inline: true },
         { name: "Correcting", value: "[elmo](https://profile-v3.intra.42.fr/users/elmo), [kermit](https://profile-v3.intra.42.fr/users/kermit)" },
       ],
       timestamp: testBeginAt,

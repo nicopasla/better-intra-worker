@@ -98,7 +98,6 @@ async function processItem(
           fields: [
             { name: "Project", value: projectName ? `[${projectName}](https://projects.intra.42.fr/projects/${projectSlug})` : "Unknown", inline: true },
             { name: "Time", value: formatTime(beginAt), inline: true },
-            { name: "Role", value: "Evaluator", inline: true },
             { name: "Correcting", value: logins },
           ],
           timestamp: beginAt,
@@ -136,7 +135,6 @@ async function processItem(
           fields: [
             { name: "Project", value: projectName ? `[${projectName}](https://projects.intra.42.fr/projects/${projectSlug})` : "Unknown", inline: true },
             { name: "Time", value: formatTime(beginAt), inline: true },
-            { name: "Role", value: "Evaluator", inline: true },
           ],
           timestamp: beginAt,
         };
