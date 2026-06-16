@@ -104,7 +104,7 @@ async function processItem(
           ],
           timestamp: beginAt,
         };
-        ctx.waitUntil(sendDiscordDm(discordId, embed, env));
+        ctx.waitUntil(sendDiscordDm(discordId, [embed], env));
       }
     } else if (!correctedsVisible && currentState === null) {
       await env.better_intra_d1
@@ -141,7 +141,7 @@ async function processItem(
           ],
           timestamp: beginAt,
         };
-        ctx.waitUntil(sendDiscordDm(discordId, embed, env));
+        ctx.waitUntil(sendDiscordDm(discordId, [embed], env));
       }
     }
   }

@@ -102,19 +102,31 @@ export async function handleDiscordTest(
   const unix = Math.floor(new Date(testBeginAt).getTime() / 1000);
   const timeStr = `<t:${unix}:t>`;
 
-  const embed: DiscordEmbed = {
-    title: "Evaluation in 15 min",
-    color: 0x57f287,
-    fields: [
-      { name: "Project", value: "ft_transcendence", inline: true },
-      { name: "Time", value: timeStr, inline: true },
-      { name: "Role", value: "Evaluator", inline: true },
-      { name: "Correcting", value: "elmo, kermit" },
-    ],
-    timestamp: testBeginAt,
-  };
+  const embeds: DiscordEmbed[] = [
+    {
+      title: "Evaluation Booked",
+      color: 0x5865f2,
+      fields: [
+        { name: "Project", value: "Unknown", inline: true },
+        { name: "Time", value: timeStr, inline: true },
+        { name: "Role", value: "Evaluator", inline: true },
+      ],
+      timestamp: testBeginAt,
+    },
+    {
+      title: "Evaluation in 15 min",
+      color: 0x57f287,
+      fields: [
+        { name: "Project", value: "ft_transcendence", inline: true },
+        { name: "Time", value: timeStr, inline: true },
+        { name: "Role", value: "Evaluator", inline: true },
+        { name: "Correcting", value: "elmo, kermit" },
+      ],
+      timestamp: testBeginAt,
+    },
+  ];
 
-  const result = await sendDiscordDm(discordId, embed, env);
+  const result = await sendDiscordDm(discordId, embeds, env);
   if (!result.ok) {
     return textRes(`Discord API error (${result.status}): ${result.body}`, 502);
   }
@@ -124,7 +136,7 @@ export async function handleDiscordTest(
 
 export async function sendDiscordDm(
   discordId: string,
-  embed: DiscordEmbed,
+  embeds: DiscordEmbed[],
   env: Env,
 ): Promise<{ ok: boolean; status?: number; body?: string }> {
   const botToken = env.DISCORD_BOT_TOKEN;
@@ -168,7 +180,7 @@ export async function sendDiscordDm(
           Authorization: `Bot ${botToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ embeds: [embed] }),
+        body: JSON.stringify({ embeds }),
       },
     );
   } catch {
