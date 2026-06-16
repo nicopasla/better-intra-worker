@@ -142,11 +142,14 @@ export async function updateProjectMap(env: Env, appToken: string) {
     page++;
   }
 
-  const stmt = env.better_intra_d1.prepare(
-    "INSERT OR REPLACE INTO projects (id, name, slug) VALUES (?, ?, ?)",
-  );
-  for (const p of allProjects) {
-    await stmt.bind(p.id, p.name, p.slug).run();
+  const batchSize = 100;
+  for (let i = 0; i < allProjects.length; i += batchSize) {
+    const batch = allProjects.slice(i, i + batchSize).map((p) =>
+      env.better_intra_d1.prepare(
+        "INSERT OR REPLACE INTO projects (id, name, slug) VALUES (?, ?, ?)",
+      ).bind(p.id, p.name, p.slug),
+    );
+    await env.better_intra_d1.batch(batch);
   }
 }
 
