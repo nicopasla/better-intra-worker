@@ -1,5 +1,11 @@
 import { Env, UserData, TokenResponse, UserResponse } from "../types";
-import { encryptTokenData, getTokens, hashLogin, textRes, getCallbackUrl } from "../utils";
+import {
+  encryptTokenData,
+  getTokens,
+  hashLogin,
+  textRes,
+  getCallbackUrl,
+} from "../utils";
 
 export async function handleLogin(
   request: Request,
@@ -10,12 +16,16 @@ export async function handleLogin(
   if (!extUri) return textRes("Missing redirect_uri from extension", 400);
 
   let parsed: URL;
-  try { parsed = new URL(extUri); }
-  catch { return textRes("Invalid redirect_uri", 400); }
+  try {
+    parsed = new URL(extUri);
+  } catch {
+    return textRes("Invalid redirect_uri", 400);
+  }
 
   const { hostname, protocol } = parsed;
 
-  const isExtension = protocol === "chrome-extension:" || protocol === "moz-extension:";
+  const isExtension =
+    protocol === "chrome-extension:" || protocol === "moz-extension:";
   const parts = hostname.split(".");
   const isIntra =
     hostname === "profile-v3.intra.42.fr" ||
@@ -46,13 +56,20 @@ export async function handleCallback(
   if (!code || !extUri) return textRes("Missing code or state", 400);
 
   let redirectTarget: URL;
-  try { redirectTarget = new URL(extUri); }
-  catch { return textRes("Invalid state", 400); }
+  try {
+    redirectTarget = new URL(extUri);
+  } catch {
+    return textRes("Invalid state", 400);
+  }
 
   const { hostname: cbHostname, protocol: cbProtocol } = redirectTarget;
   const cbParts = cbHostname.split(".");
-  const cbIsExtension = cbProtocol === "chrome-extension:" || cbProtocol === "moz-extension:";
-  const cbIsIntra = cbHostname === "profile-v3.intra.42.fr" || (cbHostname.endsWith(".42.fr") && (cbParts.length === 3 || cbParts.length === 4));
+  const cbIsExtension =
+    cbProtocol === "chrome-extension:" || cbProtocol === "moz-extension:";
+  const cbIsIntra =
+    cbHostname === "profile-v3.intra.42.fr" ||
+    (cbHostname.endsWith(".42.fr") &&
+      (cbParts.length === 3 || cbParts.length === 4));
   if (!cbIsExtension && !cbIsIntra) {
     return textRes("Invalid state", 400);
   }
@@ -88,7 +105,9 @@ export async function handleCallback(
     if (!userResponse.ok) {
       return textRes("Failed to fetch user info from 42", 502);
     }
-    const rawLogin = ((await userResponse.json()) as UserResponse).login;
+    const rawUser = (await userResponse.json()) as UserResponse;
+    const rawLogin = rawUser.login;
+    const userId = rawUser.id;
     if (!rawLogin) return textRes("Invalid 42 session", 400);
 
     const hashedLogin = await hashLogin(rawLogin);
@@ -105,7 +124,7 @@ export async function handleCallback(
     const encryptedTokens = await encryptTokenData(env, {
       access_token: tokenData.access_token,
       refresh_token: tokenData.refresh_token ?? "",
-      expires_at: Date.now() + ((tokenData.expires_in ?? 7200) * 1000),
+      expires_at: Date.now() + (tokenData.expires_in ?? 7200) * 1000,
     });
 
     await env.BETTER_INTRA_KV.put(
@@ -114,6 +133,7 @@ export async function handleCallback(
         sessionTokens: activeTokens,
         settings: existing.settings || {},
         fortyTwoToken: encryptedTokens,
+        fortyTwoUserId: userId,
       }),
     );
 
@@ -136,6 +156,9 @@ export async function handleCallback(
     );
   } catch (e) {
     console.error("Auth callback error:", e);
-    return textRes(`Auth Server Error: ${e instanceof Error ? e.message : String(e)}`, 500);
+    return textRes(
+      `Auth Server Error: ${e instanceof Error ? e.message : String(e)}`,
+      500,
+    );
   }
 }

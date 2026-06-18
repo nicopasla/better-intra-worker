@@ -18,6 +18,7 @@ export type UserData = {
   sessionToken?: string; // legacy
   settings?: Record<string, unknown>;
   fortyTwoToken?: string; // AES-GCM encrypted JSON: { access_token, refresh_token, expires_at }
+  fortyTwoUserId?: number;
   discordId?: string;
   discordUsername?: string;
 };
@@ -31,6 +32,7 @@ export interface TokenResponse {
 }
 
 export interface UserResponse {
+  id?: number;
   login?: string;
 }
 

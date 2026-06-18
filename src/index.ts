@@ -6,10 +6,23 @@ import {
 import { handleFriendsData } from "./handlers/friends";
 import { handleProxy } from "./handlers/proxy";
 import { handleEvaluations } from "./handlers/evaluations";
-import { handleDiscordLink, handleDiscordUnlink, handleDiscordTest, handleDiscordAuth, handleDiscordCallback } from "./handlers/discord";
+import { handleOutstanding } from "./handlers/outstanding";
+import {
+  handleDiscordLink,
+  handleDiscordUnlink,
+  handleDiscordTest,
+  handleDiscordAuth,
+  handleDiscordCallback,
+} from "./handlers/discord";
 import { handleCron } from "./handlers/cron";
 import { Env, UserData } from "./types";
-import { isOriginAllowed, textRes, getAppToken, updateProjectMap, jsonRes } from "./utils";
+import {
+  isOriginAllowed,
+  textRes,
+  getAppToken,
+  updateProjectMap,
+  jsonRes,
+} from "./utils";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -48,13 +61,20 @@ export default {
     if (url.pathname === "/api/v1/private/projects/refresh") {
       if (request.method !== "POST") return textRes("Method not allowed", 405);
       let body: any;
-      try { body = await request.json(); } catch { return textRes("Invalid JSON", 400); }
-      if (!body?.secret || body.secret !== env.PROJECT_REFRESH_SECRET) return textRes("Forbidden", 403);
+      try {
+        body = await request.json();
+      } catch {
+        return textRes("Invalid JSON", 400);
+      }
+      if (!body?.secret || body.secret !== env.PROJECT_REFRESH_SECRET)
+        return textRes("Forbidden", 403);
       try {
         const appToken = await getAppToken(env);
         await updateProjectMap(env, appToken);
         return jsonRes({ refreshed: true });
-      } catch (e) { return textRes(`Refresh failed: ${e}`, 500); }
+      } catch (e) {
+        return textRes(`Refresh failed: ${e}`, 500);
+      }
     }
 
     if (url.pathname === "/discord/auth") {
@@ -93,6 +113,10 @@ export default {
 
     if (url.pathname === "/api/v1/private/evaluations") {
       return handleEvaluations(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/outstanding") {
+      return handleOutstanding(request, env, loginParam, existingData);
     }
 
     if (url.pathname === "/api/v1/private/discord/link") {
