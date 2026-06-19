@@ -5,20 +5,21 @@ import {
   jsonRes,
   textRes,
   getUserToken,
+  hashLogin,
 } from "../utils";
 
 async function syncFromApi(
   env: Env,
   hash: string,
   userToken: string,
-  userId: number,
+  login: string,
   stopAtHistoricId: number,
 ): Promise<void> {
   let page = 1;
   const maxPages = 5;
 
   while (page <= maxPages) {
-    const url = `https://api.intra.42.fr/v2/users/${userId}/correction_point_historics?filter[reason]=${encodeURIComponent("Thursday Roulette")}&page[size]=100&page[number]=${page}&sort=-id`;
+    const url = `https://api.intra.42.fr/v2/users/${login}/correction_point_historics?filter[reason]=Thursday+Roulette&page[size]=100&page[number]=${page}&sort=-id`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${userToken}` },
     });
@@ -56,7 +57,7 @@ async function queryD1(
 > {
   const { results } = await env.better_intra_d1
     .prepare(
-      "SELECT historic_id, sum, total, created_at FROM correction_point_historics WHERE hash = ? ORDER BY created_at ASC",
+      "SELECT historic_id, sum, total, created_at FROM correction_point_historics WHERE hash = ? ORDER BY created_at DESC",
     )
     .bind(hash)
     .all<{
@@ -80,40 +81,24 @@ export async function handleRoulette(
   if (!validateSession(existingData, sessionToken))
     return textRes("Invalid session token", 401);
 
-  let userId: number | undefined = existingData.fortyTwoUserId;
   const userToken = await getUserToken(env, existingData, loginParam);
+  if (!userToken) return textRes("No valid token", 401);
 
-  if (userToken && !userId) {
-    const meRes = await fetch("https://api.intra.42.fr/v2/me", {
-      headers: { Authorization: `Bearer ${userToken}` },
-    });
-    if (meRes.ok) {
-      const meData = (await meRes.json()) as { id?: number };
-      userId = meData.id;
-      if (userId) {
-        existingData.fortyTwoUserId = userId;
-        await env.BETTER_INTRA_KV.put(loginParam, JSON.stringify(existingData));
-      }
-    }
+  const url = new URL(request.url);
+  const targetLogin = url.searchParams.get("target");
+  if (!targetLogin) return textRes("Missing target param", 400);
+
+  const hash = await hashLogin(targetLogin);
+
+  const entries = await queryD1(env, hash);
+  if (entries.length === 0) {
+    await syncFromApi(env, hash, userToken, targetLogin, 0);
+    const fresh = await queryD1(env, hash);
+    return jsonRes({ entries: fresh });
   }
 
-  if (userId && userToken) {
-    const latest = await env.better_intra_d1
-      .prepare(
-        "SELECT historic_id FROM correction_point_historics WHERE hash = ? ORDER BY historic_id DESC LIMIT 1",
-      )
-      .bind(loginParam)
-      .first<{ historic_id: number }>();
-
-    await syncFromApi(
-      env,
-      loginParam,
-      userToken,
-      userId,
-      latest?.historic_id ?? 0,
-    );
-  }
-
-  const entries = await queryD1(env, loginParam);
-  return jsonRes({ entries });
+  const latestId = Math.max(...entries.map((e) => e.historic_id));
+  await syncFromApi(env, hash, userToken, targetLogin, latestId);
+  const merged = await queryD1(env, hash);
+  return jsonRes({ entries: merged });
 }
