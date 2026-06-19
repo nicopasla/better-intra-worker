@@ -27,3 +27,12 @@ CREATE TABLE IF NOT EXISTS projects (
   name TEXT NOT NULL,
   slug TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS correction_point_historics (
+  hash TEXT NOT NULL,
+  historic_id INTEGER NOT NULL,
+  sum INTEGER NOT NULL,
+  total INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (hash, historic_id)
+);

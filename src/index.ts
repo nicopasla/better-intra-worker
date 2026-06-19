@@ -7,6 +7,7 @@ import { handleFriendsData } from "./handlers/friends";
 import { handleProxy } from "./handlers/proxy";
 import { handleEvaluations } from "./handlers/evaluations";
 import { handleOutstanding } from "./handlers/outstanding";
+import { handleRoulette } from "./handlers/roulette";
 import {
   handleDiscordLink,
   handleDiscordUnlink,
@@ -117,6 +118,10 @@ export default {
 
     if (url.pathname === "/api/v1/private/outstanding") {
       return handleOutstanding(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/roulette") {
+      return handleRoulette(request, env, loginParam, existingData);
     }
 
     if (url.pathname === "/api/v1/private/discord/link") {
