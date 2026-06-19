@@ -18,7 +18,7 @@ async function syncFromApi(
   const maxPages = 20;
 
   while (page <= maxPages) {
-    const url = `https://api.intra.42.fr/v2/users/${userId}/scale_teams/as_corrected?page[size]=100&page[number]=${page}&sort=-id`;
+    const url = `https://api.intra.42.fr/v2/users/${userId}/scale_teams/as_corrected?filter[flag_id]=9&page[size]=100&page[number]=${page}&sort=-id`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${userToken}` },
     });
@@ -33,10 +33,7 @@ async function syncFromApi(
         if (batch.length > 0) await env.better_intra_d1.batch(batch);
         return;
       }
-      if (
-        st.flag?.name === "Outstanding project" &&
-        st.team?.users?.[0]?.projects_user_id
-      ) {
+      if (st.team?.users?.[0]?.projects_user_id) {
         batch.push(
           env.better_intra_d1
             .prepare(
