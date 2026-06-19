@@ -18,7 +18,7 @@ async function syncFromApi(
   const maxPages = 5;
 
   while (page <= maxPages) {
-    const url = `https://api.intra.42.fr/v2/users/${userId}/correction_point_historics?filter[reason]=Thursday+Roulette&page[size]=100&page[number]=${page}&sort=-id`;
+    const url = `https://api.intra.42.fr/v2/users/${userId}/correction_point_historics?filter[reason]=${encodeURIComponent("Thursday Roulette")}&page[size]=100&page[number]=${page}&sort=-id`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${userToken}` },
     });
