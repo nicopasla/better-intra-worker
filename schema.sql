@@ -38,3 +38,17 @@ CREATE TABLE IF NOT EXISTS correction_point_historics (
   created_at TEXT NOT NULL,
   PRIMARY KEY (hash, historic_id)
 );
+
+CREATE TABLE IF NOT EXISTS outstanding_projects (
+  hash TEXT NOT NULL,
+  scale_team_id INTEGER NOT NULL,
+  projects_user_id INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  PRIMARY KEY (hash, scale_team_id)
+);
+
+CREATE TABLE IF NOT EXISTS outstanding_sync_state (
+  hash TEXT PRIMARY KEY,
+  completed_count INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);

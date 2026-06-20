@@ -5,20 +5,21 @@ import {
   jsonRes,
   textRes,
   getUserToken,
+  hashLogin,
 } from "../utils";
 
 async function syncFromApi(
   env: Env,
   hash: string,
   userToken: string,
-  userId: number,
+  userIdentifier: string,
   stopAtScaleTeamId: number,
 ): Promise<void> {
   let page = 1;
   const maxPages = 20;
 
   while (page <= maxPages) {
-    const url = `https://api.intra.42.fr/v2/users/${userId}/scale_teams/as_corrected?filter[flag_id]=9&page[size]=100&page[number]=${page}&sort=-id`;
+    const url = `https://api.intra.42.fr/v2/users/${userIdentifier}/scale_teams/as_corrected?filter[flag_id]=9&page[size]=100&page[number]=${page}&sort=-id`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${userToken}` },
     });
@@ -85,6 +86,54 @@ export async function handleOutstanding(
   if (!validateSession(existingData, sessionToken))
     return textRes("Invalid session token", 401);
 
+  const url = new URL(request.url);
+  const targetLogin = url.searchParams.get("target");
+
+  if (targetLogin) {
+    const userToken = await getUserToken(env, existingData, loginParam);
+    const targetHash = await hashLogin(targetLogin);
+    const countParam = url.searchParams.get("count");
+
+    const syncRow = await env.better_intra_d1
+      .prepare(
+        "SELECT completed_count FROM outstanding_sync_state WHERE hash = ?",
+      )
+      .bind(targetHash)
+      .first<{ completed_count: number }>();
+
+    const storedCount = syncRow?.completed_count;
+    const countChanged =
+      storedCount === undefined || String(storedCount) !== countParam;
+
+    if (countChanged && userToken) {
+      const latest = await env.better_intra_d1
+        .prepare(
+          "SELECT scale_team_id FROM outstanding_projects WHERE hash = ? ORDER BY scale_team_id DESC LIMIT 1",
+        )
+        .bind(targetHash)
+        .first<{ scale_team_id: number }>();
+
+      await syncFromApi(
+        env,
+        targetHash,
+        userToken,
+        targetLogin,
+        latest?.scale_team_id ?? 0,
+      );
+
+      if (countParam) {
+        await env.better_intra_d1
+          .prepare(
+            "INSERT OR REPLACE INTO outstanding_sync_state (hash, completed_count, updated_at) VALUES (?, ?, unixepoch())",
+          )
+          .bind(targetHash, Number(countParam))
+          .run();
+      }
+    }
+
+    return buildResponse(await queryD1(env, targetHash));
+  }
+
   let userId: number | undefined = existingData.fortyTwoUserId;
   const userToken = await getUserToken(env, existingData, loginParam);
 
@@ -114,7 +163,7 @@ export async function handleOutstanding(
       env,
       loginParam,
       userToken,
-      userId,
+      String(userId),
       latest?.scale_team_id ?? 0,
     );
   }
