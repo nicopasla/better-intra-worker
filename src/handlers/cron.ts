@@ -8,6 +8,25 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isInQuietHours(userData: UserData): boolean {
+  if (!userData?.discordQuietEnabled) return false;
+  const now = new Date();
+  const currentMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const [startH, startM] = (userData.discordQuietStart || "22:00")
+    .split(":")
+    .map(Number);
+  const [endH, endM] = (userData.discordQuietEnd || "08:00")
+    .split(":")
+    .map(Number);
+  const start = startH * 60 + startM;
+  const end = endH * 60 + endM;
+
+  if (start < end) {
+    return currentMinutes >= start && currentMinutes < end;
+  }
+  return currentMinutes >= start || currentMinutes < end;
+}
+
 async function fetchScaleTeams(
   fortyTwoToken: string,
   page: number,
@@ -204,6 +223,8 @@ export async function handleMainCron(
     });
     if (!userData?.fortyTwoToken) continue;
 
+    if (isInQuietHours(userData)) continue;
+
     const fortyTwoToken = await getUserToken(env, userData, hash);
     if (!fortyTwoToken) continue;
 
@@ -262,6 +283,8 @@ export async function handleRevealCatchup(
       type: "json",
     });
     if (!userData?.fortyTwoToken) continue;
+
+    if (isInQuietHours(userData)) continue;
 
     const fortyTwoToken = await getUserToken(env, userData, hash);
     if (!fortyTwoToken) continue;

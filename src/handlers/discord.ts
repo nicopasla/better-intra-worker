@@ -58,6 +58,36 @@ export async function handleDiscordUnlink(
   return jsonRes({ unlinked: true });
 }
 
+export async function handleDiscordQuiet(
+  request: Request,
+  env: Env,
+  loginParam: string,
+  existingData: UserData | null,
+): Promise<Response> {
+  if (request.method !== "POST") return textRes("Method not allowed", 405);
+
+  const authHeader = getBearerToken(request);
+  if (!authHeader) return textRes("Missing Authorization Token", 401);
+  if (!existingData) return textRes("User not found", 404);
+  if (!validateSession(existingData, authHeader)) {
+    return textRes("Unauthorized: Invalid Session Token", 401);
+  }
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return textRes("Invalid JSON body", 400);
+  }
+
+  existingData.discordQuietEnabled = body?.quietEnabled === true;
+  existingData.discordQuietStart = String(body?.quietStart || "22:00");
+  existingData.discordQuietEnd = String(body?.quietEnd || "08:00");
+  await env.BETTER_INTRA_KV.put(loginParam, JSON.stringify(existingData));
+
+  return jsonRes({ saved: true });
+}
+
 export async function handleDiscordTest(
   request: Request,
   env: Env,

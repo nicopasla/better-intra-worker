@@ -21,6 +21,9 @@ export type UserData = {
   fortyTwoUserId?: number;
   discordId?: string;
   discordUsername?: string;
+  discordQuietEnabled?: boolean;
+  discordQuietStart?: string;
+  discordQuietEnd?: string;
 };
 
 export interface TokenResponse {

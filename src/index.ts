@@ -11,6 +11,7 @@ import { handleRoulette } from "./handlers/roulette";
 import {
   handleDiscordLink,
   handleDiscordUnlink,
+  handleDiscordQuiet,
   handleDiscordTest,
   handleDiscordAuth,
   handleDiscordCallback,
@@ -130,6 +131,10 @@ export default {
 
     if (url.pathname === "/api/v1/private/discord/unlink") {
       return handleDiscordUnlink(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/discord/quiet") {
+      return handleDiscordQuiet(request, env, loginParam, existingData);
     }
 
     return textRes("Not found", 404);
