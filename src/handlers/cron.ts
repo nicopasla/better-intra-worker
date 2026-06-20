@@ -2,20 +2,40 @@ import { Env, UserData } from "../types";
 import { getUserToken } from "../utils";
 import { sendDiscordDm, DiscordEmbed } from "./discord";
 
+const DELAY_MS = 600;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function fetchScaleTeams(
   fortyTwoToken: string,
   page: number,
 ): Promise<{ data: any[]; rateLimited: boolean }> {
   const url = `https://api.intra.42.fr/v2/me/scale_teams/as_corrector?page[size]=100&page[number]=${page}`;
-  const apiRes = await fetch(url, {
-    headers: { Authorization: `Bearer ${fortyTwoToken}` },
-  });
 
-  if (apiRes.status === 429) return { data: [], rateLimited: true };
-  if (!apiRes.ok) return { data: [], rateLimited: false };
+  let waitMs = 1500;
 
-  const data: any[] = await apiRes.json();
-  return { data, rateLimited: false };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const apiRes = await fetch(url, {
+      headers: { Authorization: `Bearer ${fortyTwoToken}` },
+    });
+
+    if (apiRes.status !== 429) {
+      if (!apiRes.ok) return { data: [], rateLimited: false };
+      const data: any[] = await apiRes.json();
+      return { data, rateLimited: false };
+    }
+
+    if (attempt < 2) {
+      const retryAfter = apiRes.headers.get("Retry-After");
+      const delayMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : waitMs;
+      await delay(delayMs);
+      waitMs *= 2;
+    }
+  }
+
+  return { data: [], rateLimited: true };
 }
 
 async function processItem(
@@ -56,7 +76,12 @@ async function processItem(
     const currentState = row?.state ?? null;
 
     if (correctedsVisible && currentState !== "revealed") {
-      const logins = item.correcteds.map((c: any) => `[${c.login}](https://profile-v3.intra.42.fr/users/${c.login})`).join(", ");
+      const logins = item.correcteds
+        .map(
+          (c: any) =>
+            `[${c.login}](https://profile-v3.intra.42.fr/users/${c.login})`,
+        )
+        .join(", ");
 
       if (currentState === "booked") {
         await env.better_intra_d1
@@ -68,9 +93,9 @@ async function processItem(
       } else {
         await env.better_intra_d1
           .prepare(
-            "INSERT OR REPLACE INTO eval_states (hash, eval_id, role, state) VALUES (?, ?, ?, 'revealed')",
+            "INSERT OR REPLACE INTO eval_states (hash, eval_id, role, state, begin_at) VALUES (?, ?, ?, 'revealed', ?)",
           )
-          .bind(hash, id, role)
+          .bind(hash, id, role, beginAt)
           .run();
       }
 
@@ -96,7 +121,13 @@ async function processItem(
           title: "Evaluation in 15 min",
           color: 0x57f287,
           fields: [
-            { name: "Project", value: projectName ? `[${projectName}](https://projects.intra.42.fr/projects/${projectSlug})` : "Unknown", inline: true },
+            {
+              name: "Project",
+              value: projectName
+                ? `[${projectName}](https://projects.intra.42.fr/projects/${projectSlug})`
+                : "Unknown",
+              inline: true,
+            },
             { name: "Time", value: formatTime(beginAt), inline: true },
             { name: "Correcting", value: logins },
           ],
@@ -107,9 +138,9 @@ async function processItem(
     } else if (!correctedsVisible && currentState === null) {
       await env.better_intra_d1
         .prepare(
-          "INSERT OR IGNORE INTO eval_states (hash, eval_id, role, state) VALUES (?, ?, ?, 'booked')",
+          "INSERT OR IGNORE INTO eval_states (hash, eval_id, role, state, begin_at) VALUES (?, ?, ?, 'booked', ?)",
         )
-        .bind(hash, id, role)
+        .bind(hash, id, role, beginAt)
         .run();
 
       const notif = {
@@ -133,7 +164,13 @@ async function processItem(
           title: "Evaluation Booked",
           color: 0x5865f2,
           fields: [
-            { name: "Project", value: projectName ? `[${projectName}](https://projects.intra.42.fr/projects/${projectSlug})` : "Unknown", inline: true },
+            {
+              name: "Project",
+              value: projectName
+                ? `[${projectName}](https://projects.intra.42.fr/projects/${projectSlug})`
+                : "Unknown",
+              inline: true,
+            },
             { name: "Time", value: formatTime(beginAt), inline: true },
           ],
           timestamp: beginAt,
@@ -144,7 +181,7 @@ async function processItem(
   }
 }
 
-export async function handleCron(
+export async function handleMainCron(
   env: Env,
   ctx: ExecutionContext,
 ): Promise<void> {
@@ -183,6 +220,69 @@ export async function handleCron(
 
     for (const item of rawData) {
       await processItem(env, ctx, item, hash, projectMap, discordId);
+    }
+
+    await env.better_intra_d1
+      .prepare(
+        "UPDATE eval_users SET last_checked_at = unixepoch() WHERE hash = ?",
+      )
+      .bind(hash)
+      .run();
+
+    await delay(DELAY_MS);
+  }
+}
+
+export async function handleRevealCatchup(
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<void> {
+  const { results } = await env.better_intra_d1
+    .prepare(
+      `SELECT DISTINCT es.hash FROM eval_states es
+       JOIN eval_users eu ON es.hash = eu.hash
+       WHERE es.state = 'booked'
+       AND es.begin_at IS NOT NULL
+       AND (unixepoch(es.begin_at) - 900) <= unixepoch()
+       AND (unixepoch(es.begin_at) - 900) > unixepoch() - 120`,
+    )
+    .all<{ hash: string }>();
+  if (!results || results.length === 0) return;
+
+  const { results: projectResults } = await env.better_intra_d1
+    .prepare("SELECT id, name, slug FROM projects")
+    .all<{ id: number; name: string; slug: string }>();
+  const projectMap: Record<string, { name: string; slug: string }> = {};
+  for (const row of projectResults) {
+    projectMap[String(row.id)] = { name: row.name, slug: row.slug };
+  }
+
+  for (const { hash } of results) {
+    const userData = await env.BETTER_INTRA_KV.get<UserData>(hash, {
+      type: "json",
+    });
+    if (!userData?.fortyTwoToken) continue;
+
+    const fortyTwoToken = await getUserToken(env, userData, hash);
+    if (!fortyTwoToken) continue;
+
+    const discordId: string | undefined = userData.discordId;
+
+    const { data: rawData, rateLimited } = await fetchScaleTeams(
+      fortyTwoToken,
+      1,
+    );
+    if (rateLimited) {
+      console.warn(`[reveal-catchup] 429 rate limited for ${hash}`);
+      continue;
+    }
+
+    for (const item of rawData) {
+      await processItem(env, ctx, item, hash, projectMap, discordId);
+    }
+
+    if (results.length > 1) {
+      await delay(DELAY_MS);
     }
   }
 }

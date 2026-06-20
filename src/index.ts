@@ -15,7 +15,7 @@ import {
   handleDiscordAuth,
   handleDiscordCallback,
 } from "./handlers/discord";
-import { handleCron } from "./handlers/cron";
+import { handleMainCron, handleRevealCatchup } from "./handlers/cron";
 import { Env, UserData } from "./types";
 import {
   isOriginAllowed,
@@ -135,8 +135,11 @@ export default {
     return textRes("Not found", 404);
   },
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    if (event.cron === "*/5 * * * *") {
-      await handleCron(env, ctx);
+    if (event.cron === "*/10 * * * *") {
+      await handleMainCron(env, ctx);
+    }
+    if (event.cron === "* * * * *") {
+      await handleRevealCatchup(env, ctx);
     }
   },
 };

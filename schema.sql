@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS eval_users (
   hash TEXT PRIMARY KEY,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  last_checked_at INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS eval_states (
@@ -9,6 +10,7 @@ CREATE TABLE IF NOT EXISTS eval_states (
   role TEXT NOT NULL CHECK(role IN ('evaluator')),
   state TEXT NOT NULL CHECK(state IN ('booked', 'revealed')),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  begin_at TEXT,
   PRIMARY KEY (hash, eval_id, role)
 );
 
