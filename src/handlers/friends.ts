@@ -4,6 +4,7 @@ import {
   encryptTokenData,
   getBearerToken,
   getUserToken,
+  hashLogin,
   jsonRes,
   textRes,
   validateSession,
@@ -132,6 +133,21 @@ export async function handleFriendsData(
       lastOnlineTimestamp: cached?.seenAt ?? null,
     });
   }
+
+  await Promise.all(
+    friends.map(async (friend) => {
+      try {
+        const friendHash = await hashLogin(friend.login);
+        const userData = await env.BETTER_INTRA_KV.get<UserData>(friendHash, {
+          type: "json",
+        });
+        friend.customAvatar =
+          (userData?.settings?.PROFILE_IMAGE_URL as string) || null;
+      } catch {
+        friend.customAvatar = null;
+      }
+    }),
+  );
 
   if (cacheDirty) {
     const encrypted = await encryptTokenData(env, onlineCache);
