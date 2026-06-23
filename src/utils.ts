@@ -101,7 +101,7 @@ export async function getAppToken(env: Env): Promise<string> {
     const data = (await res.json()) as TokenResponse;
     const token = data.access_token;
     if (!token) throw new Error("Missing access_token in app token response");
-    const expiresIn = (data.expires_in ?? 7200) - 60;
+    const expiresIn = Math.max(60, (data.expires_in ?? 7200) - 60);
     const expires = Date.now() + expiresIn * 1000;
 
     await env.BETTER_INTRA_KV.put(

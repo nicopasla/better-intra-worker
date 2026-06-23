@@ -3,6 +3,7 @@ import { getUserToken } from "../utils";
 import { sendDiscordDm, DiscordEmbed } from "./discord";
 
 const DELAY_MS = 600;
+const DEADLINE_MS = 25_000;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -94,12 +95,20 @@ async function processItem(
     const correctedsVisible =
       Array.isArray(item.correcteds) && item.correcteds.length > 0;
 
-    const row = await env.better_intra_d1
-      .prepare(
-        "SELECT state FROM eval_states WHERE hash = ? AND eval_id = ? AND role = ?",
-      )
-      .bind(hash, id, role)
-      .first<{ state: string }>();
+    let row: { state: string } | null = null;
+    try {
+      row = await env.better_intra_d1
+        .prepare(
+          "SELECT state FROM eval_states WHERE hash = ? AND eval_id = ? AND role = ?",
+        )
+        .bind(hash, id, role)
+        .first<{ state: string }>();
+    } catch (e) {
+      console.warn(
+        `[cron] D1 SELECT eval_states failed ${shortHash} eval=${id}: ${e}`,
+      );
+      return;
+    }
 
     const currentState = row?.state ?? null;
 
@@ -116,20 +125,27 @@ async function processItem(
         )
         .join(", ");
 
-      if (currentState === "booked") {
-        await env.better_intra_d1
-          .prepare(
-            "UPDATE eval_states SET state = 'revealed', updated_at = unixepoch() WHERE hash = ? AND eval_id = ? AND role = ?",
-          )
-          .bind(hash, id, role)
-          .run();
-      } else {
-        await env.better_intra_d1
-          .prepare(
-            "INSERT OR REPLACE INTO eval_states (hash, eval_id, role, state, begin_at) VALUES (?, ?, ?, 'revealed', ?)",
-          )
-          .bind(hash, id, role, beginAt)
-          .run();
+      try {
+        if (currentState === "booked") {
+          await env.better_intra_d1
+            .prepare(
+              "UPDATE eval_states SET state = 'revealed', updated_at = unixepoch() WHERE hash = ? AND eval_id = ? AND role = ?",
+            )
+            .bind(hash, id, role)
+            .run();
+        } else {
+          await env.better_intra_d1
+            .prepare(
+              "INSERT OR REPLACE INTO eval_states (hash, eval_id, role, state, begin_at) VALUES (?, ?, ?, 'revealed', ?)",
+            )
+            .bind(hash, id, role, beginAt)
+            .run();
+        }
+      } catch (e) {
+        console.warn(
+          `[cron] D1 WRITE eval_states failed ${shortHash} eval=${id}: ${e}`,
+        );
+        return;
       }
 
       const notif = {
@@ -142,12 +158,18 @@ async function processItem(
         logins,
         teamName,
       };
-      await env.better_intra_d1
-        .prepare(
-          "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
-        )
-        .bind(hash, id, role, JSON.stringify(notif))
-        .run();
+      try {
+        await env.better_intra_d1
+          .prepare(
+            "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
+          )
+          .bind(hash, id, role, JSON.stringify(notif))
+          .run();
+      } catch (e) {
+        console.warn(
+          `[cron] D1 INSERT pending_notifs failed ${shortHash} eval=${id}: ${e}`,
+        );
+      }
 
       if (env.DISCORD_ENABLED === "true" && discordId) {
         const embed: DiscordEmbed = {
@@ -179,12 +201,19 @@ async function processItem(
       console.log(
         `[cron] ${shortHash} eval=${id} null→booked project=${projectName ?? "?"}`,
       );
-      await env.better_intra_d1
-        .prepare(
-          "INSERT OR IGNORE INTO eval_states (hash, eval_id, role, state, begin_at) VALUES (?, ?, ?, 'booked', ?)",
-        )
-        .bind(hash, id, role, beginAt)
-        .run();
+      try {
+        await env.better_intra_d1
+          .prepare(
+            "INSERT OR IGNORE INTO eval_states (hash, eval_id, role, state, begin_at) VALUES (?, ?, ?, 'booked', ?)",
+          )
+          .bind(hash, id, role, beginAt)
+          .run();
+      } catch (e) {
+        console.warn(
+          `[cron] D1 WRITE eval_states failed ${shortHash} eval=${id}: ${e}`,
+        );
+        return;
+      }
 
       const notif = {
         type: "booked",
@@ -195,12 +224,18 @@ async function processItem(
         endAt,
         teamName,
       };
-      await env.better_intra_d1
-        .prepare(
-          "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
-        )
-        .bind(hash, id, role, JSON.stringify(notif))
-        .run();
+      try {
+        await env.better_intra_d1
+          .prepare(
+            "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
+          )
+          .bind(hash, id, role, JSON.stringify(notif))
+          .run();
+      } catch (e) {
+        console.warn(
+          `[cron] D1 INSERT pending_notifs failed ${shortHash} eval=${id}: ${e}`,
+        );
+      }
 
       if (env.DISCORD_ENABLED === "true" && discordId) {
         const embed: DiscordEmbed = {
@@ -219,9 +254,7 @@ async function processItem(
           timestamp: beginAt,
         };
         ctx.waitUntil(sendDiscordDm(discordId, [embed], env));
-        console.log(
-          `[discord] ${shortHash} DM queued type=booked eval=${id}`,
-        );
+        console.log(`[discord] ${shortHash} DM queued type=booked eval=${id}`);
       } else {
         console.log(
           `[discord] ${shortHash} DM skipped type=booked eval=${id} reason=${env.DISCORD_ENABLED !== "true" ? "global_disabled" : "no_discord_id"}`,
@@ -245,57 +278,75 @@ export async function handleMainCron(
     .prepare("SELECT id, name, slug FROM projects")
     .all<{ id: number; name: string; slug: string }>();
   const projectMap: Record<string, { name: string; slug: string }> = {};
+
   for (const row of projectResults) {
     projectMap[String(row.id)] = { name: row.name, slug: row.slug };
   }
 
+  const startTime = Date.now();
+
   for (const { hash } of results) {
-    const userData = await env.BETTER_INTRA_KV.get<UserData>(hash, {
-      type: "json",
-    });
-    if (!userData?.fortyTwoToken) {
-      console.log(`[cron] ${hash.slice(0, 6)} skip: no fortyTwoToken`);
-      continue;
+    if (Date.now() - startTime > DEADLINE_MS) {
+      const remaining = results.length;
+      console.warn(
+        `[cron] deadline reached, ${remaining} users left unprocessed`,
+      );
+      return;
     }
 
-    if (isInQuietHours(userData)) {
-      console.log(`[cron] ${hash.slice(0, 6)} skip: quiet hours`);
-      continue;
+    const shortHash = hash.slice(0, 6);
+    try {
+      const userData = await env.BETTER_INTRA_KV.get<UserData>(hash, {
+        type: "json",
+      });
+      if (!userData?.fortyTwoToken) {
+        console.log(`[cron] ${shortHash} skip: no fortyTwoToken`);
+        continue;
+      }
+
+      if (isInQuietHours(userData)) {
+        console.log(`[cron] ${shortHash} skip: quiet hours`);
+        continue;
+      }
+
+      const fortyTwoToken = await getUserToken(env, userData, hash);
+      if (!fortyTwoToken) {
+        console.log(`[cron] ${shortHash} skip: no getUserToken`);
+        continue;
+      }
+
+      const discordId: string | undefined = userData.discordId;
+
+      const { data: rawData, rateLimited } = await fetchScaleTeams(
+        fortyTwoToken,
+        1,
+      );
+      if (rateLimited) {
+        console.warn(`[cron] 429 rate limited for ${shortHash}`);
+        continue;
+      }
+
+      for (const item of rawData) {
+        await processItem(env, ctx, item, hash, projectMap, discordId);
+      }
+
+      console.log(`[cron] ${shortHash} done — ${rawData.length} items checked`);
+
+      try {
+        await env.better_intra_d1
+          .prepare(
+            "UPDATE eval_users SET last_checked_at = unixepoch() WHERE hash = ?",
+          )
+          .bind(hash)
+          .run();
+      } catch (e) {
+        console.warn(`[cron] D1 last_checked_at failed ${shortHash}: ${e}`);
+      }
+
+      await delay(DELAY_MS);
+    } catch (e) {
+      console.warn(`[cron] ${shortHash} error: ${e}`);
     }
-
-    const fortyTwoToken = await getUserToken(env, userData, hash);
-    if (!fortyTwoToken) {
-      console.log(`[cron] ${hash.slice(0, 6)} skip: no getUserToken`);
-      continue;
-    }
-
-    const discordId: string | undefined = userData.discordId;
-
-    const { data: rawData, rateLimited } = await fetchScaleTeams(
-      fortyTwoToken,
-      1,
-    );
-    if (rateLimited) {
-      console.warn(`[cron] 429 rate limited for ${hash.slice(0, 6)}`);
-      continue;
-    }
-
-    for (const item of rawData) {
-      await processItem(env, ctx, item, hash, projectMap, discordId);
-    }
-
-    console.log(
-      `[cron] ${hash.slice(0, 6)} done — ${rawData.length} items checked`,
-    );
-
-    await env.better_intra_d1
-      .prepare(
-        "UPDATE eval_users SET last_checked_at = unixepoch() WHERE hash = ?",
-      )
-      .bind(hash)
-      .run();
-
-    await delay(DELAY_MS);
   }
   console.log(`[cron] main cron done`);
 }
@@ -327,49 +378,61 @@ export async function handleRevealCatchup(
     projectMap[String(row.id)] = { name: row.name, slug: row.slug };
   }
 
+  const startTime = Date.now();
+
   for (const { hash } of results) {
-    const userData = await env.BETTER_INTRA_KV.get<UserData>(hash, {
-      type: "json",
-    });
-    if (!userData?.fortyTwoToken) {
-      console.log(`[reveal-catchup] ${hash.slice(0, 6)} skip: no fortyTwoToken`);
-      continue;
-    }
-
-    if (isInQuietHours(userData)) {
-      console.log(`[reveal-catchup] ${hash.slice(0, 6)} skip: quiet hours`);
-      continue;
-    }
-
-    const fortyTwoToken = await getUserToken(env, userData, hash);
-    if (!fortyTwoToken) {
-      console.log(`[reveal-catchup] ${hash.slice(0, 6)} skip: no getUserToken`);
-      continue;
-    }
-
-    const discordId: string | undefined = userData.discordId;
-
-    const { data: rawData, rateLimited } = await fetchScaleTeams(
-      fortyTwoToken,
-      1,
-    );
-    if (rateLimited) {
+    if (Date.now() - startTime > DEADLINE_MS) {
       console.warn(
-        `[reveal-catchup] 429 rate limited for ${hash.slice(0, 6)}`,
+        `[reveal-catchup] deadline reached, remaining users skipped`,
       );
-      continue;
+      return;
     }
 
-    for (const item of rawData) {
-      await processItem(env, ctx, item, hash, projectMap, discordId);
-    }
+    const shortHash = hash.slice(0, 6);
+    try {
+      const userData = await env.BETTER_INTRA_KV.get<UserData>(hash, {
+        type: "json",
+      });
+      if (!userData?.fortyTwoToken) {
+        console.log(`[reveal-catchup] ${shortHash} skip: no fortyTwoToken`);
+        continue;
+      }
 
-    console.log(
-      `[reveal-catchup] ${hash.slice(0, 6)} done — ${rawData.length} items checked`,
-    );
+      if (isInQuietHours(userData)) {
+        console.log(`[reveal-catchup] ${shortHash} skip: quiet hours`);
+        continue;
+      }
 
-    if (results.length > 1) {
-      await delay(DELAY_MS);
+      const fortyTwoToken = await getUserToken(env, userData, hash);
+      if (!fortyTwoToken) {
+        console.log(`[reveal-catchup] ${shortHash} skip: no getUserToken`);
+        continue;
+      }
+
+      const discordId: string | undefined = userData.discordId;
+
+      const { data: rawData, rateLimited } = await fetchScaleTeams(
+        fortyTwoToken,
+        1,
+      );
+      if (rateLimited) {
+        console.warn(`[reveal-catchup] 429 rate limited for ${shortHash}`);
+        continue;
+      }
+
+      for (const item of rawData) {
+        await processItem(env, ctx, item, hash, projectMap, discordId);
+      }
+
+      console.log(
+        `[reveal-catchup] ${shortHash} done — ${rawData.length} items checked`,
+      );
+
+      if (results.length > 1) {
+        await delay(DELAY_MS);
+      }
+    } catch (e) {
+      console.warn(`[reveal-catchup] ${shortHash} error: ${e}`);
     }
   }
   console.log(`[reveal-catchup] done`);
