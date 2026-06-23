@@ -179,6 +179,11 @@ export async function sendDiscordDm(
   const botToken = env.DISCORD_BOT_TOKEN;
   if (!botToken) return { ok: false, body: "DISCORD_BOT_TOKEN not set" };
 
+  const shortId = discordId.slice(0, 6);
+  console.log(
+    `[discord] sending DM discord=${shortId}... embeds=${embeds.map((e) => e.title).join(",")}`,
+  );
+
   let channelRes: Response;
   try {
     channelRes = await fetch("https://discord.com/api/v10/users/@me/channels", {
@@ -190,11 +195,15 @@ export async function sendDiscordDm(
       body: JSON.stringify({ recipient_id: discordId }),
     });
   } catch {
+    console.warn(`[discord] DM channel failed discord=${shortId}... network`);
     return { ok: false, body: "Network error creating DM channel" };
   }
 
   if (!channelRes.ok) {
     const err = await channelRes.text().catch(() => "Unknown");
+    console.warn(
+      `[discord] DM channel failed discord=${shortId}... status=${channelRes.status}`,
+    );
     return { ok: false, status: channelRes.status, body: err };
   }
 
@@ -202,10 +211,14 @@ export async function sendDiscordDm(
   try {
     channel = await channelRes.json();
   } catch {
+    console.warn(`[discord] DM channel parse failed discord=${shortId}...`);
     return { ok: false, body: "Invalid channel response" };
   }
   const channelId = channel.id;
-  if (!channelId) return { ok: false, body: "No channel id in response" };
+  if (!channelId) {
+    console.warn(`[discord] DM no channel id discord=${shortId}...`);
+    return { ok: false, body: "No channel id in response" };
+  }
 
   let msgRes: Response;
   try {
@@ -221,14 +234,19 @@ export async function sendDiscordDm(
       },
     );
   } catch {
+    console.warn(`[discord] DM send failed discord=${shortId}... network`);
     return { ok: false, body: "Network error sending message" };
   }
 
   if (!msgRes.ok) {
     const err = await msgRes.text().catch(() => "Unknown");
+    console.warn(
+      `[discord] DM send failed discord=${shortId}... status=${msgRes.status}`,
+    );
     return { ok: false, status: msgRes.status, body: err };
   }
 
+  console.log(`[discord] DM sent ok discord=${shortId}...`);
   return { ok: true };
 }
 

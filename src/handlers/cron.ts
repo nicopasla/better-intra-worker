@@ -41,8 +41,16 @@ async function fetchScaleTeams(
     });
 
     if (apiRes.status !== 429) {
-      if (!apiRes.ok) return { data: [], rateLimited: false };
+      if (!apiRes.ok) {
+        console.warn(
+          `[cron] scale_teams page=${page} status=${apiRes.status} error`,
+        );
+        return { data: [], rateLimited: false };
+      }
       const data: any[] = await apiRes.json();
+      console.log(
+        `[cron] scale_teams page=${page} status=${apiRes.status} items=${data.length}`,
+      );
       return { data, rateLimited: false };
     }
 
@@ -78,6 +86,7 @@ async function processItem(
   const projectSlug = project?.slug ?? null;
   const teamName = team?.name ?? null;
 
+  const shortHash = hash.slice(0, 6);
   const isInvisible = (v: any) => typeof v === "string" && v === "invisible";
 
   if (isInvisible(item.correcteds) || Array.isArray(item.correcteds)) {
@@ -95,6 +104,11 @@ async function processItem(
     const currentState = row?.state ?? null;
 
     if (correctedsVisible && currentState !== "revealed") {
+      const transition =
+        currentState === "booked" ? "booked→revealed" : "null→revealed";
+      console.log(
+        `[cron] ${shortHash} eval=${id} ${transition} project=${projectName ?? "?"}`,
+      );
       const logins = item.correcteds
         .map(
           (c: any) =>
@@ -153,8 +167,18 @@ async function processItem(
           timestamp: beginAt,
         };
         ctx.waitUntil(sendDiscordDm(discordId, [embed], env));
+        console.log(
+          `[discord] ${shortHash} DM queued type=revealed eval=${id}`,
+        );
+      } else {
+        console.log(
+          `[discord] ${shortHash} DM skipped type=revealed eval=${id} reason=${env.DISCORD_ENABLED !== "true" ? "global_disabled" : "no_discord_id"}`,
+        );
       }
     } else if (!correctedsVisible && currentState === null) {
+      console.log(
+        `[cron] ${shortHash} eval=${id} null→booked project=${projectName ?? "?"}`,
+      );
       await env.better_intra_d1
         .prepare(
           "INSERT OR IGNORE INTO eval_states (hash, eval_id, role, state, begin_at) VALUES (?, ?, ?, 'booked', ?)",
@@ -195,6 +219,13 @@ async function processItem(
           timestamp: beginAt,
         };
         ctx.waitUntil(sendDiscordDm(discordId, [embed], env));
+        console.log(
+          `[discord] ${shortHash} DM queued type=booked eval=${id}`,
+        );
+      } else {
+        console.log(
+          `[discord] ${shortHash} DM skipped type=booked eval=${id} reason=${env.DISCORD_ENABLED !== "true" ? "global_disabled" : "no_discord_id"}`,
+        );
       }
     }
   }
@@ -208,6 +239,7 @@ export async function handleMainCron(
     .prepare("SELECT hash FROM eval_users")
     .all<{ hash: string }>();
   if (!results || results.length === 0) return;
+  console.log(`[cron] main cron start — ${results.length} eval users`);
 
   const { results: projectResults } = await env.better_intra_d1
     .prepare("SELECT id, name, slug FROM projects")
@@ -221,12 +253,21 @@ export async function handleMainCron(
     const userData = await env.BETTER_INTRA_KV.get<UserData>(hash, {
       type: "json",
     });
-    if (!userData?.fortyTwoToken) continue;
+    if (!userData?.fortyTwoToken) {
+      console.log(`[cron] ${hash.slice(0, 6)} skip: no fortyTwoToken`);
+      continue;
+    }
 
-    if (isInQuietHours(userData)) continue;
+    if (isInQuietHours(userData)) {
+      console.log(`[cron] ${hash.slice(0, 6)} skip: quiet hours`);
+      continue;
+    }
 
     const fortyTwoToken = await getUserToken(env, userData, hash);
-    if (!fortyTwoToken) continue;
+    if (!fortyTwoToken) {
+      console.log(`[cron] ${hash.slice(0, 6)} skip: no getUserToken`);
+      continue;
+    }
 
     const discordId: string | undefined = userData.discordId;
 
@@ -235,13 +276,17 @@ export async function handleMainCron(
       1,
     );
     if (rateLimited) {
-      console.warn(`[cron] 429 rate limited for ${hash}`);
+      console.warn(`[cron] 429 rate limited for ${hash.slice(0, 6)}`);
       continue;
     }
 
     for (const item of rawData) {
       await processItem(env, ctx, item, hash, projectMap, discordId);
     }
+
+    console.log(
+      `[cron] ${hash.slice(0, 6)} done — ${rawData.length} items checked`,
+    );
 
     await env.better_intra_d1
       .prepare(
@@ -252,6 +297,7 @@ export async function handleMainCron(
 
     await delay(DELAY_MS);
   }
+  console.log(`[cron] main cron done`);
 }
 
 export async function handleRevealCatchup(
@@ -269,6 +315,9 @@ export async function handleRevealCatchup(
     )
     .all<{ hash: string }>();
   if (!results || results.length === 0) return;
+  console.log(
+    `[reveal-catchup] start — ${results.length} hashes needing catchup`,
+  );
 
   const { results: projectResults } = await env.better_intra_d1
     .prepare("SELECT id, name, slug FROM projects")
@@ -282,12 +331,21 @@ export async function handleRevealCatchup(
     const userData = await env.BETTER_INTRA_KV.get<UserData>(hash, {
       type: "json",
     });
-    if (!userData?.fortyTwoToken) continue;
+    if (!userData?.fortyTwoToken) {
+      console.log(`[reveal-catchup] ${hash.slice(0, 6)} skip: no fortyTwoToken`);
+      continue;
+    }
 
-    if (isInQuietHours(userData)) continue;
+    if (isInQuietHours(userData)) {
+      console.log(`[reveal-catchup] ${hash.slice(0, 6)} skip: quiet hours`);
+      continue;
+    }
 
     const fortyTwoToken = await getUserToken(env, userData, hash);
-    if (!fortyTwoToken) continue;
+    if (!fortyTwoToken) {
+      console.log(`[reveal-catchup] ${hash.slice(0, 6)} skip: no getUserToken`);
+      continue;
+    }
 
     const discordId: string | undefined = userData.discordId;
 
@@ -296,7 +354,9 @@ export async function handleRevealCatchup(
       1,
     );
     if (rateLimited) {
-      console.warn(`[reveal-catchup] 429 rate limited for ${hash}`);
+      console.warn(
+        `[reveal-catchup] 429 rate limited for ${hash.slice(0, 6)}`,
+      );
       continue;
     }
 
@@ -304,10 +364,15 @@ export async function handleRevealCatchup(
       await processItem(env, ctx, item, hash, projectMap, discordId);
     }
 
+    console.log(
+      `[reveal-catchup] ${hash.slice(0, 6)} done — ${rawData.length} items checked`,
+    );
+
     if (results.length > 1) {
       await delay(DELAY_MS);
     }
   }
+  console.log(`[reveal-catchup] done`);
 }
 
 function formatTime(iso: string): string {
