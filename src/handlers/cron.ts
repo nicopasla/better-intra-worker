@@ -76,16 +76,11 @@ async function processItem(
 ) {
   const id = item.id;
   const beginAt: string = item.begin_at;
-  const duration: number = item.scale?.duration ?? 0;
-  const endAt = new Date(
-    new Date(beginAt).getTime() + duration * 1000,
-  ).toISOString();
   const team = item.team ?? null;
   const projectId = team?.project_id ?? null;
   const project = projectId ? (projectMap[String(projectId)] ?? null) : null;
   const projectName = project?.name ?? null;
   const projectSlug = project?.slug ?? null;
-  const teamName = team?.name ?? null;
 
   const shortHash = hash.slice(0, 6);
   const isInvisible = (v: any) => typeof v === "string" && v === "invisible";
@@ -148,29 +143,6 @@ async function processItem(
         return;
       }
 
-      const notif = {
-        type: "revealed",
-        role,
-        id,
-        projectName,
-        beginAt,
-        endAt,
-        logins,
-        teamName,
-      };
-      try {
-        await env.better_intra_d1
-          .prepare(
-            "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
-          )
-          .bind(hash, id, role, JSON.stringify(notif))
-          .run();
-      } catch (e) {
-        console.warn(
-          `[cron] D1 INSERT pending_notifs failed ${shortHash} eval=${id}: ${e}`,
-        );
-      }
-
       if (env.DISCORD_ENABLED === "true" && discordId) {
         const embed: DiscordEmbed = {
           title: "Evaluation in 15 min",
@@ -213,28 +185,6 @@ async function processItem(
           `[cron] D1 WRITE eval_states failed ${shortHash} eval=${id}: ${e}`,
         );
         return;
-      }
-
-      const notif = {
-        type: "booked",
-        role,
-        id,
-        projectName,
-        beginAt,
-        endAt,
-        teamName,
-      };
-      try {
-        await env.better_intra_d1
-          .prepare(
-            "INSERT OR IGNORE INTO pending_notifs (hash, eval_id, role, data) VALUES (?, ?, ?, ?)",
-          )
-          .bind(hash, id, role, JSON.stringify(notif))
-          .run();
-      } catch (e) {
-        console.warn(
-          `[cron] D1 INSERT pending_notifs failed ${shortHash} eval=${id}: ${e}`,
-        );
       }
 
       if (env.DISCORD_ENABLED === "true" && discordId) {
@@ -315,7 +265,13 @@ export async function handleMainCron(
         continue;
       }
 
-      const discordId: string | undefined = userData.discordId;
+      const discordId: string | undefined =
+        userData.settings?.DISCORD_ENABLED !== false
+          ? userData.discordId
+          : undefined;
+      if (userData.settings?.DISCORD_ENABLED === false && userData.discordId) {
+        console.log(`[cron] ${shortHash} discord disabled in settings`);
+      }
 
       const { data: rawData, rateLimited } = await fetchScaleTeams(
         fortyTwoToken,
@@ -331,17 +287,6 @@ export async function handleMainCron(
       }
 
       console.log(`[cron] ${shortHash} done — ${rawData.length} items checked`);
-
-      try {
-        await env.better_intra_d1
-          .prepare(
-            "UPDATE eval_users SET last_checked_at = unixepoch() WHERE hash = ?",
-          )
-          .bind(hash)
-          .run();
-      } catch (e) {
-        console.warn(`[cron] D1 last_checked_at failed ${shortHash}: ${e}`);
-      }
 
       await delay(DELAY_MS);
     } catch (e) {
@@ -409,7 +354,13 @@ export async function handleRevealCatchup(
         continue;
       }
 
-      const discordId: string | undefined = userData.discordId;
+      const discordId: string | undefined =
+        userData.settings?.DISCORD_ENABLED !== false
+          ? userData.discordId
+          : undefined;
+      if (userData.settings?.DISCORD_ENABLED === false && userData.discordId) {
+        console.log(`[reveal-catchup] ${shortHash} discord disabled in settings`);
+      }
 
       const { data: rawData, rateLimited } = await fetchScaleTeams(
         fortyTwoToken,

@@ -19,26 +19,6 @@ export async function handleEvaluations(
   const url = new URL(request.url);
   const action = url.searchParams.get("action") || "";
 
-  if (action === "pending") {
-    const { results } = await env.better_intra_d1
-      .prepare(
-        "SELECT data FROM pending_notifs WHERE hash = ? AND consumed = 0",
-      )
-      .bind(loginParam)
-      .all<{ data: string }>();
-
-    const notifications = (results || []).map((r) => JSON.parse(r.data));
-
-    await env.better_intra_d1
-      .prepare(
-        "UPDATE pending_notifs SET consumed = 1 WHERE hash = ? AND consumed = 0",
-      )
-      .bind(loginParam)
-      .run();
-
-    return jsonRes({ notifications });
-  }
-
   if (action === "register") {
     if (!existingData?.fortyTwoToken) {
       return jsonRes({ registered: false, reason: "missing_42_token" });
