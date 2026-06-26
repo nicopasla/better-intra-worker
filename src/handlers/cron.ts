@@ -124,16 +124,16 @@ async function processItem(
         if (currentState === "booked") {
           await env.better_intra_d1
             .prepare(
-              "UPDATE eval_states SET state = 'revealed', updated_at = unixepoch() WHERE hash = ? AND eval_id = ? AND role = ?",
+              "UPDATE eval_states SET state = 'revealed', project_id = ?, updated_at = unixepoch() WHERE hash = ? AND eval_id = ? AND role = ?",
             )
-            .bind(hash, id, role)
+            .bind(projectId, hash, id, role)
             .run();
         } else {
           await env.better_intra_d1
             .prepare(
-              "INSERT OR REPLACE INTO eval_states (hash, eval_id, role, state, begin_at) VALUES (?, ?, ?, 'revealed', ?)",
+              "INSERT OR REPLACE INTO eval_states (hash, eval_id, role, state, project_id, begin_at) VALUES (?, ?, ?, 'revealed', ?, ?)",
             )
-            .bind(hash, id, role, beginAt)
+            .bind(hash, id, role, projectId, beginAt)
             .run();
         }
       } catch (e) {
@@ -160,6 +160,13 @@ async function processItem(
           ],
           timestamp: beginAt,
         };
+        env.better_intra_d1
+          .prepare(
+            "UPDATE eval_states SET notified_at = unixepoch() WHERE hash = ? AND eval_id = ? AND role = ?",
+          )
+          .bind(hash, id, role)
+          .run()
+          .catch(() => {});
         ctx.waitUntil(sendDiscordDm(discordId, [embed], env));
         console.log(
           `[discord] ${shortHash} DM queued type=revealed eval=${id}`,
@@ -176,9 +183,9 @@ async function processItem(
       try {
         await env.better_intra_d1
           .prepare(
-            "INSERT OR IGNORE INTO eval_states (hash, eval_id, role, state, begin_at) VALUES (?, ?, ?, 'booked', ?)",
+            "INSERT OR IGNORE INTO eval_states (hash, eval_id, role, state, project_id, begin_at) VALUES (?, ?, ?, 'booked', ?, ?)",
           )
-          .bind(hash, id, role, beginAt)
+          .bind(hash, id, role, projectId, beginAt)
           .run();
       } catch (e) {
         console.warn(
@@ -203,6 +210,13 @@ async function processItem(
           ],
           timestamp: beginAt,
         };
+        env.better_intra_d1
+          .prepare(
+            "UPDATE eval_states SET notified_at = unixepoch() WHERE hash = ? AND eval_id = ? AND role = ?",
+          )
+          .bind(hash, id, role)
+          .run()
+          .catch(() => {});
         ctx.waitUntil(sendDiscordDm(discordId, [embed], env));
         console.log(`[discord] ${shortHash} DM queued type=booked eval=${id}`);
       } else {
@@ -365,7 +379,9 @@ export async function handleRevealCatchup(
           ? userData.discordId
           : undefined;
       if (userData.settings?.DISCORD_ENABLED === false && userData.discordId) {
-        console.log(`[reveal-catchup] ${shortHash} discord disabled in settings`);
+        console.log(
+          `[reveal-catchup] ${shortHash} discord disabled in settings`,
+        );
       }
 
       const { data: rawData, rateLimited } = await fetchScaleTeams(

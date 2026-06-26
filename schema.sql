@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS eval_states (
   eval_id INTEGER NOT NULL,
   role TEXT NOT NULL CHECK(role IN ('evaluator')),
   state TEXT NOT NULL CHECK(state IN ('booked', 'revealed')),
+  project_id INTEGER,
+  notified_at INTEGER,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
   begin_at TEXT,
   PRIMARY KEY (hash, eval_id, role)
