@@ -24,7 +24,9 @@ export async function handleEvaluations(
       return jsonRes({ registered: false, reason: "missing_42_token" });
     }
     await env.better_intra_d1
-      .prepare("INSERT OR IGNORE INTO eval_users (hash) VALUES (?)")
+      .prepare(
+        "INSERT INTO users (hash, evals_enabled) VALUES (?, 1) ON CONFLICT(hash) DO UPDATE SET evals_enabled = 1",
+      )
       .bind(loginParam)
       .run();
     return jsonRes({ registered: true });
@@ -32,7 +34,7 @@ export async function handleEvaluations(
 
   if (action === "unregister") {
     await env.better_intra_d1
-      .prepare("DELETE FROM eval_users WHERE hash = ?")
+      .prepare("UPDATE users SET evals_enabled = 0 WHERE hash = ?")
       .bind(loginParam)
       .run();
     return jsonRes({ unregistered: true });

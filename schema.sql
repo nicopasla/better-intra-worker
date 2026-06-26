@@ -1,11 +1,14 @@
-CREATE TABLE IF NOT EXISTS eval_users (
+CREATE TABLE IF NOT EXISTS users (
   hash TEXT PRIMARY KEY,
+  forty_two_token TEXT,
+  evals_enabled INTEGER NOT NULL DEFAULT 0,
+  last_checked INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
-CREATE TABLE IF NOT EXISTS user_tokens (
+CREATE TABLE IF NOT EXISTS eval_users (
   hash TEXT PRIMARY KEY,
-  forty_two_token TEXT
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
 CREATE TABLE IF NOT EXISTS eval_states (

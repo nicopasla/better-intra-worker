@@ -139,7 +139,7 @@ export async function handleCallback(
 
     env.better_intra_d1
       .prepare(
-        "INSERT INTO user_tokens (hash, forty_two_token) VALUES (?, ?) ON CONFLICT(hash) DO UPDATE SET forty_two_token = ?",
+        "INSERT INTO users (hash, forty_two_token) VALUES (?, ?) ON CONFLICT(hash) DO UPDATE SET forty_two_token = ?",
       )
       .bind(hashedLogin, encryptedTokens, encryptedTokens)
       .run()

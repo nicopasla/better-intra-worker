@@ -307,7 +307,7 @@ export async function getUserToken(
 async function getTokenFromD1(env: Env, hash: string): Promise<string | null> {
   try {
     const row = await env.better_intra_d1
-      .prepare("SELECT forty_two_token FROM user_tokens WHERE hash = ?")
+      .prepare("SELECT forty_two_token FROM users WHERE hash = ?")
       .bind(hash)
       .first<{ forty_two_token: string | null }>();
     return row?.forty_two_token ?? null;
@@ -324,7 +324,7 @@ async function saveTokenToD1(
   try {
     await env.better_intra_d1
       .prepare(
-        "INSERT INTO user_tokens (hash, forty_two_token) VALUES (?, ?) ON CONFLICT(hash) DO UPDATE SET forty_two_token = ?",
+        "INSERT INTO users (hash, forty_two_token) VALUES (?, ?) ON CONFLICT(hash) DO UPDATE SET forty_two_token = ?",
       )
       .bind(hash, encryptedToken, encryptedToken)
       .run();

@@ -219,7 +219,7 @@ export async function handleMainCron(
   ctx: ExecutionContext,
 ): Promise<void> {
   const { results } = await env.better_intra_d1
-    .prepare("SELECT hash FROM eval_users")
+    .prepare("SELECT hash FROM users WHERE evals_enabled = 1")
     .all<{ hash: string }>();
   if (!results || results.length === 0) return;
   console.log(`[cron] main cron start — ${results.length} eval users`);
@@ -286,6 +286,11 @@ export async function handleMainCron(
         await processItem(env, ctx, item, hash, projectMap, discordId);
       }
 
+      await env.better_intra_d1
+        .prepare("UPDATE users SET last_checked = unixepoch() WHERE hash = ?")
+        .bind(hash)
+        .run();
+
       console.log(`[cron] ${shortHash} done — ${rawData.length} items checked`);
 
       await delay(DELAY_MS);
@@ -303,8 +308,9 @@ export async function handleRevealCatchup(
   const { results } = await env.better_intra_d1
     .prepare(
       `SELECT DISTINCT es.hash FROM eval_states es
-       JOIN eval_users eu ON es.hash = eu.hash
-       WHERE es.state = 'booked'
+       JOIN users u ON es.hash = u.hash
+       WHERE u.evals_enabled = 1
+       AND es.state = 'booked'
        AND es.begin_at IS NOT NULL
        AND (unixepoch(es.begin_at) - 900) <= unixepoch()
        AND (unixepoch(es.begin_at) - 900) > unixepoch() - 120`,
@@ -374,6 +380,11 @@ export async function handleRevealCatchup(
       for (const item of rawData) {
         await processItem(env, ctx, item, hash, projectMap, discordId);
       }
+
+      await env.better_intra_d1
+        .prepare("UPDATE users SET last_checked = unixepoch() WHERE hash = ?")
+        .bind(hash)
+        .run();
 
       console.log(
         `[reveal-catchup] ${shortHash} done — ${rawData.length} items checked`,
