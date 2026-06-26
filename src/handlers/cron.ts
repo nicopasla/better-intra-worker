@@ -2,8 +2,8 @@ import { Env, UserData } from "../types";
 import { getUserToken } from "../utils";
 import { sendDiscordDm, DiscordEmbed } from "./discord";
 
-const DELAY_MS = 600;
-const DEADLINE_MS = 25_000;
+const CONCURRENCY = 5;
+const DEADLINE_MS = 30_000;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -228,6 +228,65 @@ async function processItem(
   }
 }
 
+async function processCronUser(
+  env: Env,
+  ctx: ExecutionContext,
+  hash: string,
+  projectMap: Record<string, { name: string; slug: string }>,
+  prefix: string,
+): Promise<void> {
+  const shortHash = hash.slice(0, 6);
+
+  const userData = await env.BETTER_INTRA_KV.get<UserData>(hash, {
+    type: "json",
+  });
+  if (!userData?.fortyTwoToken) {
+    console.log(`[${prefix}] ${shortHash} skip: no fortyTwoToken`);
+    return;
+  }
+
+  if (isInQuietHours(userData)) {
+    console.log(`[${prefix}] ${shortHash} skip: quiet hours`);
+    return;
+  }
+
+  const fortyTwoToken = await getUserToken(env, userData, hash);
+  if (!fortyTwoToken) {
+    console.log(`[${prefix}] ${shortHash} skip: no getUserToken`);
+    return;
+  }
+
+  const discordId: string | undefined =
+    userData.settings?.DISCORD_ENABLED !== false
+      ? userData.discordId
+      : undefined;
+  if (userData.settings?.DISCORD_ENABLED === false && userData.discordId) {
+    console.log(`[${prefix}] ${shortHash} discord disabled in settings`);
+  }
+
+  const { data: rawData, rateLimited } = await fetchScaleTeams(
+    fortyTwoToken,
+    1,
+  );
+  if (rateLimited) {
+    console.warn(`[${prefix}] 429 rate limited for ${shortHash}`);
+    return;
+  }
+
+  for (const item of rawData) {
+    await processItem(env, ctx, item, hash, projectMap, discordId);
+  }
+
+  await env.better_intra_d1
+    .prepare("UPDATE users SET last_checked = unixepoch() WHERE hash = ?")
+    .bind(hash)
+    .run();
+
+  console.log(
+    `[${prefix}] ${shortHash} done — ${rawData.length} items checked`,
+  );
+}
+
 export async function handleMainCron(
   env: Env,
   ctx: ExecutionContext,
@@ -249,68 +308,22 @@ export async function handleMainCron(
 
   const startTime = Date.now();
 
-  for (const { hash } of results) {
+  for (let i = 0; i < results.length; i += CONCURRENCY) {
     if (Date.now() - startTime > DEADLINE_MS) {
-      const remaining = results.length;
+      const remaining = results.length - i;
       console.warn(
         `[cron] deadline reached, ${remaining} users left unprocessed`,
       );
       return;
     }
-
-    const shortHash = hash.slice(0, 6);
-    try {
-      const userData = await env.BETTER_INTRA_KV.get<UserData>(hash, {
-        type: "json",
-      });
-      if (!userData?.fortyTwoToken) {
-        console.log(`[cron] ${shortHash} skip: no fortyTwoToken`);
-        continue;
-      }
-
-      if (isInQuietHours(userData)) {
-        console.log(`[cron] ${shortHash} skip: quiet hours`);
-        continue;
-      }
-
-      const fortyTwoToken = await getUserToken(env, userData, hash);
-      if (!fortyTwoToken) {
-        console.log(`[cron] ${shortHash} skip: no getUserToken`);
-        continue;
-      }
-
-      const discordId: string | undefined =
-        userData.settings?.DISCORD_ENABLED !== false
-          ? userData.discordId
-          : undefined;
-      if (userData.settings?.DISCORD_ENABLED === false && userData.discordId) {
-        console.log(`[cron] ${shortHash} discord disabled in settings`);
-      }
-
-      const { data: rawData, rateLimited } = await fetchScaleTeams(
-        fortyTwoToken,
-        1,
-      );
-      if (rateLimited) {
-        console.warn(`[cron] 429 rate limited for ${shortHash}`);
-        continue;
-      }
-
-      for (const item of rawData) {
-        await processItem(env, ctx, item, hash, projectMap, discordId);
-      }
-
-      await env.better_intra_d1
-        .prepare("UPDATE users SET last_checked = unixepoch() WHERE hash = ?")
-        .bind(hash)
-        .run();
-
-      console.log(`[cron] ${shortHash} done — ${rawData.length} items checked`);
-
-      await delay(DELAY_MS);
-    } catch (e) {
-      console.warn(`[cron] ${shortHash} error: ${e}`);
-    }
+    const batch = results.slice(i, i + CONCURRENCY);
+    await Promise.all(
+      batch.map(({ hash }) =>
+        processCronUser(env, ctx, hash, projectMap, "cron").catch((e) =>
+          console.warn(`[cron] ${hash.slice(0, 6)} error: ${e}`),
+        ),
+      ),
+    );
   }
   console.log(`[cron] main cron done`);
 }
@@ -345,73 +358,25 @@ export async function handleRevealCatchup(
 
   const startTime = Date.now();
 
-  for (const { hash } of results) {
+  for (let i = 0; i < results.length; i += CONCURRENCY) {
     if (Date.now() - startTime > DEADLINE_MS) {
+      const remaining = results.length - i;
       console.warn(
-        `[reveal-catchup] deadline reached, remaining users skipped`,
+        `[reveal-catchup] deadline reached, ${remaining} users left`,
       );
       return;
     }
-
-    const shortHash = hash.slice(0, 6);
-    try {
-      const userData = await env.BETTER_INTRA_KV.get<UserData>(hash, {
-        type: "json",
-      });
-      if (!userData?.fortyTwoToken) {
-        console.log(`[reveal-catchup] ${shortHash} skip: no fortyTwoToken`);
-        continue;
-      }
-
-      if (isInQuietHours(userData)) {
-        console.log(`[reveal-catchup] ${shortHash} skip: quiet hours`);
-        continue;
-      }
-
-      const fortyTwoToken = await getUserToken(env, userData, hash);
-      if (!fortyTwoToken) {
-        console.log(`[reveal-catchup] ${shortHash} skip: no getUserToken`);
-        continue;
-      }
-
-      const discordId: string | undefined =
-        userData.settings?.DISCORD_ENABLED !== false
-          ? userData.discordId
-          : undefined;
-      if (userData.settings?.DISCORD_ENABLED === false && userData.discordId) {
-        console.log(
-          `[reveal-catchup] ${shortHash} discord disabled in settings`,
-        );
-      }
-
-      const { data: rawData, rateLimited } = await fetchScaleTeams(
-        fortyTwoToken,
-        1,
-      );
-      if (rateLimited) {
-        console.warn(`[reveal-catchup] 429 rate limited for ${shortHash}`);
-        continue;
-      }
-
-      for (const item of rawData) {
-        await processItem(env, ctx, item, hash, projectMap, discordId);
-      }
-
-      await env.better_intra_d1
-        .prepare("UPDATE users SET last_checked = unixepoch() WHERE hash = ?")
-        .bind(hash)
-        .run();
-
-      console.log(
-        `[reveal-catchup] ${shortHash} done — ${rawData.length} items checked`,
-      );
-
-      if (results.length > 1) {
-        await delay(DELAY_MS);
-      }
-    } catch (e) {
-      console.warn(`[reveal-catchup] ${shortHash} error: ${e}`);
-    }
+    const batch = results.slice(i, i + CONCURRENCY);
+    await Promise.all(
+      batch.map(({ hash }) =>
+        processCronUser(env, ctx, hash, projectMap, "reveal-catchup").catch(
+          (e) =>
+            console.warn(
+              `[reveal-catchup] ${hash.slice(0, 6)} error: ${e}`,
+            ),
+        ),
+      ),
+    );
   }
   console.log(`[reveal-catchup] done`);
 }
