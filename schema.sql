@@ -3,6 +3,11 @@ CREATE TABLE IF NOT EXISTS eval_users (
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
+CREATE TABLE IF NOT EXISTS user_tokens (
+  hash TEXT PRIMARY KEY,
+  forty_two_token TEXT
+);
+
 CREATE TABLE IF NOT EXISTS eval_states (
   hash TEXT NOT NULL,
   eval_id INTEGER NOT NULL,

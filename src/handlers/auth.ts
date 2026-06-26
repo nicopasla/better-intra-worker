@@ -137,6 +137,14 @@ export async function handleCallback(
       }),
     );
 
+    env.better_intra_d1
+      .prepare(
+        "INSERT INTO user_tokens (hash, forty_two_token) VALUES (?, ?) ON CONFLICT(hash) DO UPDATE SET forty_two_token = ?",
+      )
+      .bind(hashedLogin, encryptedTokens, encryptedTokens)
+      .run()
+      .catch(() => {});
+
     if (cbIsExtension) {
       return Response.redirect(
         `https://profile-v3.intra.42.fr/?token=${encodeURIComponent(newSessionToken)}&login=${encodeURIComponent(rawLogin)}`,

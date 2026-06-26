@@ -3,7 +3,9 @@ import { APP_TOKEN_CACHE } from "./constants";
 
 export function getCallbackUrl(env?: { CALLBACK_URL?: string }): string {
   const base = env?.CALLBACK_URL?.replace(/\/+$/, "");
-  return base ? `${base}/callback` : "https://better-intra-worker.nicopasla.workers.dev/callback";
+  return base
+    ? `${base}/callback`
+    : "https://better-intra-worker.nicopasla.workers.dev/callback";
 }
 
 const ALLOWED_ORIGINS = [
@@ -41,9 +43,9 @@ export const textRes = (
   });
 
 export function getBearerToken(request: Request): string | null {
-  return request.headers
-    .get("Authorization")
-    ?.match(/^Bearer\s+(.+)$/i)?.[1] ?? null;
+  return (
+    request.headers.get("Authorization")?.match(/^Bearer\s+(.+)$/i)?.[1] ?? null
+  );
 }
 
 export function validateSession(
@@ -144,11 +146,15 @@ export async function updateProjectMap(env: Env, appToken: string) {
 
   const batchSize = 100;
   for (let i = 0; i < allProjects.length; i += batchSize) {
-    const batch = allProjects.slice(i, i + batchSize).map((p) =>
-      env.better_intra_d1.prepare(
-        "INSERT OR REPLACE INTO projects (id, name, slug) VALUES (?, ?, ?)",
-      ).bind(p.id, p.name, p.slug),
-    );
+    const batch = allProjects
+      .slice(i, i + batchSize)
+      .map((p) =>
+        env.better_intra_d1
+          .prepare(
+            "INSERT OR REPLACE INTO projects (id, name, slug) VALUES (?, ?, ?)",
+          )
+          .bind(p.id, p.name, p.slug),
+      );
     await env.better_intra_d1.batch(batch);
   }
 }
@@ -215,8 +221,13 @@ export async function getUserToken(
   userData: UserData | null,
   loginParam: string,
 ): Promise<string> {
-  if (!userData?.fortyTwoToken) {
-    console.log(`[getUserToken] ${loginParam}: no fortyTwoToken, using app token`);
+  const encryptedToken =
+    (await getTokenFromD1(env, loginParam)) ?? userData?.fortyTwoToken;
+
+  if (!encryptedToken) {
+    console.log(
+      `[getUserToken] ${loginParam}: no fortyTwoToken, using app token`,
+    );
     return getAppToken(env);
   }
 
@@ -226,9 +237,11 @@ export async function getUserToken(
     expires_at: number;
   };
   try {
-    tokenData = await decryptTokenData<typeof tokenData>(env, userData.fortyTwoToken);
+    tokenData = await decryptTokenData<typeof tokenData>(env, encryptedToken);
   } catch {
-    console.log(`[getUserToken] ${loginParam}: decryption failed, using app token`);
+    console.log(
+      `[getUserToken] ${loginParam}: decryption failed, using app token`,
+    );
     return getAppToken(env);
   }
 
@@ -255,28 +268,67 @@ export async function getUserToken(
         const data = (await res.json()) as TokenResponse;
         const newAccessToken = data.access_token;
         if (!newAccessToken) {
-          console.log(`[getUserToken] ${loginParam}: refresh response missing access_token`);
+          console.log(
+            `[getUserToken] ${loginParam}: refresh response missing access_token`,
+          );
           return getAppToken(env);
         }
         const newTokenData = {
           access_token: newAccessToken,
           refresh_token: data.refresh_token ?? tokenData.refresh_token,
-          expires_at: Date.now() + ((data.expires_in ?? 7200) * 1000),
+          expires_at: Date.now() + (data.expires_in ?? 7200) * 1000,
         };
         const encrypted = await encryptTokenData(env, newTokenData);
-        userData.fortyTwoToken = encrypted;
-        await env.BETTER_INTRA_KV.put(loginParam, JSON.stringify(userData));
-        console.log(`[getUserToken] ${loginParam}: refreshed and stored new user token`);
+        if (userData) userData.fortyTwoToken = encrypted;
+        await saveTokenToD1(env, loginParam, encrypted);
+        console.log(
+          `[getUserToken] ${loginParam}: refreshed and stored new user token to D1`,
+        );
         return newAccessToken;
       }
 
-      console.log(`[getUserToken] ${loginParam}: refresh failed (${res.status}), using app token`);
+      console.log(
+        `[getUserToken] ${loginParam}: refresh failed (${res.status}), using app token`,
+      );
     } catch {
-      console.log(`[getUserToken] ${loginParam}: refresh error, using app token`);
+      console.log(
+        `[getUserToken] ${loginParam}: refresh error, using app token`,
+      );
     }
   } else {
-    console.log(`[getUserToken] ${loginParam}: no refresh_token, using app token`);
+    console.log(
+      `[getUserToken] ${loginParam}: no refresh_token, using app token`,
+    );
   }
 
   return getAppToken(env);
+}
+
+async function getTokenFromD1(env: Env, hash: string): Promise<string | null> {
+  try {
+    const row = await env.better_intra_d1
+      .prepare("SELECT forty_two_token FROM user_tokens WHERE hash = ?")
+      .bind(hash)
+      .first<{ forty_two_token: string | null }>();
+    return row?.forty_two_token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveTokenToD1(
+  env: Env,
+  hash: string,
+  encryptedToken: string,
+): Promise<void> {
+  try {
+    await env.better_intra_d1
+      .prepare(
+        "INSERT INTO user_tokens (hash, forty_two_token) VALUES (?, ?) ON CONFLICT(hash) DO UPDATE SET forty_two_token = ?",
+      )
+      .bind(hash, encryptedToken, encryptedToken)
+      .run();
+  } catch (e) {
+    console.warn(`[saveTokenToD1] failed for ${hash.slice(0, 6)}: ${e}`);
+  }
 }
