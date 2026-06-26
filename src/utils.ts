@@ -228,6 +228,7 @@ export async function getUserToken(
     console.log(
       `[getUserToken] ${loginParam}: no fortyTwoToken, using app token`,
     );
+    await markTokenBroken(env, userData, loginParam);
     return getAppToken(env);
   }
 
@@ -242,11 +243,13 @@ export async function getUserToken(
     console.log(
       `[getUserToken] ${loginParam}: decryption failed, using app token`,
     );
+    await markTokenBroken(env, userData, loginParam);
     return getAppToken(env);
   }
 
   if (Date.now() < tokenData.expires_at - 60000) {
     console.log(`[getUserToken] ${loginParam}: using cached user token`);
+    await clearTokenBroken(env, userData, loginParam);
     return tokenData.access_token;
   }
 
@@ -271,6 +274,7 @@ export async function getUserToken(
           console.log(
             `[getUserToken] ${loginParam}: refresh response missing access_token`,
           );
+          await markTokenBroken(env, userData, loginParam);
           return getAppToken(env);
         }
         const newTokenData = {
@@ -281,6 +285,7 @@ export async function getUserToken(
         const encrypted = await encryptTokenData(env, newTokenData);
         if (userData) userData.fortyTwoToken = encrypted;
         await saveTokenToD1(env, loginParam, encrypted);
+        await clearTokenBroken(env, userData, loginParam);
         console.log(
           `[getUserToken] ${loginParam}: refreshed and stored new user token to D1`,
         );
@@ -301,7 +306,34 @@ export async function getUserToken(
     );
   }
 
+  await markTokenBroken(env, userData, loginParam);
   return getAppToken(env);
+}
+
+async function markTokenBroken(
+  env: Env,
+  userData: UserData | null,
+  loginParam: string,
+): Promise<void> {
+  if (!userData) return;
+  if (userData.tokenBroken) return;
+  userData.tokenBroken = true;
+  try {
+    await env.BETTER_INTRA_KV.put(loginParam, JSON.stringify(userData));
+  } catch {}
+}
+
+async function clearTokenBroken(
+  env: Env,
+  userData: UserData | null,
+  loginParam: string,
+): Promise<void> {
+  if (!userData) return;
+  if (!userData.tokenBroken) return;
+  userData.tokenBroken = false;
+  try {
+    await env.BETTER_INTRA_KV.put(loginParam, JSON.stringify(userData));
+  } catch {}
 }
 
 async function getTokenFromD1(env: Env, hash: string): Promise<string | null> {

@@ -245,6 +245,11 @@ async function processCronUser(
     return;
   }
 
+  if (userData.tokenBroken) {
+    console.log(`[${prefix}] ${shortHash} skip: token broken`);
+    return;
+  }
+
   if (isInQuietHours(userData)) {
     console.log(`[${prefix}] ${shortHash} skip: quiet hours`);
     return;
