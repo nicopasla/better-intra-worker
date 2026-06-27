@@ -79,8 +79,13 @@ export async function handlePrivateSettings(
         sessionTokens: tokensList,
         settings: settingsToSave,
         fortyTwoToken: existingData.fortyTwoToken,
+        fortyTwoUserId: existingData.fortyTwoUserId,
         discordId: existingData.discordId,
         discordUsername: existingData.discordUsername,
+        discordQuietEnabled: existingData.discordQuietEnabled,
+        discordQuietStart: existingData.discordQuietStart,
+        discordQuietEnd: existingData.discordQuietEnd,
+        tokenBroken: existingData.tokenBroken,
       }),
     );
     return textRes("Saved");
@@ -98,8 +103,13 @@ export async function handlePrivateSettings(
         sessionTokens: tokensList.filter((t) => t !== authHeader),
         settings: existingData.settings || {},
         fortyTwoToken: existingData.fortyTwoToken,
+        fortyTwoUserId: existingData.fortyTwoUserId,
         discordId: existingData.discordId,
         discordUsername: existingData.discordUsername,
+        discordQuietEnabled: existingData.discordQuietEnabled,
+        discordQuietStart: existingData.discordQuietStart,
+        discordQuietEnd: existingData.discordQuietEnd,
+        tokenBroken: existingData.tokenBroken,
       }),
     );
     return textRes("Session removed");

@@ -134,6 +134,12 @@ export async function handleCallback(
         settings: existing.settings || {},
         fortyTwoToken: encryptedTokens,
         fortyTwoUserId: userId,
+        discordId: existing.discordId,
+        discordUsername: existing.discordUsername,
+        discordQuietEnabled: existing.discordQuietEnabled,
+        discordQuietStart: existing.discordQuietStart,
+        discordQuietEnd: existing.discordQuietEnd,
+        tokenBroken: existing.tokenBroken,
       }),
     );
 
