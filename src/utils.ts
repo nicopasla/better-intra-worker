@@ -310,7 +310,7 @@ export async function getUserToken(
   return getAppToken(env);
 }
 
-async function markTokenBroken(
+export async function markTokenBroken(
   env: Env,
   userData: UserData | null,
   loginParam: string,

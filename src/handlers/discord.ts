@@ -1,8 +1,10 @@
 import { Env, UserData } from "../types";
 import {
   getBearerToken,
+  getUserToken,
   hashLogin,
   jsonRes,
+  markTokenBroken,
   textRes,
   validateSession,
 } from "../utils";
@@ -120,6 +122,22 @@ export async function handleDiscordTest(
       "Discord bot not configured on the server. Contact admin.",
       500,
     );
+  }
+
+  const token42 = await getUserToken(env, existingData, loginParam);
+  try {
+    const meRes = await fetch("https://api.intra.42.fr/v2/me", {
+      headers: { Authorization: `Bearer ${token42}` },
+    });
+    if (!meRes.ok) {
+      if (meRes.status === 401) {
+        await markTokenBroken(env, existingData, loginParam);
+        return textRes("42 token expired — marked as broken, please reconnect in Account tab", 401);
+      }
+      return textRes(`42 API unreachable (${meRes.status})`, 502);
+    }
+  } catch {
+    return textRes("42 API unreachable — network error", 502);
   }
 
   const discordId =
