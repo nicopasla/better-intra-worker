@@ -141,13 +141,12 @@ export async function handleCallback(
       }),
     );
 
-    env.better_intra_d1
+    await env.better_intra_d1
       .prepare(
         "INSERT INTO users (hash, forty_two_token, forty_two_user_id) VALUES (?, ?, ?) ON CONFLICT(hash) DO UPDATE SET forty_two_token = ?, forty_two_user_id = ?",
       )
       .bind(hashedLogin, encryptedTokens, userId, encryptedTokens, userId)
-      .run()
-      .catch(() => {});
+      .run();
 
     if (cbIsExtension) {
       return Response.redirect(
