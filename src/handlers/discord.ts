@@ -85,6 +85,7 @@ export async function handleDiscordQuiet(
   existingData.discordQuietEnabled = body?.quietEnabled === true;
   existingData.discordQuietStart = String(body?.quietStart || "22:00");
   existingData.discordQuietEnd = String(body?.quietEnd || "08:00");
+  existingData.discordQuietTimezone = Number(body?.timezoneOffset) || 0;
   await env.BETTER_INTRA_KV.put(loginParam, JSON.stringify(existingData));
 
   return jsonRes({ saved: true });

@@ -12,7 +12,8 @@ function delay(ms: number): Promise<void> {
 function isInQuietHours(userData: UserData): boolean {
   if (!userData?.discordQuietEnabled) return false;
   const now = new Date();
-  const currentMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const offset = userData.discordQuietTimezone ?? 0;
+  const currentMinutes = (now.getUTCHours() * 60 + now.getUTCMinutes() - offset + 1440) % 1440;
   const [startH, startM] = (userData.discordQuietStart || "22:00")
     .split(":")
     .map(Number);

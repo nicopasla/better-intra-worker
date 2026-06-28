@@ -24,6 +24,7 @@ export type UserData = {
   discordQuietEnabled?: boolean;
   discordQuietStart?: string;
   discordQuietEnd?: string;
+  discordQuietTimezone?: number;
   tokenBroken?: boolean;
 };
 

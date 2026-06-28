@@ -137,6 +137,7 @@ export async function handleCallback(
         discordQuietEnabled: existing.discordQuietEnabled,
         discordQuietStart: existing.discordQuietStart,
         discordQuietEnd: existing.discordQuietEnd,
+        discordQuietTimezone: existing.discordQuietTimezone,
         tokenBroken: existing.tokenBroken,
       }),
     );

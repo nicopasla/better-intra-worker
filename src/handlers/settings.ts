@@ -83,6 +83,7 @@ export async function handlePrivateSettings(
         discordQuietEnabled: existingData.discordQuietEnabled,
         discordQuietStart: existingData.discordQuietStart,
         discordQuietEnd: existingData.discordQuietEnd,
+        discordQuietTimezone: existingData.discordQuietTimezone,
         tokenBroken: existingData.tokenBroken,
       }),
     );
@@ -105,6 +106,7 @@ export async function handlePrivateSettings(
         discordQuietEnabled: existingData.discordQuietEnabled,
         discordQuietStart: existingData.discordQuietStart,
         discordQuietEnd: existingData.discordQuietEnd,
+        discordQuietTimezone: existingData.discordQuietTimezone,
         tokenBroken: existingData.tokenBroken,
       }),
     );
