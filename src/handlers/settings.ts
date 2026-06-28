@@ -78,8 +78,6 @@ export async function handlePrivateSettings(
       JSON.stringify({
         sessionTokens: tokensList,
         settings: settingsToSave,
-        fortyTwoToken: existingData.fortyTwoToken,
-        fortyTwoUserId: existingData.fortyTwoUserId,
         discordId: existingData.discordId,
         discordUsername: existingData.discordUsername,
         discordQuietEnabled: existingData.discordQuietEnabled,
@@ -102,8 +100,6 @@ export async function handlePrivateSettings(
       JSON.stringify({
         sessionTokens: tokensList.filter((t) => t !== authHeader),
         settings: existingData.settings || {},
-        fortyTwoToken: existingData.fortyTwoToken,
-        fortyTwoUserId: existingData.fortyTwoUserId,
         discordId: existingData.discordId,
         discordUsername: existingData.discordUsername,
         discordQuietEnabled: existingData.discordQuietEnabled,

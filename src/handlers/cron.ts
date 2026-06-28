@@ -240,7 +240,15 @@ async function processCronUser(
   const userData = await env.BETTER_INTRA_KV.get<UserData>(hash, {
     type: "json",
   });
-  if (!userData?.fortyTwoToken) {
+  if (!userData) {
+    console.log(`[${prefix}] ${shortHash} skip: no userData`);
+    return;
+  }
+  const tokenRow = await env.better_intra_d1
+    .prepare("SELECT forty_two_token FROM users WHERE hash = ?")
+    .bind(hash)
+    .first<{ forty_two_token: string | null }>();
+  if (!tokenRow?.forty_two_token) {
     console.log(`[${prefix}] ${shortHash} skip: no fortyTwoToken`);
     return;
   }

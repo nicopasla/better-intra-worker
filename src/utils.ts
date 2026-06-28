@@ -283,7 +283,6 @@ export async function getUserToken(
           expires_at: Date.now() + (data.expires_in ?? 7200) * 1000,
         };
         const encrypted = await encryptTokenData(env, newTokenData);
-        if (userData) userData.fortyTwoToken = encrypted;
         await saveTokenToD1(env, loginParam, encrypted);
         await clearTokenBroken(env, userData, loginParam);
         console.log(

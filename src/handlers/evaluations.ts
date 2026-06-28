@@ -20,7 +20,11 @@ export async function handleEvaluations(
   const action = url.searchParams.get("action") || "";
 
   if (action === "register") {
-    if (!existingData?.fortyTwoToken) {
+    const tokenRow = await env.better_intra_d1
+      .prepare("SELECT forty_two_token FROM users WHERE hash = ?")
+      .bind(loginParam)
+      .first<{ forty_two_token: string | null }>();
+    if (!tokenRow?.forty_two_token) {
       return jsonRes({ registered: false, reason: "missing_42_token" });
     }
     await env.better_intra_d1

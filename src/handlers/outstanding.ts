@@ -135,6 +135,13 @@ export async function handleOutstanding(
   }
 
   let userId: number | undefined = existingData.fortyTwoUserId;
+  if (!userId) {
+    const userRow = await env.better_intra_d1
+      .prepare("SELECT forty_two_user_id FROM users WHERE hash = ?")
+      .bind(loginParam)
+      .first<{ forty_two_user_id: number | null }>();
+    userId = userRow?.forty_two_user_id ?? undefined;
+  }
   const userToken = await getUserToken(env, existingData, loginParam);
 
   if (userToken && !userId) {
@@ -143,10 +150,12 @@ export async function handleOutstanding(
     });
     if (meRes.ok) {
       const meData = (await meRes.json()) as { id?: number };
-      userId = meData.id;
-      if (userId) {
-        existingData.fortyTwoUserId = userId;
-        await env.BETTER_INTRA_KV.put(loginParam, JSON.stringify(existingData));
+      if (meData.id) {
+        userId = meData.id;
+        await env.better_intra_d1
+          .prepare("UPDATE users SET forty_two_user_id = ? WHERE hash = ?")
+          .bind(userId, loginParam)
+          .run();
       }
     }
   }

@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS users (
   hash TEXT PRIMARY KEY,
   forty_two_token TEXT,
+  forty_two_user_id INTEGER,
   evals_enabled INTEGER NOT NULL DEFAULT 0,
   last_checked INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
