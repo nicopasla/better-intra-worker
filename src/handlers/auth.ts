@@ -142,11 +142,12 @@ export async function handleCallback(
       }),
     );
 
+    const country = request.cf?.country || null;
     await env.better_intra_d1
       .prepare(
-        "INSERT INTO users (hash, forty_two_token, forty_two_user_id) VALUES (?, ?, ?) ON CONFLICT(hash) DO UPDATE SET forty_two_token = ?, forty_two_user_id = ?",
+        "INSERT INTO users (hash, forty_two_token, forty_two_user_id, country) VALUES (?, ?, ?, ?) ON CONFLICT(hash) DO UPDATE SET forty_two_token = ?, forty_two_user_id = ?, country = COALESCE(users.country, ?)",
       )
-      .bind(hashedLogin, encryptedTokens, userId, encryptedTokens, userId)
+      .bind(hashedLogin, encryptedTokens, userId, country, encryptedTokens, userId, country)
       .run();
 
     if (cbIsExtension) {

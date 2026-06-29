@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS users (
   forty_two_user_id INTEGER,
   evals_enabled INTEGER NOT NULL DEFAULT 0,
   last_checked INTEGER,
+  country TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 

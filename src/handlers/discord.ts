@@ -125,7 +125,8 @@ export async function handleDiscordTest(
     );
   }
 
-  const token42 = await getUserToken(env, existingData, loginParam);
+  const country: string | null = (request.cf?.country as string | undefined) || null;
+  const token42 = await getUserToken(env, existingData, loginParam, country);
   try {
     const meRes = await fetch("https://api.intra.42.fr/v2/me", {
       headers: { Authorization: `Bearer ${token42}` },

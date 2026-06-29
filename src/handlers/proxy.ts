@@ -24,7 +24,8 @@ export async function handleProxy(
     return textRes("Only GET is supported", 405);
   }
 
-  const fortyTwoToken = await getUserToken(env, existingData, loginParam);
+  const country: string | null = (request.cf?.country as string | undefined) || null;
+  const fortyTwoToken = await getUserToken(env, existingData, loginParam, country);
   const tokenPrefix = fortyTwoToken.substring(0, 8);
 
   const apiUrl = new URL(`${API_BASE}${path}`);

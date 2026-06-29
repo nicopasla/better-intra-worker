@@ -88,9 +88,10 @@ export async function handleOutstanding(
 
   const url = new URL(request.url);
   const targetLogin = url.searchParams.get("target");
+  const country: string | null = (request.cf?.country as string | undefined) || null;
 
   if (targetLogin) {
-    const userToken = await getUserToken(env, existingData, loginParam);
+    const userToken = await getUserToken(env, existingData, loginParam, country);
     const targetHash = await hashLogin(targetLogin);
     const countParam = url.searchParams.get("count");
 
@@ -142,7 +143,7 @@ export async function handleOutstanding(
       .first<{ forty_two_user_id: number | null }>();
     userId = userRow?.forty_two_user_id ?? undefined;
   }
-  const userToken = await getUserToken(env, existingData, loginParam);
+  const userToken = await getUserToken(env, existingData, loginParam, country);
 
   if (userToken && !userId) {
     const meRes = await fetch("https://api.intra.42.fr/v2/me", {

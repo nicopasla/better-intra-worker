@@ -220,12 +220,21 @@ export async function getUserToken(
   env: Env,
   userData: UserData | null,
   loginParam: string,
+  country?: string | null,
 ): Promise<string> {
-  const d1Token = await getTokenFromD1(env, loginParam);
+  const d1Row = await getTokenFromD1(env, loginParam);
+  const d1Token = d1Row?.forty_two_token ?? null;
   const encryptedToken = d1Token ?? userData?.fortyTwoToken;
 
   if (encryptedToken && !d1Token && userData?.fortyTwoToken) {
-    await saveTokenToD1(env, loginParam, userData.fortyTwoToken);
+    await saveTokenToD1(env, loginParam, userData.fortyTwoToken, country);
+  }
+
+  if (country && d1Row && d1Row.country === null) {
+    await env.better_intra_d1
+      .prepare("UPDATE users SET country = ? WHERE hash = ? AND country IS NULL")
+      .bind(country, loginParam)
+      .run();
   }
 
   if (!encryptedToken) {
@@ -339,13 +348,13 @@ async function clearTokenBroken(
   } catch {}
 }
 
-async function getTokenFromD1(env: Env, hash: string): Promise<string | null> {
+async function getTokenFromD1(env: Env, hash: string): Promise<{ forty_two_token: string | null; country: string | null } | null> {
   try {
     const row = await env.better_intra_d1
-      .prepare("SELECT forty_two_token FROM users WHERE hash = ?")
+      .prepare("SELECT forty_two_token, country FROM users WHERE hash = ?")
       .bind(hash)
-      .first<{ forty_two_token: string | null }>();
-    return row?.forty_two_token ?? null;
+      .first<{ forty_two_token: string | null; country: string | null }>();
+    return row ?? null;
   } catch {
     return null;
   }
@@ -355,13 +364,14 @@ async function saveTokenToD1(
   env: Env,
   hash: string,
   encryptedToken: string,
+  country?: string | null,
 ): Promise<void> {
   try {
     await env.better_intra_d1
       .prepare(
-        "INSERT INTO users (hash, forty_two_token) VALUES (?, ?) ON CONFLICT(hash) DO UPDATE SET forty_two_token = ?",
+        "INSERT INTO users (hash, forty_two_token, country) VALUES (?, ?, ?) ON CONFLICT(hash) DO UPDATE SET forty_two_token = ?, country = COALESCE(users.country, ?)",
       )
-      .bind(hash, encryptedToken, encryptedToken)
+      .bind(hash, encryptedToken, country ?? null, encryptedToken, country ?? null)
       .run();
   } catch (e) {
     console.warn(`[saveTokenToD1] failed for ${hash.slice(0, 6)}: ${e}`);

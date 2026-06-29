@@ -45,7 +45,8 @@ export async function handleFriendsData(
 
   if (logins.length === 0) return jsonRes({ friends: [] });
 
-  const intraToken = await getUserToken(env, existingData, loginParam);
+  const country: string | null = (request.cf?.country as string | undefined) || null;
+  const intraToken = await getUserToken(env, existingData, loginParam, country);
   if (!intraToken) {
     return textRes("Failed to get API token", 500);
   }

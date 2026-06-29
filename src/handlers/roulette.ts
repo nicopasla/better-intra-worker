@@ -81,7 +81,8 @@ export async function handleRoulette(
   if (!validateSession(existingData, sessionToken))
     return textRes("Invalid session token", 401);
 
-  const userToken = await getUserToken(env, existingData, loginParam);
+  const country: string | null = (request.cf?.country as string | undefined) || null;
+  const userToken = await getUserToken(env, existingData, loginParam, country);
   if (!userToken) return textRes("No valid token", 401);
 
   const url = new URL(request.url);
