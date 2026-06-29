@@ -221,8 +221,12 @@ export async function getUserToken(
   userData: UserData | null,
   loginParam: string,
 ): Promise<string> {
-  const encryptedToken =
-    (await getTokenFromD1(env, loginParam)) ?? userData?.fortyTwoToken;
+  const d1Token = await getTokenFromD1(env, loginParam);
+  const encryptedToken = d1Token ?? userData?.fortyTwoToken;
+
+  if (encryptedToken && !d1Token && userData?.fortyTwoToken) {
+    await saveTokenToD1(env, loginParam, userData.fortyTwoToken);
+  }
 
   if (!encryptedToken) {
     console.log(

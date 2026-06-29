@@ -250,8 +250,18 @@ async function processCronUser(
     .bind(hash)
     .first<{ forty_two_token: string | null }>();
   if (!tokenRow?.forty_two_token) {
-    console.log(`[${prefix}] ${shortHash} skip: no fortyTwoToken`);
-    return;
+    if (userData?.fortyTwoToken) {
+      await env.better_intra_d1
+        .prepare(
+          "INSERT INTO users (hash, forty_two_token) VALUES (?, ?) ON CONFLICT(hash) DO UPDATE SET forty_two_token = ?",
+        )
+        .bind(hash, userData.fortyTwoToken, userData.fortyTwoToken)
+        .run();
+      console.log(`[${prefix}] ${shortHash} backfilled fortyTwoToken from KV to D1`);
+    } else {
+      console.log(`[${prefix}] ${shortHash} skip: no fortyTwoToken`);
+      return;
+    }
   }
 
   if (userData.tokenBroken) {

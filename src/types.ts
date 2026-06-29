@@ -26,6 +26,7 @@ export type UserData = {
   discordQuietEnd?: string;
   discordQuietTimezone?: number;
   tokenBroken?: boolean;
+  discordTestedAt?: number;
 };
 
 export interface TokenResponse {

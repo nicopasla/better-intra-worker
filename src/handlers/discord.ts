@@ -187,6 +187,9 @@ export async function handleDiscordTest(
     return textRes(`Discord API error (${result.status}): ${result.body}`, 502);
   }
 
+  existingData.discordTestedAt = Date.now();
+  await env.BETTER_INTRA_KV.put(loginParam, JSON.stringify(existingData));
+
   return jsonRes({ sent: true });
 }
 

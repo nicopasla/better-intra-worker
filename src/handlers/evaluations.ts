@@ -20,6 +20,23 @@ export async function handleEvaluations(
   const action = url.searchParams.get("action") || "";
 
   if (action === "register") {
+    if (!existingData.discordId) {
+      return jsonRes({ registered: false, reason: "discord_not_linked" });
+    }
+    if (existingData.settings?.DISCORD_ENABLED === false) {
+      return jsonRes({ registered: false, reason: "discord_disabled" });
+    }
+
+    const evalRow = await env.better_intra_d1
+      .prepare("SELECT evals_enabled FROM users WHERE hash = ?")
+      .bind(loginParam)
+      .first<{ evals_enabled: number }>();
+    const alreadyEnabled = evalRow?.evals_enabled === 1;
+
+    if (!alreadyEnabled && !existingData.discordTestedAt) {
+      return jsonRes({ registered: false, reason: "discord_not_tested" });
+    }
+
     const tokenRow = await env.better_intra_d1
       .prepare("SELECT forty_two_token FROM users WHERE hash = ?")
       .bind(loginParam)
