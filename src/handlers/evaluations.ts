@@ -23,9 +23,6 @@ export async function handleEvaluations(
     if (!existingData.discordId) {
       return jsonRes({ registered: false, reason: "discord_not_linked" });
     }
-    if (existingData.settings?.DISCORD_ENABLED === false) {
-      return jsonRes({ registered: false, reason: "discord_disabled" });
-    }
 
     const evalRow = await env.better_intra_d1
       .prepare("SELECT evals_enabled FROM users WHERE hash = ?")
