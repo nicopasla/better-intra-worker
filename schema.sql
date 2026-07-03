@@ -5,7 +5,8 @@ CREATE TABLE IF NOT EXISTS users (
   evals_enabled INTEGER NOT NULL DEFAULT 0,
   last_checked INTEGER,
   country TEXT,
-  campus TEXT,
+  campus_id INTEGER,
+  campus_name TEXT,
   pool TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );

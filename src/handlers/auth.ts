@@ -110,9 +110,8 @@ export async function handleCallback(
     const userId = rawUser.id;
     if (!rawLogin) return textRes("Invalid 42 session", 400);
 
-    const campusJson = rawUser.campus
-      ? JSON.stringify(rawUser.campus.map((c) => ({ id: c.id, name: c.name })))
-      : null;
+    const campusId = rawUser.campus?.[0]?.id ?? null;
+    const campusName = rawUser.campus?.[0]?.name ?? null;
     const poolLabel =
       rawUser.pool_month && rawUser.pool_year
         ? `${String(new Date(`${rawUser.pool_month} 1, 2000`).getMonth() + 1).padStart(2, "0")}/${rawUser.pool_year}`
@@ -153,19 +152,21 @@ export async function handleCallback(
     const country = request.cf?.country || null;
     await env.better_intra_d1
       .prepare(
-        "INSERT INTO users (hash, forty_two_token, forty_two_user_id, country, campus, pool) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(hash) DO UPDATE SET forty_two_token = ?, forty_two_user_id = ?, country = COALESCE(users.country, ?), campus = COALESCE(users.campus, ?), pool = COALESCE(users.pool, ?)",
+        "INSERT INTO users (hash, forty_two_token, forty_two_user_id, country, campus_id, campus_name, pool) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(hash) DO UPDATE SET forty_two_token = ?, forty_two_user_id = ?, country = COALESCE(users.country, ?), campus_id = COALESCE(users.campus_id, ?), campus_name = COALESCE(users.campus_name, ?), pool = COALESCE(users.pool, ?)",
       )
       .bind(
         hashedLogin,
         encryptedTokens,
         userId,
         country,
-        campusJson,
+        campusId,
+        campusName,
         poolLabel,
         encryptedTokens,
         userId,
         country,
-        campusJson,
+        campusId,
+        campusName,
         poolLabel,
       )
       .run();
