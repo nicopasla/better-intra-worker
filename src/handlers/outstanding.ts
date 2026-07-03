@@ -88,10 +88,16 @@ export async function handleOutstanding(
 
   const url = new URL(request.url);
   const targetLogin = url.searchParams.get("target");
-  const country: string | null = (request.cf?.country as string | undefined) || null;
+  const country: string | null =
+    (request.cf?.country as string | undefined) || null;
 
   if (targetLogin) {
-    const userToken = await getUserToken(env, existingData, loginParam, country);
+    const userToken = await getUserToken(
+      env,
+      existingData,
+      loginParam,
+      country,
+    );
     const targetHash = await hashLogin(targetLogin);
     const countParam = url.searchParams.get("count");
 
@@ -150,12 +156,28 @@ export async function handleOutstanding(
       headers: { Authorization: `Bearer ${userToken}` },
     });
     if (meRes.ok) {
-      const meData = (await meRes.json()) as { id?: number };
+      const meData = (await meRes.json()) as {
+        id?: number;
+        campus?: Array<{ id: number; name: string }>;
+        pool_month?: string;
+        pool_year?: string;
+      };
       if (meData.id) {
         userId = meData.id;
+        const campusJson = meData.campus
+          ? JSON.stringify(
+              meData.campus.map((c) => ({ id: c.id, name: c.name })),
+            )
+          : null;
+        const poolLabel =
+          meData.pool_month && meData.pool_year
+            ? `${String(new Date(`${meData.pool_month} 1, 2000`).getMonth() + 1).padStart(2, "0")}/${meData.pool_year}`
+            : null;
         await env.better_intra_d1
-          .prepare("UPDATE users SET forty_two_user_id = ? WHERE hash = ?")
-          .bind(userId, loginParam)
+          .prepare(
+            "UPDATE users SET forty_two_user_id = ?, campus = COALESCE(users.campus, ?), pool = COALESCE(users.pool, ?) WHERE hash = ?",
+          )
+          .bind(userId, campusJson, poolLabel, loginParam)
           .run();
       }
     }

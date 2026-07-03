@@ -40,6 +40,9 @@ export interface TokenResponse {
 export interface UserResponse {
   id?: number;
   login?: string;
+  campus?: Array<{ id: number; name: string }>;
+  pool_month?: string;
+  pool_year?: string;
 }
 
 export interface ProjectResponse {
