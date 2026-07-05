@@ -1,7 +1,6 @@
 import { Env, UserData, FortyTwoUser, CursusUser } from "../types";
 import {
   decryptTokenData,
-  encryptTokenData,
   getBearerToken,
   getUserToken,
   hashLogin,
@@ -9,7 +8,7 @@ import {
   textRes,
   validateSession,
 } from "../utils";
-import { FRIEND_USER_IDS, ONLINE_CACHE } from "../constants";
+import { FRIEND_USER_IDS } from "../constants";
 
 const INTRA_API = "https://api.intra.42.fr/v2";
 const PAGE_SIZE = 100;
@@ -92,16 +91,40 @@ export async function handleFriendsData(
 
   const friends: any[] = [];
   const now = Date.now();
-  const rawCache = await env.BETTER_INTRA_KV.get(ONLINE_CACHE);
-  let onlineCache: Record<string, { location: string; seenAt: number }> = {};
+
+  // One-time migration: move encrypted KV cache to D1
+  const rawCache = await env.BETTER_INTRA_KV.get("ONLINE_CACHE");
   if (rawCache) {
     try {
-      onlineCache = await decryptTokenData(env, rawCache);
+      const oldCache = await decryptTokenData<
+        Record<string, { location: string; seenAt: number }>
+      >(env, rawCache);
+      const stmts = Object.entries(oldCache).map(([login, data]) =>
+        env.better_intra_d1
+          .prepare(
+            "INSERT OR REPLACE INTO online_cache (login, location, seen_at) VALUES (?, ?, ?)",
+          )
+          .bind(login, data.location, data.seenAt),
+      );
+      if (stmts.length > 0) await env.better_intra_d1.batch(stmts);
+      await env.BETTER_INTRA_KV.delete("ONLINE_CACHE");
     } catch {
-      onlineCache = {};
+      // migration failed — proceed with empty cache
     }
   }
-  let cacheDirty = false;
+
+  // Read online cache from D1 for the requested logins
+  const placeholders = logins.map(() => "?").join(",");
+  const { results: d1Rows } = await env.better_intra_d1
+    .prepare(
+      `SELECT login, location, seen_at FROM online_cache WHERE login IN (${placeholders})`,
+    )
+    .bind(...logins)
+    .all<{ login: string; location: string; seen_at: number }>();
+  const onlineCache: Record<string, { location: string; seenAt: number }> = {};
+  for (const row of d1Rows) {
+    onlineCache[row.login] = { location: row.location, seenAt: row.seen_at };
+  }
 
   for (const entry of cursusUsers) {
     const user = entry?.user;
@@ -109,11 +132,6 @@ export async function handleFriendsData(
 
     const isOnline = user.location !== null;
     const lastSeen = user.location ?? null;
-
-    if (isOnline && user.location) {
-      onlineCache[user.login] = { location: user.location, seenAt: now };
-      cacheDirty = true;
-    }
 
     const poolLabel = user.pool_month && user.pool_year
       ? `${String(new Date(`${user.pool_month} 1, 2000`).getMonth() + 1).padStart(2, "0")}/${user.pool_year}`
@@ -150,9 +168,21 @@ export async function handleFriendsData(
     }),
   );
 
-  if (cacheDirty) {
-    const encrypted = await encryptTokenData(env, onlineCache);
-    await env.BETTER_INTRA_KV.put(ONLINE_CACHE, encrypted);
+  // Upsert online friends into D1
+  const upsertStmts = [];
+  for (const entry of cursusUsers) {
+    const user = entry?.user;
+    if (!user?.login || !user.location) continue;
+    upsertStmts.push(
+      env.better_intra_d1
+        .prepare(
+          "INSERT OR REPLACE INTO online_cache (login, location, seen_at) VALUES (?, ?, ?)",
+        )
+        .bind(user.login, user.location, now),
+    );
+  }
+  if (upsertStmts.length > 0) {
+    await env.better_intra_d1.batch(upsertStmts);
   }
 
   return jsonRes({ friends });

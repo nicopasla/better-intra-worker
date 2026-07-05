@@ -1,3 +1,2 @@
 export const APP_TOKEN_CACHE = "APP_TOKEN_CACHE";
 export const FRIEND_USER_IDS = "FRIEND_USER_IDS";
-export const ONLINE_CACHE = "ONLINE_CACHE";
