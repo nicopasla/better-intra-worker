@@ -30,6 +30,25 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function fetchWithRetry(
+  url: string,
+  token: string,
+  retries = 3,
+): Promise<Response> {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status !== 429) return res;
+    const retryAfter = res.headers.get("Retry-After");
+    const wait = retryAfter
+      ? parseInt(retryAfter) * 1000
+      : 1500 * (attempt + 1);
+    await delay(wait);
+  }
+  return fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+}
+
 async function syncRouletteFromApi(
   env: Env,
   hash: string,
@@ -42,9 +61,7 @@ async function syncRouletteFromApi(
 
   while (page <= maxPages) {
     const url = `${API_BASE}/v2/users/${login}/correction_point_historics?filter[reason]=Thursday+Roulette&page[size]=100&page[number]=${page}&sort=-id`;
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${userToken}` },
-    });
+    const res = await fetchWithRetry(url, userToken);
     if (!res.ok) break;
 
     const data: any[] = await res.json();
@@ -168,19 +185,20 @@ export async function handleProfileStats(
   }
   const rouletteEntries = await getRouletteEntries(env, hash);
 
+  // Cooldown before hitting the graph endpoint
+  await delay(1000);
+
   // Eval stats: fetch from 42 API
   const graphPath = `/v2/users/${targetUsername}/scale_teams/graph/on/created_at/by/month`;
 
-  const totalRes = await fetch(`${API_BASE}${graphPath}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const totalRes = await fetchWithRetry(`${API_BASE}${graphPath}`, token);
   if (!totalRes.ok)
     return textRes(`42 API error (total): ${totalRes.status}`, totalRes.status);
   const totalMap = (await totalRes.json()) as Record<string, number>;
 
-  const failedRes = await fetch(
+  const failedRes = await fetchWithRetry(
     `${API_BASE}${graphPath}?filter[final_mark]=0`,
-    { headers: { Authorization: `Bearer ${token}` } },
+    token,
   );
   if (!failedRes.ok)
     return textRes(
