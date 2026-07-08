@@ -56,3 +56,10 @@ CREATE TABLE IF NOT EXISTS outstanding_sync_state (
   completed_count INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
+
+CREATE TABLE IF NOT EXISTS eval_stats_cache (
+  target_login TEXT NOT NULL,
+  response_body TEXT NOT NULL,
+  cached_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  PRIMARY KEY (target_login)
+);
