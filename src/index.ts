@@ -8,6 +8,7 @@ import { handleProxy } from "./handlers/proxy";
 import { handleEvaluations } from "./handlers/evaluations";
 import { handleOutstanding } from "./handlers/outstanding";
 import { handleRoulette } from "./handlers/roulette";
+import { handleEvalStats } from "./handlers/evalstats";
 import {
   handleDiscordLink,
   handleDiscordUnlink,
@@ -135,6 +136,13 @@ export default {
 
     if (url.pathname === "/api/v1/private/discord/quiet") {
       return handleDiscordQuiet(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/evaluations/stats") {
+      if (request.method !== "GET") return textRes("Method not allowed", 405);
+      const target = url.searchParams.get("target");
+      if (!target) return textRes("Missing target parameter", 400);
+      return handleEvalStats(request, env, loginParam, existingData, target);
     }
 
     return textRes("Not found", 404);
