@@ -7,8 +7,6 @@ import { handleFriendsData } from "./handlers/friends";
 import { handleProxy } from "./handlers/proxy";
 import { handleEvaluations } from "./handlers/evaluations";
 import { handleOutstanding } from "./handlers/outstanding";
-import { handleRoulette } from "./handlers/roulette";
-import { handleEvalStats } from "./handlers/evalstats";
 import { handleProfileStats } from "./handlers/profile-stats";
 import {
   handleDiscordLink,
@@ -123,10 +121,6 @@ export default {
       return handleOutstanding(request, env, loginParam, existingData);
     }
 
-    if (url.pathname === "/api/v1/private/roulette") {
-      return handleRoulette(request, env, loginParam, existingData);
-    }
-
     if (url.pathname === "/api/v1/private/discord/link") {
       return handleDiscordLink(request, env, loginParam, existingData);
     }
@@ -137,13 +131,6 @@ export default {
 
     if (url.pathname === "/api/v1/private/discord/quiet") {
       return handleDiscordQuiet(request, env, loginParam, existingData);
-    }
-
-    if (url.pathname === "/api/v1/private/evaluations/stats") {
-      if (request.method !== "GET") return textRes("Method not allowed", 405);
-      const target = url.searchParams.get("target");
-      if (!target) return textRes("Missing target parameter", 400);
-      return handleEvalStats(request, env, loginParam, existingData, target);
     }
 
     if (url.pathname === "/api/v1/private/profile-stats") {
