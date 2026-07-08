@@ -19,7 +19,10 @@ interface RouletteEntry {
 }
 
 interface EvalStatsResponse {
-  byMonth: Record<string, { total: number; failed: number; successPercentage: number | null }>;
+  byMonth: Record<
+    string,
+    { total: number; failed: number; successPercentage: number | null }
+  >;
   global: { total: number; failed: number; successPercentage: number | null };
 }
 
@@ -69,7 +72,10 @@ async function syncRouletteFromApi(
   }
 }
 
-async function getRouletteEntries(env: Env, hash: string): Promise<RouletteEntry[]> {
+async function getRouletteEntries(
+  env: Env,
+  hash: string,
+): Promise<RouletteEntry[]> {
   const { results } = await env.better_intra_d1
     .prepare(
       "SELECT historic_id, sum, total, created_at FROM correction_point_historics WHERE hash = ? ORDER BY created_at DESC",
@@ -83,8 +89,14 @@ function computeEvalStats(
   totalMap: Record<string, number>,
   failedMap: Record<string, number>,
 ): EvalStatsResponse {
-  const allMonths = new Set([...Object.keys(totalMap), ...Object.keys(failedMap)]);
-  const byMonth: Record<string, { total: number; failed: number; successPercentage: number | null }> = {};
+  const allMonths = new Set([
+    ...Object.keys(totalMap),
+    ...Object.keys(failedMap),
+  ]);
+  const byMonth: Record<
+    string,
+    { total: number; failed: number; successPercentage: number | null }
+  > = {};
   let globalTotal = 0;
   let globalFailed = 0;
 
@@ -96,7 +108,8 @@ function computeEvalStats(
     byMonth[month] = {
       total,
       failed,
-      successPercentage: total > 0 ? Math.round(((total - failed) / total) * 1000) / 10 : null,
+      successPercentage:
+        total > 0 ? Math.round(((total - failed) / total) * 1000) / 10 : null,
     };
   }
 
@@ -105,7 +118,10 @@ function computeEvalStats(
     global: {
       total: globalTotal,
       failed: globalFailed,
-      successPercentage: globalTotal > 0 ? Math.round(((globalTotal - globalFailed) / globalTotal) * 1000) / 10 : null,
+      successPercentage:
+        globalTotal > 0
+          ? Math.round(((globalTotal - globalFailed) / globalTotal) * 1000) / 10
+          : null,
     },
   };
 }
@@ -120,11 +136,14 @@ export async function handleProfileStats(
   const authHeader = getBearerToken(request);
   if (!authHeader) return textRes("Missing Authorization header", 401);
   if (!existingData) return textRes("User not found", 404);
-  if (!validateSession(existingData, authHeader)) return textRes("Invalid session", 401);
+  if (!validateSession(existingData, authHeader))
+    return textRes("Invalid session", 401);
 
   const now = Math.floor(Date.now() / 1000);
   const cached = await env.better_intra_d1
-    .prepare("SELECT response_body, cached_at FROM profile_stats_cache WHERE target_login = ?")
+    .prepare(
+      "SELECT response_body, cached_at FROM profile_stats_cache WHERE target_login = ?",
+    )
     .bind(targetUsername)
     .first<{ response_body: string; cached_at: number }>();
 
@@ -132,7 +151,8 @@ export async function handleProfileStats(
     return jsonRes(JSON.parse(cached.response_body));
   }
 
-  const country: string | null = (request.cf?.country as string | undefined) || null;
+  const country: string | null =
+    (request.cf?.country as string | undefined) || null;
   const token = await getUserToken(env, existingData, loginParam, country);
   if (!token) return textRes("Failed to get API token", 500);
 
@@ -151,13 +171,23 @@ export async function handleProfileStats(
   // Eval stats: fetch from 42 API
   const graphPath = `/v2/users/${targetUsername}/scale_teams/graph/on/created_at/by/month`;
 
-  const [totalRes, failedRes] = await Promise.all([
-    fetch(`${API_BASE}${graphPath}`, { headers: { Authorization: `Bearer ${token}` } }),
-    fetch(`${API_BASE}${graphPath}?filter[final_mark]=0`, { headers: { Authorization: `Bearer ${token}` } }),
-  ]);
+  const totalRes = await fetch(`${API_BASE}${graphPath}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!totalRes.ok)
+    return textRes(`42 API error (total): ${totalRes.status}`, totalRes.status);
+  const totalMap = (await totalRes.json()) as Record<string, number>;
 
-  const totalMap = totalRes.ok ? (await totalRes.json()) as Record<string, number> : {};
-  const failedMap = failedRes.ok ? (await failedRes.json()) as Record<string, number> : {};
+  const failedRes = await fetch(
+    `${API_BASE}${graphPath}?filter[final_mark]=0`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!failedRes.ok)
+    return textRes(
+      `42 API error (failed): ${failedRes.status}`,
+      failedRes.status,
+    );
+  const failedMap = (await failedRes.json()) as Record<string, number>;
 
   const evalStats = computeEvalStats(totalMap, failedMap);
 
@@ -167,7 +197,9 @@ export async function handleProfileStats(
   };
 
   await env.better_intra_d1
-    .prepare("INSERT OR REPLACE INTO profile_stats_cache (target_login, response_body, cached_at) VALUES (?, ?, ?)")
+    .prepare(
+      "INSERT OR REPLACE INTO profile_stats_cache (target_login, response_body, cached_at) VALUES (?, ?, ?)",
+    )
     .bind(targetUsername, JSON.stringify(body), now)
     .run();
 
