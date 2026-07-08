@@ -8,6 +8,7 @@ import { handleProxy } from "./handlers/proxy";
 import { handleEvaluations } from "./handlers/evaluations";
 import { handleOutstanding } from "./handlers/outstanding";
 import { handleProfileStats } from "./handlers/profile-stats";
+import { handleCalendarToken, handleCalendarUpdate, handleCalendarIcs } from "./handlers/calendar";
 import {
   handleDiscordLink,
   handleDiscordUnlink,
@@ -87,6 +88,11 @@ export default {
       return handleDiscordCallback(request, env);
     }
 
+    const calMatch = url.pathname.match(/^\/calendar\/([^\/]+)\.ics$/);
+    if (calMatch) {
+      return handleCalendarIcs(calMatch[1], env);
+    }
+
     const loginParam = url.searchParams.get("login");
     if (!loginParam) {
       return textRes("Username hash required", 400);
@@ -138,6 +144,14 @@ export default {
       const target = url.searchParams.get("target");
       if (!target) return textRes("Missing target parameter", 400);
       return handleProfileStats(request, env, loginParam, existingData, target);
+    }
+
+    if (url.pathname === "/api/v1/private/calendar/token") {
+      return handleCalendarToken(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/calendar/update") {
+      return handleCalendarUpdate(request, env, loginParam, existingData);
     }
 
     return textRes("Not found", 404);

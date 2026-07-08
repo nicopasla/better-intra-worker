@@ -70,3 +70,10 @@ CREATE TABLE IF NOT EXISTS profile_stats_cache (
   cached_at INTEGER NOT NULL DEFAULT (unixepoch()),
   PRIMARY KEY (target_login)
 );
+
+CREATE TABLE IF NOT EXISTS calendar_ics (
+  login_hash TEXT NOT NULL,
+  ics_body TEXT NOT NULL,
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  PRIMARY KEY (login_hash)
+);
