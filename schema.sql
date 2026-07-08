@@ -63,3 +63,10 @@ CREATE TABLE IF NOT EXISTS eval_stats_cache (
   cached_at INTEGER NOT NULL DEFAULT (unixepoch()),
   PRIMARY KEY (target_login)
 );
+
+CREATE TABLE IF NOT EXISTS profile_stats_cache (
+  target_login TEXT NOT NULL,
+  response_body TEXT NOT NULL,
+  cached_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  PRIMARY KEY (target_login)
+);
