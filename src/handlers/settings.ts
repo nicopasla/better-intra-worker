@@ -23,6 +23,7 @@ export async function handlePublicVisuals(
     background: settings.PROFILE_BACKGROUND_URL || "",
     backgroundMode: settings.PROFILE_BACKGROUND_MODE || "fill",
     avatarBg: settings.PROFILE_AVATAR_BG || "transparent",
+    decoration: settings.PROFILE_DECORATION || "none",
 
     // Theme settings (for profile card)
     theme: {
