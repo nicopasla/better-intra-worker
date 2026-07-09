@@ -1,5 +1,11 @@
 import { Env, UserData } from "../types";
-import { getBearerToken, getTokens, jsonRes, textRes, validateSession } from "../utils";
+import {
+  getBearerToken,
+  getTokens,
+  jsonRes,
+  textRes,
+  validateSession,
+} from "../utils";
 
 export async function handlePublicVisuals(
   request: Request,
@@ -16,6 +22,7 @@ export async function handlePublicVisuals(
     bannerMode: settings.PROFILE_BANNER_MODE || "fill",
     background: settings.PROFILE_BACKGROUND_URL || "",
     backgroundMode: settings.PROFILE_BACKGROUND_MODE || "fill",
+    avatarBg: settings.PROFILE_AVATAR_BG || "transparent",
 
     // Theme settings (for profile card)
     theme: {
@@ -61,8 +68,11 @@ export async function handlePrivateSettings(
 
   if (request.method === "POST") {
     let body: any;
-    try { body = await request.json(); }
-    catch { return textRes("Invalid JSON body", 400); }
+    try {
+      body = await request.json();
+    } catch {
+      return textRes("Invalid JSON body", 400);
+    }
 
     if (typeof body?.settings !== "object" || body.settings === null) {
       return textRes("Invalid settings payload", 400);
