@@ -1,11 +1,11 @@
 import { Env, UserData, TokenResponse, ProjectResponse } from "./types";
 import { APP_TOKEN_CACHE } from "./constants";
 
-export function getCallbackUrl(env?: { CALLBACK_URL?: string }): string {
+export function getCallbackUrl(request: Request, env?: { CALLBACK_URL?: string }): string {
   const base = env?.CALLBACK_URL?.replace(/\/+$/, "");
-  return base
-    ? `${base}/callback`
-    : "https://better-intra-worker.nicopasla.workers.dev/callback";
+  if (base) return `${base}/callback`;
+  const url = new URL(request.url);
+  return `${url.origin}/callback`;
 }
 
 const ALLOWED_ORIGINS = [
@@ -232,7 +232,9 @@ export async function getUserToken(
 
   if (country && d1Row && d1Row.country === null) {
     await env.better_intra_d1
-      .prepare("UPDATE users SET country = ? WHERE hash = ? AND country IS NULL")
+      .prepare(
+        "UPDATE users SET country = ? WHERE hash = ? AND country IS NULL",
+      )
       .bind(country, loginParam)
       .run();
   }
@@ -348,7 +350,10 @@ async function clearTokenBroken(
   } catch {}
 }
 
-async function getTokenFromD1(env: Env, hash: string): Promise<{ forty_two_token: string | null; country: string | null } | null> {
+async function getTokenFromD1(
+  env: Env,
+  hash: string,
+): Promise<{ forty_two_token: string | null; country: string | null } | null> {
   try {
     const row = await env.better_intra_d1
       .prepare("SELECT forty_two_token, country FROM users WHERE hash = ?")
@@ -371,7 +376,13 @@ async function saveTokenToD1(
       .prepare(
         "INSERT INTO users (hash, forty_two_token, country) VALUES (?, ?, ?) ON CONFLICT(hash) DO UPDATE SET forty_two_token = ?, country = COALESCE(users.country, ?)",
       )
-      .bind(hash, encryptedToken, country ?? null, encryptedToken, country ?? null)
+      .bind(
+        hash,
+        encryptedToken,
+        country ?? null,
+        encryptedToken,
+        country ?? null,
+      )
       .run();
   } catch (e) {
     console.warn(`[saveTokenToD1] failed for ${hash.slice(0, 6)}: ${e}`);

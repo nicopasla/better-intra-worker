@@ -1,6 +1,6 @@
 {
   "name": "better-intra-worker",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "main": "src/index.ts",
   "type": "module",
   "scripts": {
@@ -11,9 +11,15 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260515.1",
+    "@cloudflare/workers-types": "^5.20260711.1",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8",
-    "wrangler": "^4.92.0"
+    "vitest": "^4.1.10",
+    "wrangler": "^4.110.0"
+  },
+  "allowScripts": {
+    "esbuild": true,
+    "fsevents": true,
+    "sharp": true,
+    "workerd": true
   }
 }

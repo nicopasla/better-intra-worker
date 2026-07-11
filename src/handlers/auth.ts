@@ -35,7 +35,7 @@ export async function handleLogin(
     return textRes("Invalid redirect_uri", 400);
   }
 
-  const cbUrl = getCallbackUrl(env);
+  const cbUrl = getCallbackUrl(request, env);
   return Response.redirect(
     `https://api.intra.42.fr/oauth/authorize?client_id=${
       env.CLIENT_ID
@@ -75,7 +75,7 @@ export async function handleCallback(
   }
 
   try {
-    const cbUrl = getCallbackUrl(env);
+    const cbUrl = getCallbackUrl(request, env);
     const tokenParams = new URLSearchParams({
       grant_type: "authorization_code",
       client_id: env.CLIENT_ID,
