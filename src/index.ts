@@ -5,6 +5,7 @@ import {
 } from "./handlers/settings";
 import { handleFriendsData } from "./handlers/friends";
 import { handleProxy } from "./handlers/proxy";
+import { handleGhProxy } from "./handlers/gh-proxy";
 import { handleEvaluations } from "./handlers/evaluations";
 import { handleOutstanding } from "./handlers/outstanding";
 import { handleProfileStats } from "./handlers/profile-stats";
@@ -55,6 +56,10 @@ export default {
     if (url.pathname === "/callback") {
       if (request.method !== "GET") return textRes("Method not allowed", 405);
       return handleCallback(request, env);
+    }
+
+    if (url.pathname.startsWith("/gh/")) {
+      return handleGhProxy(request);
     }
 
     if (url.pathname === "/api/v1/private/discord/test") {
