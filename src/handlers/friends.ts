@@ -1,6 +1,5 @@
 import { Env, UserData, FortyTwoUser, CursusUser } from "../types";
 import {
-  decryptTokenData,
   getBearerToken,
   getUserToken,
   hashLogin,
@@ -44,7 +43,8 @@ export async function handleFriendsData(
 
   if (logins.length === 0) return jsonRes({ friends: [] });
 
-  const country: string | null = (request.cf?.country as string | undefined) || null;
+  const country: string | null =
+    (request.cf?.country as string | undefined) || null;
   const intraToken = await getUserToken(env, existingData, loginParam, country);
   if (!intraToken) {
     return textRes("Failed to get API token", 500);
@@ -92,27 +92,6 @@ export async function handleFriendsData(
   const friends: any[] = [];
   const now = Date.now();
 
-  // One-time migration: move encrypted KV cache to D1
-  const rawCache = await env.BETTER_INTRA_KV.get("ONLINE_CACHE");
-  if (rawCache) {
-    try {
-      const oldCache = await decryptTokenData<
-        Record<string, { location: string; seenAt: number }>
-      >(env, rawCache);
-      const stmts = Object.entries(oldCache).map(([login, data]) =>
-        env.better_intra_d1
-          .prepare(
-            "INSERT OR REPLACE INTO online_cache (login, location, seen_at) VALUES (?, ?, ?)",
-          )
-          .bind(login, data.location, data.seenAt),
-      );
-      if (stmts.length > 0) await env.better_intra_d1.batch(stmts);
-      await env.BETTER_INTRA_KV.delete("ONLINE_CACHE");
-    } catch {
-      // migration failed — proceed with empty cache
-    }
-  }
-
   // Read online cache from D1 for the requested logins
   const placeholders = logins.map(() => "?").join(",");
   const { results: d1Rows } = await env.better_intra_d1
@@ -133,9 +112,10 @@ export async function handleFriendsData(
     const isOnline = user.location !== null;
     const lastSeen = user.location ?? null;
 
-    const poolLabel = user.pool_month && user.pool_year
-      ? `${String(new Date(`${user.pool_month} 1, 2000`).getMonth() + 1).padStart(2, "0")}/${user.pool_year}`
-      : null;
+    const poolLabel =
+      user.pool_month && user.pool_year
+        ? `${String(new Date(`${user.pool_month} 1, 2000`).getMonth() + 1).padStart(2, "0")}/${user.pool_year}`
+        : null;
 
     const cached = onlineCache[user.login];
     friends.push({
@@ -162,8 +142,17 @@ export async function handleFriendsData(
         });
         friend.customAvatar =
           (userData?.settings?.PROFILE_IMAGE_URL as string) || null;
+        friend.avatarPosX =
+          (userData?.settings?.PROFILE_AVATAR_POSITION_X as number) ?? 50;
+        friend.avatarPosY =
+          (userData?.settings?.PROFILE_AVATAR_POSITION_Y as number) ?? 50;
+        friend.avatarScale =
+          (userData?.settings?.PROFILE_AVATAR_SCALE as number) ?? 100;
       } catch {
         friend.customAvatar = null;
+        friend.avatarPosX = 50;
+        friend.avatarPosY = 50;
+        friend.avatarScale = 100;
       }
     }),
   );
@@ -198,7 +187,9 @@ async function fetchAllPages<T>(url: string, token: string): Promise<T[]> {
     });
     const hourly = res.headers.get("x-hourly-ratelimit-remaining") ?? "?";
     const secondly = res.headers.get("x-secondly-ratelimit-remaining") ?? "?";
-    console.log(`[42 API] page=${page} status=${res.status} hourly=${hourly} secondly=${secondly}`);
+    console.log(
+      `[42 API] page=${page} status=${res.status} hourly=${hourly} secondly=${secondly}`,
+    );
     if (!res.ok) break;
     const data = (await res.json()) as T[];
     if (data.length === 0) break;
