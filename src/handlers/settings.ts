@@ -24,6 +24,9 @@ export async function handlePublicVisuals(
     backgroundMode: settings.PROFILE_BACKGROUND_MODE || "fill",
     avatarBg: settings.PROFILE_AVATAR_BG || "transparent",
     decoration: settings.PROFILE_DECORATION || "none",
+    avatarPosX: Number(settings.PROFILE_AVATAR_POSITION_X ?? 50),
+    avatarPosY: Number(settings.PROFILE_AVATAR_POSITION_Y ?? 50),
+    avatarScale: Number(settings.PROFILE_AVATAR_SCALE ?? 100),
 
     // Theme settings (for profile card)
     theme: {
