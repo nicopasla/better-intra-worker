@@ -9,7 +9,12 @@ import { handleGhProxy } from "./handlers/gh-proxy";
 import { handleEvaluations } from "./handlers/evaluations";
 import { handleOutstanding } from "./handlers/outstanding";
 import { handleProfileStats } from "./handlers/profile-stats";
-import { handleCalendarToken, handleCalendarUpdate, handleCalendarIcs } from "./handlers/calendar";
+import {
+  handleCalendarToken,
+  handleCalendarUpdate,
+  handleCalendarIcs,
+} from "./handlers/calendar";
+import { handleClusterSvg, handleClusterSvgs } from "./handlers/clusters";
 import {
   handleDiscordLink,
   handleDiscordUnlink,
@@ -83,6 +88,14 @@ export default {
       } catch (e) {
         return textRes(`Refresh failed: ${e}`, 500);
       }
+    }
+
+    if (url.pathname === "/api/v1/cluster/svg") {
+      return handleClusterSvg(request, env, origin);
+    }
+
+    if (url.pathname === "/api/v1/cluster/svgs") {
+      return handleClusterSvgs(env, origin);
     }
 
     if (url.pathname === "/discord/auth") {
