@@ -43,7 +43,8 @@ export async function handleRankings(
     .first<{ data: string; cached_at: number }>();
 
   if (cached && now - cached.cached_at < CACHE_TTL) {
-    return new Response(cached.data, {
+    const wrapped = `{"cached_at":${cached.cached_at},"data":${cached.data}}`;
+    return new Response(wrapped, {
       headers: {
         "Content-Type": "application/json",
         "Access-Control-Allow-Origin": origin || "*",
@@ -105,7 +106,8 @@ export async function handleRankings(
       .run();
   }
 
-  return new Response(json, {
+  const wrapped = JSON.stringify({ cached_at: now, data });
+  return new Response(wrapped, {
     headers: {
       "Content-Type": "application/json",
       "Access-Control-Allow-Origin": origin || "*",
