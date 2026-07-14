@@ -8,16 +8,9 @@ const BELGIUM_CAMPUS_ID = 12;
 interface RankingEntry {
   rank: number;
   login: string;
+  displayname: string;
   image_url: string;
   level: number;
-}
-
-function cacheKey(
-  cursusId: string,
-  rangeBegin: string,
-  rangeEnd: string,
-): string {
-  return `RANKINGS_${cursusId}_${rangeBegin}_${rangeEnd}`;
 }
 
 export async function handleRankings(
@@ -34,15 +27,29 @@ export async function handleRankings(
   if (!cursusId || !rangeBegin || !rangeEnd)
     return textRes("Missing cursus_id, range_begin, or range_end", 400);
 
-  const kvKey = cacheKey(cursusId, rangeBegin, rangeEnd);
   const now = Math.floor(Date.now() / 1000);
 
-  const raw = (await env.BETTER_INTRA_KV.get(kvKey, { type: "json" })) as {
-    data: RankingEntry[];
-    cached_at: number;
-  } | null;
-  if (raw && now - raw.cached_at < CACHE_TTL) {
-    return jsonRes(raw.data);
+  await env.better_intra_d1
+    .prepare(
+      "CREATE TABLE IF NOT EXISTS rankings_cache (cursus_id INTEGER NOT NULL, range_begin TEXT NOT NULL, range_end TEXT NOT NULL, data TEXT NOT NULL, cached_at INTEGER NOT NULL, PRIMARY KEY (cursus_id, range_begin, range_end))",
+    )
+    .run();
+
+  const cached = await env.better_intra_d1
+    .prepare(
+      "SELECT data, cached_at FROM rankings_cache WHERE cursus_id = ? AND range_begin = ? AND range_end = ?",
+    )
+    .bind(Number(cursusId), rangeBegin, rangeEnd)
+    .first<{ data: string; cached_at: number }>();
+
+  if (cached && now - cached.cached_at < CACHE_TTL) {
+    return new Response(cached.data, {
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": origin || "*",
+        "Cache-Control": "public, max-age=1800",
+      },
+    });
   }
 
   const token = await getAppToken(env);
@@ -64,26 +71,39 @@ export async function handleRankings(
   }
 
   const users = (await apiRes.json()) as Array<{
-    user: { login: string; image?: { versions?: { small?: string } } };
+    user: {
+      login: string;
+      displayname?: string;
+      first_name?: string;
+      last_name?: string;
+      image?: { versions?: { small?: string } };
+    };
     level: number;
   }>;
 
   const data: RankingEntry[] = users.map((u, i) => ({
     rank: i + 1,
     login: u.user.login,
+    displayname:
+      u.user.displayname ||
+      [u.user.first_name, u.user.last_name].filter(Boolean).join(" ") ||
+      u.user.login,
     image_url:
       u.user.image?.versions?.small ||
       `https://cdn.intra.42.fr/users/${u.user.login}.jpg`,
     level: Math.round(u.level * 100) / 100,
   }));
 
-  await env.BETTER_INTRA_KV.put(
-    kvKey,
-    JSON.stringify({ data, cached_at: now }),
-    { expirationTtl: CACHE_TTL + 60 },
-  );
+  const json = JSON.stringify(data);
 
-  return new Response(JSON.stringify(data), {
+  await env.better_intra_d1
+    .prepare(
+      "INSERT OR REPLACE INTO rankings_cache (cursus_id, range_begin, range_end, data, cached_at) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(Number(cursusId), rangeBegin, rangeEnd, json, now)
+    .run();
+
+  return new Response(json, {
     headers: {
       "Content-Type": "application/json",
       "Access-Control-Allow-Origin": origin || "*",
