@@ -96,12 +96,14 @@ export async function handleRankings(
 
   const json = JSON.stringify(data);
 
-  await env.better_intra_d1
-    .prepare(
-      "INSERT OR REPLACE INTO rankings_cache (cursus_id, range_begin, range_end, data, cached_at) VALUES (?, ?, ?, ?, ?)",
-    )
-    .bind(Number(cursusId), rangeBegin, rangeEnd, json, now)
-    .run();
+  if (data.length > 0) {
+    await env.better_intra_d1
+      .prepare(
+        "INSERT OR REPLACE INTO rankings_cache (cursus_id, range_begin, range_end, data, cached_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .bind(Number(cursusId), rangeBegin, rangeEnd, json, now)
+      .run();
+  }
 
   return new Response(json, {
     headers: {
