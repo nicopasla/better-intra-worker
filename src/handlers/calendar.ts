@@ -102,6 +102,7 @@ export async function handleCalendarIcs(
     return new Response(emptyIcs, {
       headers: {
         "Content-Type": "text/calendar; charset=utf-8",
+        "Content-Disposition": 'inline; filename="betterintra-calendar.ics"',
         "Cache-Control": "public, max-age=3600",
       },
     });
@@ -110,6 +111,7 @@ export async function handleCalendarIcs(
   return new Response(row.ics_body, {
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
+      "Content-Disposition": 'inline; filename="betterintra-calendar.ics"',
       "Cache-Control": "public, max-age=3600",
     },
   });
