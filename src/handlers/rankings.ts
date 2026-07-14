@@ -18,7 +18,11 @@ interface RankingEntry {
   level: number;
 }
 
-function cacheKey(cursusId: string, rangeBegin: string, rangeEnd: string): string {
+function cacheKey(
+  cursusId: string,
+  rangeBegin: string,
+  rangeEnd: string,
+): string {
   return `RANKINGS_${cursusId}_${rangeBegin}_${rangeEnd}`;
 }
 
@@ -46,9 +50,10 @@ export async function handleRankings(
   const kvKey = cacheKey(cursusId, rangeBegin, rangeEnd);
   const now = Math.floor(Date.now() / 1000);
 
-  const raw = await env.BETTER_INTRA_KV.get(kvKey, { type: "json" }) as
-    | { data: RankingEntry[]; cached_at: number }
-    | null;
+  const raw = (await env.BETTER_INTRA_KV.get(kvKey, { type: "json" })) as {
+    data: RankingEntry[];
+    cached_at: number;
+  } | null;
   if (raw && now - raw.cached_at < CACHE_TTL) {
     return jsonRes(raw.data);
   }
@@ -56,7 +61,14 @@ export async function handleRankings(
   const token = await getUserToken(env, existingData, loginParam);
   if (!token) return textRes("Failed to get API token", 500);
 
-  const apiUrl = `${API_BASE}/v2/cursus_users?filter[cursus_id]=${cursusId}&filter[campus_id]=${BELGIUM_CAMPUS_ID}&sort=-level&range[begin_at]=${rangeBegin},${rangeEnd}&page[size]=10`;
+  const params = new URLSearchParams({
+    "filter[cursus_id]": cursusId,
+    "filter[campus_id]": String(BELGIUM_CAMPUS_ID),
+    sort: "-level",
+    "range[begin_at]": `${rangeBegin},${rangeEnd}`,
+    "page[size]": "10",
+  });
+  const apiUrl = `${API_BASE}/v2/cursus_users?${params}`;
 
   const apiRes = await fetch(apiUrl, {
     headers: { Authorization: `Bearer ${token}` },
@@ -73,8 +85,9 @@ export async function handleRankings(
   const data: RankingEntry[] = users.map((u, i) => ({
     rank: i + 1,
     login: u.user.login,
-    image_url: u.user.image?.versions?.small
-      || `https://cdn.intra.42.fr/users/${u.user.login}.jpg`,
+    image_url:
+      u.user.image?.versions?.small ||
+      `https://cdn.intra.42.fr/users/${u.user.login}.jpg`,
     level: Math.round(u.level * 100) / 100,
   }));
 
