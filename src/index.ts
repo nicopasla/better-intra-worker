@@ -99,6 +99,10 @@ export default {
       return handleClusterSvgs(env, origin);
     }
 
+    if (url.pathname === "/api/v1/rankings") {
+      return handleRankings(request, env, origin);
+    }
+
     if (url.pathname === "/discord/auth") {
       return handleDiscordAuth(request, env);
     }
@@ -171,10 +175,6 @@ export default {
 
     if (url.pathname === "/api/v1/private/calendar/update") {
       return handleCalendarUpdate(request, env, loginParam, existingData);
-    }
-
-    if (url.pathname === "/api/v1/private/rankings") {
-      return handleRankings(request, env, loginParam, existingData);
     }
 
     return textRes("Not found", 404);

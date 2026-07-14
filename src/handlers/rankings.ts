@@ -1,11 +1,5 @@
-import { Env, UserData } from "../types";
-import {
-  getBearerToken,
-  getUserToken,
-  jsonRes,
-  textRes,
-  validateSession,
-} from "../utils";
+import { Env } from "../types";
+import { getAppToken, jsonRes, textRes } from "../utils";
 
 const API_BASE = "https://api.intra.42.fr";
 const CACHE_TTL = 3600;
@@ -29,16 +23,9 @@ function cacheKey(
 export async function handleRankings(
   request: Request,
   env: Env,
-  loginParam: string,
-  existingData: UserData | null,
+  origin: string | null,
 ): Promise<Response> {
   if (request.method !== "GET") return textRes("Method not allowed", 405);
-
-  const authHeader = getBearerToken(request);
-  if (!authHeader) return textRes("Missing Authorization Token", 401);
-  if (!existingData) return textRes("User not found", 404);
-  if (!validateSession(existingData, authHeader))
-    return textRes("Unauthorized: Invalid Session Token", 401);
 
   const url = new URL(request.url);
   const cursusId = url.searchParams.get("cursus_id");
@@ -58,8 +45,7 @@ export async function handleRankings(
     return jsonRes(raw.data);
   }
 
-  const token = await getUserToken(env, existingData, loginParam);
-  if (!token) return textRes("Failed to get API token", 500);
+  const token = await getAppToken(env);
 
   const params = new URLSearchParams({
     "filter[cursus_id]": cursusId,
@@ -97,5 +83,11 @@ export async function handleRankings(
     { expirationTtl: CACHE_TTL + 60 },
   );
 
-  return jsonRes(data);
+  return new Response(JSON.stringify(data), {
+    headers: {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": origin || "*",
+      "Cache-Control": "public, max-age=1800",
+    },
+  });
 }
