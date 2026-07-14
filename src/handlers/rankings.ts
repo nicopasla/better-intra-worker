@@ -52,7 +52,7 @@ export async function handleRankings(
     "filter[campus_id]": String(BELGIUM_CAMPUS_ID),
     sort: "-level",
     "range[begin_at]": `${rangeBegin},${rangeEnd}`,
-    "page[size]": "10",
+    "page[size]": "100",
   });
   const apiUrl = `${API_BASE}/v2/cursus_users?${params}`;
 
