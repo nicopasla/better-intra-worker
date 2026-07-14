@@ -48,7 +48,6 @@ export async function handleRankings(
       headers: {
         "Content-Type": "application/json",
         "Access-Control-Allow-Origin": origin || "*",
-        "Cache-Control": "public, max-age=1800",
       },
     });
   }
@@ -111,7 +110,6 @@ export async function handleRankings(
     headers: {
       "Content-Type": "application/json",
       "Access-Control-Allow-Origin": origin || "*",
-      "Cache-Control": "public, max-age=1800",
     },
   });
 }
