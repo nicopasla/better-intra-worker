@@ -15,6 +15,7 @@ import {
   handleCalendarIcs,
 } from "./handlers/calendar";
 import { handleClusterSvg, handleClusterSvgs } from "./handlers/clusters";
+import { handleRankings } from "./handlers/rankings";
 import {
   handleDiscordLink,
   handleDiscordUnlink,
@@ -170,6 +171,10 @@ export default {
 
     if (url.pathname === "/api/v1/private/calendar/update") {
       return handleCalendarUpdate(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/rankings") {
+      return handleRankings(request, env, loginParam, existingData);
     }
 
     return textRes("Not found", 404);
