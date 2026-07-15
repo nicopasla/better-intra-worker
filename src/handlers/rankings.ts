@@ -77,11 +77,13 @@ export async function handleRankings(
       first_name?: string;
       last_name?: string;
       image?: { versions?: { small?: string } };
+      kind?: string;
     };
     level: number;
   }>;
 
-  const data: RankingEntry[] = users.map((u, i) => ({
+  const filtered = users.filter((u) => u.user.kind !== "admin");
+  const data: RankingEntry[] = filtered.map((u, i) => ({
     rank: i + 1,
     login: u.user.login,
     displayname:
