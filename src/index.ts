@@ -15,7 +15,6 @@ import {
   handleCalendarIcs,
 } from "./handlers/calendar";
 import { handleClusterSvg, handleClusterSvgs } from "./handlers/clusters";
-import { handleRankings } from "./handlers/rankings";
 import {
   handleDiscordLink,
   handleDiscordUnlink,
@@ -97,10 +96,6 @@ export default {
 
     if (url.pathname === "/api/v1/cluster/svgs") {
       return handleClusterSvgs(env, origin);
-    }
-
-    if (url.pathname === "/api/v1/rankings") {
-      return handleRankings(request, env, origin);
     }
 
     if (url.pathname === "/discord/auth") {
