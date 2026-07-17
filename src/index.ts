@@ -24,6 +24,7 @@ import {
   handleDiscordCallback,
 } from "./handlers/discord";
 import { handleMainCron, handleRevealCatchup } from "./handlers/cron";
+import { handleLogtimeHistory } from "./handlers/logtime";
 import { Env, UserData } from "./types";
 import {
   isOriginAllowed,
@@ -170,6 +171,10 @@ export default {
 
     if (url.pathname === "/api/v1/private/calendar/update") {
       return handleCalendarUpdate(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/logtime/history") {
+      return handleLogtimeHistory(request, env, loginParam, existingData);
     }
 
     return textRes("Not found", 404);

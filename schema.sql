@@ -77,3 +77,9 @@ CREATE TABLE IF NOT EXISTS calendar_ics (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
   PRIMARY KEY (login_hash)
 );
+
+CREATE TABLE IF NOT EXISTS logtime_history (
+  login TEXT PRIMARY KEY,
+  days_json TEXT NOT NULL,
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
