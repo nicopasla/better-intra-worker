@@ -9,7 +9,7 @@ import {
 } from "../utils";
 
 const API_BASE = "https://api.intra.42.fr";
-const CACHE_TTL = 21_600;
+const CACHE_TTL = 3_600;
 
 interface RouletteEntry {
   historic_id: number;
@@ -156,6 +156,9 @@ export async function handleProfileStats(
   if (!validateSession(existingData, authHeader))
     return textRes("Invalid session", 401);
 
+  const url = new URL(request.url);
+  const force = url.searchParams.has("force");
+
   const now = Math.floor(Date.now() / 1000);
   const cached = await env.better_intra_d1
     .prepare(
@@ -164,7 +167,7 @@ export async function handleProfileStats(
     .bind(targetUsername)
     .first<{ response_body: string; cached_at: number }>();
 
-  if (cached && now - cached.cached_at < CACHE_TTL) {
+  if (!force && cached && now - cached.cached_at < CACHE_TTL) {
     return jsonRes(JSON.parse(cached.response_body));
   }
 
