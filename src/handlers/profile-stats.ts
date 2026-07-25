@@ -200,7 +200,7 @@ export async function handleProfileStats(
   const totalMap = (await totalRes.json()) as Record<string, number>;
 
   const failedRes = await fetchWithRetry(
-    `${API_BASE}${graphPath}?filter[final_mark]=0`,
+    `${API_BASE}${graphPath}?range[final_mark]=0,49`,
     token,
   );
   if (!failedRes.ok)
