@@ -14,6 +14,10 @@ export async function handleProxy(
   if (!existingData) return textRes("User not found in KV", 401);
   if (!validateSession(existingData, token)) return textRes("Invalid session token", 401);
 
+  if (env.PROXY_SECRET && request.headers.get("X-Proxy-Key") !== env.PROXY_SECRET) {
+    return textRes("Forbidden", 403);
+  }
+
   const url = new URL(request.url);
   const path = url.searchParams.get("path");
   if (!path || !path.startsWith("/v2/")) {

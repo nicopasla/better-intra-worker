@@ -11,6 +11,7 @@ export interface Env {
   DISCORD_ENABLED?: string;
   PROJECT_REFRESH_SECRET?: string;
   DISCORD_GUILD_ID?: string;
+  PROXY_SECRET?: string;
 }
 
 export type UserData = {
