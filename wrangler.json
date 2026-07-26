@@ -8,6 +8,13 @@
       "id": "76d494582f944fd6b0f7e02b51fed387"
     }
   ],
+  "r2_buckets": [
+    {
+      "bucket_name": "better-intra-images",
+      "binding": "better_intra_images",
+      "remote": true
+    }
+  ],
   "d1_databases": [
     {
       "binding": "better_intra_d1",
@@ -22,10 +29,7 @@
     "DISCORD_GUILD_ID": "1464227219923533838"
   },
   "triggers": {
-    "crons": [
-      "*/10 * * * *",
-      "* * * * *"
-    ]
+    "crons": ["*/10 * * * *", "* * * * *"]
   },
   "observability": {
     "enabled": false,

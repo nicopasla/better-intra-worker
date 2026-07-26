@@ -1,6 +1,7 @@
 export interface Env {
   BETTER_INTRA_KV: KVNamespace;
   better_intra_d1: D1Database;
+  better_intra_images: R2Bucket;
   CLIENT_ID: string;
   CLIENT_SECRET: string;
   CALLBACK_URL?: string;

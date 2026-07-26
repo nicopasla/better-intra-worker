@@ -25,6 +25,8 @@ import {
 } from "./handlers/discord";
 import { handleMainCron, handleRevealCatchup } from "./handlers/cron";
 import { handleLogtimeHistory } from "./handlers/logtime";
+import { handleImageUpload } from "./handlers/image-upload";
+import { handleImageServe } from "./handlers/image-serve";
 import { Env, UserData } from "./types";
 import {
   isOriginAllowed,
@@ -112,6 +114,11 @@ export default {
       return handleCalendarIcs(calMatch[1], env);
     }
 
+    const imgMatch = url.pathname.match(/^\/api\/v1\/public\/images\/([a-f0-9-]+)$/);
+    if (imgMatch) {
+      return handleImageServe(request, env, imgMatch[1]);
+    }
+
     const loginParam = url.searchParams.get("login");
     if (!loginParam) {
       return textRes("Username hash required", 400);
@@ -175,6 +182,10 @@ export default {
 
     if (url.pathname === "/api/v1/private/logtime/history") {
       return handleLogtimeHistory(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/image-upload") {
+      return handleImageUpload(request, env, loginParam, existingData);
     }
 
     return textRes("Not found", 404);
