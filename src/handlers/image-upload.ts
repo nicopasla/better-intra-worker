@@ -28,6 +28,23 @@ export async function handleImageUpload(
     return textRes("Missing image file", 400);
   }
 
+  if (file.size > 7 * 1024 * 1024) {
+    return textRes("File too large. Maximum size is 7 MB.", 413);
+  }
+  const allowedTypes = [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "image/avif",
+  ];
+  if (!allowedTypes.includes(file.type)) {
+    return textRes(
+      "Only JPEG, PNG, WebP, GIF, and AVIF images are allowed.",
+      400,
+    );
+  }
+
   const uuid = crypto.randomUUID();
   const key = `images/${uuid}`;
   const buffer = await file.arrayBuffer();
