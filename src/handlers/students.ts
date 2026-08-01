@@ -18,6 +18,11 @@ interface StudentEntry {
   displayname: string;
   image_url: string;
   begin_at: string | null;
+  blackholed_at: string | null;
+  active: boolean;
+  alumni: boolean;
+  pool_month: string | null;
+  pool_year: string | null;
 }
 
 interface Range {
@@ -104,6 +109,7 @@ async function fetchAllCursusUsers(
 
     const users = (await apiRes.json()) as Array<{
       begin_at?: string | null;
+      blackholed_at?: string | null;
       user: {
         login: string;
         displayname?: string;
@@ -111,6 +117,10 @@ async function fetchAllCursusUsers(
         last_name?: string;
         image?: { versions?: { small?: string } };
         kind?: string;
+        "active?"?: boolean;
+        "alumni?"?: boolean;
+        pool_month?: string | null;
+        pool_year?: string | null;
       };
     }>;
 
@@ -128,6 +138,11 @@ async function fetchAllCursusUsers(
           u.user.image?.versions?.small ||
           `https://cdn.intra.42.fr/users/${u.user.login}.jpg`,
         begin_at: u.begin_at ?? null,
+        blackholed_at: u.blackholed_at ?? null,
+        active: u.user["active?"] ?? true,
+        alumni: u.user["alumni?"] ?? false,
+        pool_month: u.user.pool_month ?? null,
+        pool_year: u.user.pool_year ?? null,
       });
     }
 
@@ -166,7 +181,12 @@ export async function handleStudentsList(
   if (request.method !== "GET") return textRes("Method not allowed", 405);
 
   const bearer = getBearerToken(request);
-  if (!bearer || !loginParam || !existingData || !validateSession(existingData, bearer)) {
+  if (
+    !bearer ||
+    !loginParam ||
+    !existingData ||
+    !validateSession(existingData, bearer)
+  ) {
     return textRes("Unauthorized", 401);
   }
 
@@ -183,14 +203,24 @@ export async function handlePiscinersList(
   if (request.method !== "GET") return textRes("Method not allowed", 405);
 
   const bearer = getBearerToken(request);
-  if (!bearer || !loginParam || !existingData || !validateSession(existingData, bearer)) {
+  if (
+    !bearer ||
+    !loginParam ||
+    !existingData ||
+    !validateSession(existingData, bearer)
+  ) {
     return textRes("Unauthorized", 401);
   }
 
   const url = new URL(request.url);
   const year = Number(url.searchParams.get("year"));
   const month = Number(url.searchParams.get("month"));
-  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    month < 1 ||
+    month > 12
+  ) {
     return textRes("Missing or invalid year/month", 400);
   }
 
@@ -222,14 +252,30 @@ export async function handlePiscinersRefresh(
   const url = new URL(request.url);
   const year = Number(url.searchParams.get("year"));
   const month = Number(url.searchParams.get("month"));
-  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    month < 1 ||
+    month > 12
+  ) {
     return textRes("Missing or invalid year/month", 400);
   }
 
   const range = monthRange(year, month);
-  const all = await fetchAllCursusUsers(env, PISCINE_CURSUS_ID, range.begin, range.end);
+  const all = await fetchAllCursusUsers(
+    env,
+    PISCINE_CURSUS_ID,
+    range.begin,
+    range.end,
+  );
   if (!all) return textRes("42 API error", 502);
 
-  const cachedAt = await writeCache(env, PISCINE_CURSUS_ID, range.begin, range.end, all);
+  const cachedAt = await writeCache(
+    env,
+    PISCINE_CURSUS_ID,
+    range.begin,
+    range.end,
+    all,
+  );
   return jsonRes({ cached_at: cachedAt, data: all });
 }
