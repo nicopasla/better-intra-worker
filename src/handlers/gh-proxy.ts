@@ -8,12 +8,15 @@ export async function handleGhProxy(request: Request): Promise<Response> {
   if (!path) return textRes("Missing path", 400);
 
   const ghRes = await fetch(`${GH_RAW}/${path}`);
+  const status = ghRes.status;
 
   return new Response(await ghRes.text(), {
-    status: ghRes.status,
+    status,
     headers: {
       ...corsHeaders,
       "Content-Type": ghRes.headers.get("content-type") || "text/plain",
+      "Cache-Control":
+        status >= 400 ? "public, max-age=300" : "public, max-age=3600",
     },
   });
 }
