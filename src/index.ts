@@ -16,6 +16,12 @@ import {
 } from "./handlers/calendar";
 import { handleClusterSvg, handleClusterSvgs } from "./handlers/clusters";
 import {
+  handleStudentsList,
+  handlePiscinersList,
+  handleStudentsRefresh,
+  handlePiscinersRefresh,
+} from "./handlers/students";
+import {
   handleDiscordLink,
   handleDiscordUnlink,
   handleDiscordQuiet,
@@ -101,6 +107,14 @@ export default {
       return handleClusterSvgs(env, origin);
     }
 
+    if (url.pathname === "/api/v1/students/refresh") {
+      return handleStudentsRefresh(request, env);
+    }
+
+    if (url.pathname === "/api/v1/pisciners/refresh") {
+      return handlePiscinersRefresh(request, env);
+    }
+
     if (url.pathname === "/discord/auth") {
       return handleDiscordAuth(request, env);
     }
@@ -131,6 +145,14 @@ export default {
 
     if (url.pathname === "/api/v1/public/visuals") {
       return handlePublicVisuals(request, existingData);
+    }
+
+    if (url.pathname === "/api/v1/students") {
+      return handleStudentsList(request, env, origin, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/pisciners") {
+      return handlePiscinersList(request, env, origin, loginParam, existingData);
     }
 
     if (url.pathname === "/api/v1/private/settings") {
