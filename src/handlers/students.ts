@@ -23,6 +23,7 @@ interface StudentEntry {
   alumni: boolean;
   pool_month: string | null;
   pool_year: string | null;
+  alumnized_at?: string;
 }
 
 interface Range {
@@ -121,6 +122,7 @@ async function fetchAllCursusUsers(
         "alumni?"?: boolean;
         pool_month?: string | null;
         pool_year?: string | null;
+        alumnized_at?: string | null;
       };
     }>;
 
@@ -143,6 +145,7 @@ async function fetchAllCursusUsers(
         alumni: u.user["alumni?"] ?? false,
         pool_month: u.user.pool_month ?? null,
         pool_year: u.user.pool_year ?? null,
+        ...(u.user.alumnized_at ? { alumnized_at: u.user.alumnized_at } : {}),
       });
     }
 
