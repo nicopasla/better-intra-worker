@@ -83,3 +83,11 @@ CREATE TABLE IF NOT EXISTS logtime_history (
   days_json TEXT NOT NULL,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
+
+CREATE TABLE IF NOT EXISTS cursus (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  kind TEXT,
+  cached_at INTEGER NOT NULL DEFAULT (unixepoch())
+);

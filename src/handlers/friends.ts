@@ -1,6 +1,7 @@
 import { Env, UserData, FortyTwoUser, CursusUser } from "../types";
 import {
   getBearerToken,
+  getCursusMap,
   getUserToken,
   hashLogin,
   jsonRes,
@@ -85,9 +86,39 @@ export async function handleFriendsData(
   if (allIds.length === 0) return jsonRes({ friends: [] });
 
   const cursusUsers = await fetchAllPages<CursusUser>(
-    `${INTRA_API}/cursus_users?filter[user_id]=${allIds.join(",")}&filter[cursus_id]=21&page[size]=${PAGE_SIZE}`,
+    `${INTRA_API}/cursus_users?filter[user_id]=${allIds.join(",")}&page[size]=${PAGE_SIZE}`,
     intraToken,
   );
+  const cursusMap = await getCursusMap(env);
+  const rank = (id: number): number => {
+    const kind = cursusMap[id]?.kind;
+    if (kind === "main") return 0;
+    if (kind === "piscine" || kind === "piscine_community") return 1;
+    if (
+      kind === "piscine_deprecated" ||
+      kind === "professional_training" ||
+      kind === "professional_training_deprecated"
+    ) {
+      return 2;
+    }
+    if (kind === "main_deprecated") return 3;
+    return 4;
+  };
+
+  const byUserId = new Map<number, CursusUser>();
+  for (const entry of cursusUsers) {
+    if (!entry?.user?.id) continue;
+    const existing = byUserId.get(entry.user.id);
+    const r = rank(entry.cursus_id);
+    if (
+      !existing ||
+      r < rank(existing.cursus_id) ||
+      (r === rank(existing.cursus_id) && entry.level > existing.level)
+    ) {
+      byUserId.set(entry.user.id, entry);
+    }
+  }
+  const allCursusUsers = [...byUserId.values()];
 
   const friends: any[] = [];
   const now = Date.now();
@@ -105,7 +136,7 @@ export async function handleFriendsData(
     onlineCache[row.login] = { location: row.location, seenAt: row.seen_at };
   }
 
-  for (const entry of cursusUsers) {
+  for (const entry of allCursusUsers) {
     const user = entry?.user;
     if (!user?.login) continue;
 
@@ -162,7 +193,7 @@ export async function handleFriendsData(
 
   // Upsert online friends into D1
   const upsertStmts = [];
-  for (const entry of cursusUsers) {
+  for (const entry of allCursusUsers) {
     const user = entry?.user;
     if (!user?.login || !user.location) continue;
     upsertStmts.push(

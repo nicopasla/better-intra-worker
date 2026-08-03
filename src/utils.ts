@@ -1,7 +1,10 @@
 import { Env, UserData, TokenResponse, ProjectResponse } from "./types";
 import { APP_TOKEN_CACHE } from "./constants";
 
-export function getCallbackUrl(request: Request, env?: { CALLBACK_URL?: string }): string {
+export function getCallbackUrl(
+  request: Request,
+  env?: { CALLBACK_URL?: string },
+): string {
   const base = env?.CALLBACK_URL?.replace(/\/+$/, "");
   if (base) return `${base}/callback`;
   const url = new URL(request.url);
@@ -121,6 +124,74 @@ export async function getAppToken(env: Env): Promise<string> {
   } finally {
     pendingTokens.delete(env);
   }
+}
+
+export interface CursusInfo {
+  name: string;
+  slug: string;
+  kind?: string;
+}
+
+const CURSUS_CACHE_TTL = 30 * 24 * 60 * 60;
+
+export async function getCursusMap(
+  env: Env,
+): Promise<Record<number, CursusInfo>> {
+  const { results } = await env.better_intra_d1
+    .prepare("SELECT id, name, slug, kind, cached_at FROM cursus")
+    .all<{
+      id: number;
+      name: string;
+      slug: string;
+      kind: string;
+      cached_at: number;
+    }>();
+
+  const map: Record<number, CursusInfo> = {};
+  for (const row of results) {
+    map[row.id] = { name: row.name, slug: row.slug, kind: row.kind };
+  }
+
+  const newest = results.reduce((max, r) => Math.max(max, r.cached_at), 0);
+  if (results.length > 0 && newest > Date.now() / 1000 - CURSUS_CACHE_TTL) {
+    return map;
+  }
+
+  try {
+    const token = await getAppToken(env);
+    const stmts: D1PreparedStatement[] = [];
+    for (let page = 1; ; page++) {
+      const res = await fetch(
+        `https://api.intra.42.fr/v2/cursus?page[size]=100&page[number]=${page}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (!res.ok) break;
+      const rows = (await res.json()) as Array<{
+        id: number;
+        name: string;
+        slug: string;
+        kind?: string;
+      }>;
+      if (rows.length === 0) break;
+      for (const c of rows) {
+        map[c.id] = { name: c.name, slug: c.slug, kind: c.kind };
+        stmts.push(
+          env.better_intra_d1
+            .prepare(
+              "INSERT OR REPLACE INTO cursus (id, name, slug, kind) VALUES (?, ?, ?, ?)",
+            )
+            .bind(c.id, c.name, c.slug, c.kind ?? null),
+        );
+      }
+      if (rows.length < 100) break;
+    }
+    if (stmts.length > 0) await env.better_intra_d1.batch(stmts);
+  } catch (e) {
+    console.warn("[getCursusMap] fetch failed:", e);
+  }
+  return map;
 }
 
 export async function updateProjectMap(env: Env, appToken: string) {
