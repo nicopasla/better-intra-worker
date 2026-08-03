@@ -24,6 +24,7 @@ interface StudentEntry {
   pool_month: string | null;
   pool_year: string | null;
   alumnized_at?: string;
+  level?: number;
 }
 
 interface Range {
@@ -61,6 +62,7 @@ async function readCache(
   cursusId: number,
   cacheBegin: string,
   cacheEnd: string,
+  stripLevels = false,
 ): Promise<Response> {
   await ensureCacheTable(env);
   const cached = await env.better_intra_d1
@@ -71,7 +73,21 @@ async function readCache(
     .first<{ data: string; cached_at: number }>();
 
   if (cached) {
-    const wrapped = `{"cached_at":${cached.cached_at},"data":${cached.data}}`;
+    let data = cached.data;
+    if (stripLevels) {
+      try {
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed)) {
+          data = JSON.stringify(
+            parsed.map((e) => {
+              const { level, ...rest } = e as { level?: number };
+              return rest;
+            }),
+          );
+        }
+      } catch {}
+    }
+    const wrapped = `{"cached_at":${cached.cached_at},"data":${data}}`;
     return new Response(wrapped, {
       headers: {
         "Content-Type": "application/json",
@@ -111,6 +127,7 @@ async function fetchAllCursusUsers(
     const users = (await apiRes.json()) as Array<{
       begin_at?: string | null;
       blackholed_at?: string | null;
+      level?: number;
       user: {
         login: string;
         displayname?: string;
@@ -145,6 +162,7 @@ async function fetchAllCursusUsers(
         alumni: u.user["alumni?"] ?? false,
         pool_month: u.user.pool_month ?? null,
         pool_year: u.user.pool_year ?? null,
+        level: u.level ?? 0,
         ...(u.user.alumnized_at ? { alumnized_at: u.user.alumnized_at } : {}),
       });
     }
@@ -228,7 +246,19 @@ export async function handlePiscinersList(
   }
 
   const range = monthRange(year, month);
-  return readCache(env, origin, PISCINE_CURSUS_ID, range.begin, range.end);
+
+  const now = new Date();
+  const stripLevels =
+    month === now.getMonth() + 1 && year === now.getFullYear();
+
+  return readCache(
+    env,
+    origin,
+    PISCINE_CURSUS_ID,
+    range.begin,
+    range.end,
+    stripLevels,
+  );
 }
 
 export async function handleStudentsRefresh(
@@ -273,12 +303,17 @@ export async function handlePiscinersRefresh(
   );
   if (!all) return textRes("42 API error", 502);
 
+  const now = new Date();
+  const stripLevels =
+    month === now.getMonth() + 1 && year === now.getFullYear();
+  const entries = stripLevels ? all.map(({ level, ...rest }) => rest) : all;
+
   const cachedAt = await writeCache(
     env,
     PISCINE_CURSUS_ID,
     range.begin,
     range.end,
-    all,
+    entries,
   );
-  return jsonRes({ cached_at: cachedAt, data: all });
+  return jsonRes({ cached_at: cachedAt, data: entries });
 }
