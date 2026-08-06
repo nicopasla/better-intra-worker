@@ -3,13 +3,17 @@ import { jsonRes, textRes } from "../utils";
 
 const ANNOUNCEMENT_KEY = "ANNOUNCEMENT";
 const MAX_MESSAGE_LENGTH = 500;
+const MAX_LINKS = 5;
 const VALID_LEVELS = ["info", "warning", "critical"] as const;
 export type AnnouncementLevel = (typeof VALID_LEVELS)[number];
+
+export type AnnouncementLink = { text: string; url: string };
 
 type Announcement = {
   message: string;
   updatedAt: number;
   level: AnnouncementLevel;
+  links: AnnouncementLink[];
 };
 
 function normalizeLevel(raw: unknown): AnnouncementLevel {
@@ -17,6 +21,25 @@ function normalizeLevel(raw: unknown): AnnouncementLevel {
     (VALID_LEVELS as readonly string[]).includes(raw)
     ? (raw as AnnouncementLevel)
     : "critical";
+}
+
+function normalizeLinks(raw: unknown): AnnouncementLink[] {
+  if (!Array.isArray(raw)) return [];
+  const links: AnnouncementLink[] = [];
+  for (const item of raw.slice(0, MAX_LINKS)) {
+    if (!item || typeof item !== "object") continue;
+    const text = String((item as Record<string, unknown>).text ?? "").trim();
+    const url = String((item as Record<string, unknown>).url ?? "").trim();
+    if (!text || !url) continue;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") continue;
+      links.push({ text, url });
+    } catch {
+      /* skip invalid URL */
+    }
+  }
+  return links;
 }
 
 export async function handleAnnouncement(
@@ -32,6 +55,7 @@ export async function handleAnnouncement(
       message: stored?.message ?? null,
       updatedAt: stored?.updatedAt ?? null,
       level: stored?.level ?? "critical",
+      links: stored?.links ?? [],
     });
   }
 
@@ -57,11 +81,12 @@ export async function handleAnnouncement(
     }
 
     const level = normalizeLevel(body.level);
+    const links = normalizeLinks(body.links);
     await env.BETTER_INTRA_KV.put(
       ANNOUNCEMENT_KEY,
-      JSON.stringify({ message, updatedAt: Date.now(), level }),
+      JSON.stringify({ message, updatedAt: Date.now(), level, links }),
     );
-    return jsonRes({ message, level });
+    return jsonRes({ message, level, links });
   }
 
   if (request.method === "DELETE") {
