@@ -31,6 +31,7 @@ import {
 } from "./handlers/discord";
 import { handleMainCron, handleRevealCatchup } from "./handlers/cron";
 import { handleLogtimeHistory } from "./handlers/logtime";
+import { handleAnnouncement } from "./handlers/announcement";
 import { handleImageUpload } from "./handlers/image-upload";
 import { handleImageServe } from "./handlers/image-serve";
 import { Env, UserData } from "./types";
@@ -131,6 +132,10 @@ export default {
     const imgMatch = url.pathname.match(/^\/api\/v1\/public\/images\/([a-f0-9-]+)$/);
     if (imgMatch) {
       return handleImageServe(request, env, imgMatch[1]);
+    }
+
+    if (url.pathname === "/api/v1/public/announcement") {
+      return handleAnnouncement(request, env);
     }
 
     const loginParam = url.searchParams.get("login");
