@@ -24,6 +24,17 @@ curl -X POST https://api.betterintra.com/api/v1/public/announcement \
   -d '{"secret":"YOUR_SECRET","message":"Intra is currently broken — profiles may fail to load."}'
 ```
 
+Optional `level` controls banner intensity (defaults to `critical`):
+- `info` — blue, low visibility
+- `warning` — amber
+- `critical` — red, highest visibility
+
+```bash
+curl -X POST https://api.betterintra.com/api/v1/public/announcement \
+  -H "Content-Type: application/json" \
+  -d '{"secret":"YOUR_SECRET","message":"Maintenance window tonight.","level":"info"}'
+```
+
 Message is trimmed and capped at 500 chars. An empty message removes the banner.
 
 ### Clear the message
@@ -36,5 +47,5 @@ curl -X DELETE "https://api.betterintra.com/api/v1/public/announcement?secret=YO
 
 ```bash
 curl https://api.betterintra.com/api/v1/public/announcement
-# => {"message": "...", "updatedAt": 1710000000000}
+# => {"message": "...", "updatedAt": 1710000000000, "level": "critical"}
 ```

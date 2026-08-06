@@ -3,8 +3,21 @@ import { jsonRes, textRes } from "../utils";
 
 const ANNOUNCEMENT_KEY = "ANNOUNCEMENT";
 const MAX_MESSAGE_LENGTH = 500;
+const VALID_LEVELS = ["info", "warning", "critical"] as const;
+export type AnnouncementLevel = (typeof VALID_LEVELS)[number];
 
-type Announcement = { message: string; updatedAt: number };
+type Announcement = {
+  message: string;
+  updatedAt: number;
+  level: AnnouncementLevel;
+};
+
+function normalizeLevel(raw: unknown): AnnouncementLevel {
+  return typeof raw === "string" &&
+    (VALID_LEVELS as readonly string[]).includes(raw)
+    ? (raw as AnnouncementLevel)
+    : "critical";
+}
 
 export async function handleAnnouncement(
   request: Request,
@@ -18,6 +31,7 @@ export async function handleAnnouncement(
     return jsonRes({
       message: stored?.message ?? null,
       updatedAt: stored?.updatedAt ?? null,
+      level: stored?.level ?? "critical",
     });
   }
 
@@ -42,11 +56,12 @@ export async function handleAnnouncement(
       return jsonRes({ message: null });
     }
 
+    const level = normalizeLevel(body.level);
     await env.BETTER_INTRA_KV.put(
       ANNOUNCEMENT_KEY,
-      JSON.stringify({ message, updatedAt: Date.now() }),
+      JSON.stringify({ message, updatedAt: Date.now(), level }),
     );
-    return jsonRes({ message });
+    return jsonRes({ message, level });
   }
 
   if (request.method === "DELETE") {
