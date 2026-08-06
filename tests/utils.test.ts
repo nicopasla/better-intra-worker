@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { hashLogin, getTokens, getBearerToken } from "../src/utils";
+import {
+  hashLogin,
+  getTokens,
+  getBearerToken,
+  isOriginAllowed,
+} from "../src/utils";
 
 describe("hashLogin", () => {
   it("produces a 64-char hex string", async () => {
@@ -78,5 +83,26 @@ describe("getBearerToken", () => {
       headers: { Authorization: "Basic abc" },
     });
     expect(getBearerToken(req)).toBeNull();
+  });
+});
+
+describe("isOriginAllowed", () => {
+  it("allows any intra.42.fr subdomain", () => {
+    expect(isOriginAllowed("https://profile.intra.42.fr")).toBe(true);
+    expect(isOriginAllowed("https://profile-v3.intra.42.fr")).toBe(true);
+    expect(isOriginAllowed("https://meta.intra.42.fr")).toBe(true);
+    expect(isOriginAllowed("https://projects.intra.42.fr")).toBe(true);
+  });
+
+  it("allows extension origins", () => {
+    expect(isOriginAllowed("chrome-extension://abc123")).toBe(true);
+    expect(isOriginAllowed("moz-extension://abc123")).toBe(true);
+  });
+
+  it("rejects foreign origins", () => {
+    expect(isOriginAllowed("https://example.com")).toBe(false);
+    expect(isOriginAllowed("https://intra.42.fr.evil.com")).toBe(false);
+    expect(isOriginAllowed("https://evilintra.42.fr")).toBe(false);
+    expect(isOriginAllowed("https://intra.42.fr.evil")).toBe(false);
   });
 });

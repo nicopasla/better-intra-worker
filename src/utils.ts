@@ -20,6 +20,7 @@ export function isOriginAllowed(origin: string): boolean {
   if (ALLOWED_ORIGINS.includes(origin)) return true;
   if (origin.startsWith("chrome-extension://")) return true;
   if (origin.startsWith("moz-extension://")) return true;
+  if (/^https:\/\/(?:[a-z0-9-]+\.)*intra\.42\.fr$/.test(origin)) return true;
   return false;
 }
 
