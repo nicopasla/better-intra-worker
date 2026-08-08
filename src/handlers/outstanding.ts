@@ -31,18 +31,26 @@ async function syncFromApi(
     if (!Array.isArray(data) || data.length === 0) break;
 
     const batch: D1PreparedStatement[] = [];
+    const identifierLower = userIdentifier.toLowerCase();
     for (const st of data) {
       if (stopAtScaleTeamId && st.id <= stopAtScaleTeamId) {
         if (batch.length > 0) await env.better_intra_d1.batch(batch);
         return;
       }
-      if (st.team?.users?.[0]?.projects_user_id) {
+      const targetUser = st.team?.users?.find(
+        (u: { login?: string; projects_user_id?: number }) =>
+          u.login?.toLowerCase() === identifierLower,
+      );
+      const puid =
+        targetUser?.projects_user_id ??
+        st.team?.users?.[0]?.projects_user_id;
+      if (puid) {
         batch.push(
           env.better_intra_d1
             .prepare(
               "INSERT OR IGNORE INTO outstanding_projects (hash, scale_team_id, projects_user_id, updated_at) VALUES (?, ?, ?, unixepoch())",
             )
-            .bind(hash, st.id, st.team.users[0].projects_user_id),
+            .bind(hash, st.id, puid),
         );
       }
     }
@@ -117,7 +125,8 @@ export async function handleOutstanding(
       syncRow?.updated_at === undefined ||
       Date.now() / 1000 - syncRow.updated_at > OUTSTANDING_RESYNC_SECONDS;
 
-    if ((countChanged || stale) && userToken) {
+    const shouldSync = (countChanged || stale) && userToken;
+    if (shouldSync) {
       const latest = await env.better_intra_d1
         .prepare(
           "SELECT scale_team_id FROM outstanding_projects WHERE hash = ? ORDER BY scale_team_id DESC LIMIT 1",
@@ -143,7 +152,8 @@ export async function handleOutstanding(
       }
     }
 
-    return buildResponse(await queryD1(env, targetHash));
+    const rows = await queryD1(env, targetHash);
+    return buildResponse(rows);
   }
 
   let userId: number | undefined = existingData.fortyTwoUserId;
