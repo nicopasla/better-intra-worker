@@ -261,6 +261,66 @@ export async function handlePiscinersList(
   );
 }
 
+export async function handlePiscinesList(
+  request: Request,
+  env: Env,
+  origin: string | null,
+  loginParam: string,
+  existingData: UserData | null,
+): Promise<Response> {
+  if (request.method !== "GET") return textRes("Method not allowed", 405);
+
+  const bearer = getBearerToken(request);
+  if (
+    !bearer ||
+    !loginParam ||
+    !existingData ||
+    !validateSession(existingData, bearer)
+  ) {
+    return textRes("Unauthorized", 401);
+  }
+
+  await ensureCacheTable(env);
+  const rows = await env.better_intra_d1
+    .prepare(
+      "SELECT data, range_begin, cached_at FROM students_cache WHERE cursus_id = ?",
+    )
+    .bind(PISCINE_CURSUS_ID)
+    .all<{ data: string; range_begin: string; cached_at: number }>();
+
+  const intakes: Array<{ year: number; month: number; count: number }> = [];
+  for (const row of rows.results ?? []) {
+    const match = /^(\d{4})-(\d{2})-01$/.exec(row.range_begin);
+    if (!match) continue;
+    let count = 0;
+    try {
+      const parsed = JSON.parse(row.data);
+      if (Array.isArray(parsed)) count = parsed.length;
+    } catch {}
+    intakes.push({
+      year: Number(match[1]),
+      month: Number(match[2]),
+      count,
+    });
+  }
+  intakes.sort((a, b) => b.year - a.year || b.month - a.month);
+
+  const latestCached = (rows.results ?? []).reduce(
+    (max, r) => Math.max(max, r.cached_at),
+    0,
+  );
+
+  return new Response(
+    JSON.stringify({ cached_at: latestCached, data: intakes }),
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": origin || "*",
+      },
+    },
+  );
+}
+
 export async function handleStudentsRefresh(
   request: Request,
   env: Env,

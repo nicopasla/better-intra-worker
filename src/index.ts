@@ -18,6 +18,7 @@ import { handleClusterSvg, handleClusterSvgs } from "./handlers/clusters";
 import {
   handleStudentsList,
   handlePiscinersList,
+  handlePiscinesList,
   handleStudentsRefresh,
   handlePiscinersRefresh,
 } from "./handlers/students";
@@ -158,6 +159,10 @@ export default {
 
     if (url.pathname === "/api/v1/pisciners") {
       return handlePiscinersList(request, env, origin, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/piscines") {
+      return handlePiscinesList(request, env, origin, loginParam, existingData);
     }
 
     if (url.pathname === "/api/v1/private/settings") {
