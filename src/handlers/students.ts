@@ -247,18 +247,17 @@ export async function handlePiscinersList(
 
   const range = monthRange(year, month);
 
+  const cursusParam = Number(url.searchParams.get("cursus"));
+  const cursusId =
+    Number.isInteger(cursusParam) && cursusParam > 0
+      ? cursusParam
+      : PISCINE_CURSUS_ID;
+
   const now = new Date();
   const stripLevels =
     month === now.getMonth() + 1 && year === now.getFullYear();
 
-  return readCache(
-    env,
-    origin,
-    PISCINE_CURSUS_ID,
-    range.begin,
-    range.end,
-    stripLevels,
-  );
+  return readCache(env, origin, cursusId, range.begin, range.end, stripLevels);
 }
 
 export async function handlePiscinesList(
@@ -361,13 +360,14 @@ export async function handlePiscinersRefresh(
     return textRes("Missing or invalid year/month", 400);
   }
 
+  const cursusParam = Number(url.searchParams.get("cursus"));
+  const cursusId =
+    Number.isInteger(cursusParam) && cursusParam > 0
+      ? cursusParam
+      : PISCINE_CURSUS_ID;
+
   const range = monthRange(year, month);
-  const all = await fetchAllCursusUsers(
-    env,
-    PISCINE_CURSUS_ID,
-    range.begin,
-    range.end,
-  );
+  const all = await fetchAllCursusUsers(env, cursusId, range.begin, range.end);
   if (!all) return textRes("42 API error", 502);
 
   const now = new Date();
@@ -377,7 +377,7 @@ export async function handlePiscinersRefresh(
 
   const cachedAt = await writeCache(
     env,
-    PISCINE_CURSUS_ID,
+    cursusId,
     range.begin,
     range.end,
     entries,
