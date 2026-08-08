@@ -294,12 +294,17 @@ export async function handlePiscinesList(
   const placeholders = ids.map(() => "?").join(", ");
   const rows = await env.better_intra_d1
     .prepare(
-      `SELECT data, range_begin, cached_at FROM students_cache WHERE cursus_id IN (${placeholders})`,
+      `SELECT data, range_begin, cached_at, cursus_id FROM students_cache WHERE cursus_id IN (${placeholders})`,
     )
     .bind(...ids)
-    .all<{ data: string; range_begin: string; cached_at: number }>();
+    .all<{
+      data: string;
+      range_begin: string;
+      cached_at: number;
+      cursus_id: number;
+    }>();
 
-  const byKey = new Map<string, number>();
+  const byKey = new Map<string, { count: number; cursus: number }>();
   for (const row of rows.results ?? []) {
     const match = /^(\d{4})-(\d{2})-01$/.exec(row.range_begin);
     if (!match) continue;
@@ -310,13 +315,15 @@ export async function handlePiscinesList(
     } catch {}
     if (count <= 0) continue;
     const key = `${match[1]}-${match[2]}`;
-    const prev = byKey.get(key) ?? 0;
-    if (count > prev) byKey.set(key, count);
+    const prev = byKey.get(key);
+    if (!prev || count > prev.count) {
+      byKey.set(key, { count, cursus: row.cursus_id });
+    }
   }
 
-  const intakes = [...byKey.entries()].map(([key, count]) => {
+  const intakes = [...byKey.entries()].map(([key, v]) => {
     const [year, month] = key.split("-");
-    return { year: Number(year), month: Number(month), count };
+    return { year: Number(year), month: Number(month), count: v.count, cursus: v.cursus };
   });
   intakes.sort((a, b) => b.year - a.year || b.month - a.month);
 
