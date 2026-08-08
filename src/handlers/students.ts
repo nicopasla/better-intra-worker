@@ -303,7 +303,8 @@ export async function handlePiscinesList(
       count,
     });
   }
-  intakes.sort((a, b) => b.year - a.year || b.month - a.month);
+  const nonEmpty = intakes.filter((i) => i.count > 0);
+  nonEmpty.sort((a, b) => b.year - a.year || b.month - a.month);
 
   const latestCached = (rows.results ?? []).reduce(
     (max, r) => Math.max(max, r.cached_at),
@@ -311,7 +312,7 @@ export async function handlePiscinesList(
   );
 
   return new Response(
-    JSON.stringify({ cached_at: latestCached, data: intakes }),
+    JSON.stringify({ cached_at: latestCached, data: nonEmpty }),
     {
       headers: {
         "Content-Type": "application/json",
