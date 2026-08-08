@@ -8,6 +8,8 @@ import {
   hashLogin,
 } from "../utils";
 
+const OUTSTANDING_RESYNC_SECONDS = 60;
+
 async function syncFromApi(
   env: Env,
   hash: string,
@@ -103,16 +105,19 @@ export async function handleOutstanding(
 
     const syncRow = await env.better_intra_d1
       .prepare(
-        "SELECT completed_count FROM outstanding_sync_state WHERE hash = ?",
+        "SELECT completed_count, updated_at FROM outstanding_sync_state WHERE hash = ?",
       )
       .bind(targetHash)
-      .first<{ completed_count: number }>();
+      .first<{ completed_count: number; updated_at: number }>();
 
     const storedCount = syncRow?.completed_count;
     const countChanged =
       storedCount === undefined || String(storedCount) !== countParam;
+    const stale =
+      syncRow?.updated_at === undefined ||
+      Date.now() / 1000 - syncRow.updated_at > OUTSTANDING_RESYNC_SECONDS;
 
-    if (countChanged && userToken) {
+    if ((countChanged || stale) && userToken) {
       const latest = await env.better_intra_d1
         .prepare(
           "SELECT scale_team_id FROM outstanding_projects WHERE hash = ? ORDER BY scale_team_id DESC LIMIT 1",
