@@ -48,7 +48,7 @@ async function syncFromApi(
         batch.push(
           env.better_intra_d1
             .prepare(
-              "INSERT OR IGNORE INTO outstanding_projects (hash, scale_team_id, projects_user_id, updated_at) VALUES (?, ?, ?, unixepoch())",
+              "INSERT INTO outstanding_projects (hash, scale_team_id, projects_user_id, updated_at) VALUES (?, ?, ?, unixepoch()) ON CONFLICT(hash, scale_team_id) DO UPDATE SET projects_user_id = excluded.projects_user_id, updated_at = excluded.updated_at",
             )
             .bind(hash, st.id, puid),
         );
@@ -127,20 +127,12 @@ export async function handleOutstanding(
 
     const shouldSync = (countChanged || stale) && userToken;
     if (shouldSync) {
-      const latest = await env.better_intra_d1
-        .prepare(
-          "SELECT scale_team_id FROM outstanding_projects WHERE hash = ? ORDER BY scale_team_id DESC LIMIT 1",
-        )
+      await env.better_intra_d1
+        .prepare("DELETE FROM outstanding_projects WHERE hash = ?")
         .bind(targetHash)
-        .first<{ scale_team_id: number }>();
+        .run();
 
-      await syncFromApi(
-        env,
-        targetHash,
-        userToken,
-        targetLogin,
-        latest?.scale_team_id ?? 0,
-      );
+      await syncFromApi(env, targetHash, userToken, targetLogin, 0);
 
       if (countParam) {
         await env.better_intra_d1
