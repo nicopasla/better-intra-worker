@@ -12,6 +12,7 @@ const BELGIUM_CAMPUS_ID = 12;
 const PAGE_SIZE = 100;
 const STUDENTS_CURSUS_ID = 21;
 const PISCINE_CURSUS_ID = 64;
+const PISCINE_CURSUS_IDS = [4, 9, 64];
 
 interface StudentEntry {
   login: string;
@@ -281,19 +282,24 @@ export async function handlePiscinesList(
 
   await ensureCacheTable(env);
   const url = new URL(request.url);
-  const cursusParam = Number(url.searchParams.get("cursus"));
-  const cursusId =
-    Number.isInteger(cursusParam) && cursusParam > 0
-      ? cursusParam
-      : PISCINE_CURSUS_ID;
+  const rawCursus = url.searchParams.get("cursus");
+  const cursusIds = rawCursus
+    ? rawCursus
+        .split(",")
+        .map((s) => Number(s.trim()))
+        .filter((n) => Number.isInteger(n) && n > 0)
+    : PISCINE_CURSUS_IDS;
+  const ids = cursusIds.length > 0 ? cursusIds : PISCINE_CURSUS_IDS;
+
+  const placeholders = ids.map(() => "?").join(", ");
   const rows = await env.better_intra_d1
     .prepare(
-      "SELECT data, range_begin, cached_at FROM students_cache WHERE cursus_id = ?",
+      `SELECT data, range_begin, cached_at FROM students_cache WHERE cursus_id IN (${placeholders})`,
     )
-    .bind(cursusId)
+    .bind(...ids)
     .all<{ data: string; range_begin: string; cached_at: number }>();
 
-  const intakes: Array<{ year: number; month: number; count: number }> = [];
+  const byKey = new Map<string, number>();
   for (const row of rows.results ?? []) {
     const match = /^(\d{4})-(\d{2})-01$/.exec(row.range_begin);
     if (!match) continue;
@@ -302,14 +308,17 @@ export async function handlePiscinesList(
       const parsed = JSON.parse(row.data);
       if (Array.isArray(parsed)) count = parsed.length;
     } catch {}
-    intakes.push({
-      year: Number(match[1]),
-      month: Number(match[2]),
-      count,
-    });
+    if (count <= 0) continue;
+    const key = `${match[1]}-${match[2]}`;
+    const prev = byKey.get(key) ?? 0;
+    if (count > prev) byKey.set(key, count);
   }
-  const nonEmpty = intakes.filter((i) => i.count > 0);
-  nonEmpty.sort((a, b) => b.year - a.year || b.month - a.month);
+
+  const intakes = [...byKey.entries()].map(([key, count]) => {
+    const [year, month] = key.split("-");
+    return { year: Number(year), month: Number(month), count };
+  });
+  intakes.sort((a, b) => b.year - a.year || b.month - a.month);
 
   const latestCached = (rows.results ?? []).reduce(
     (max, r) => Math.max(max, r.cached_at),
@@ -317,7 +326,7 @@ export async function handlePiscinesList(
   );
 
   return new Response(
-    JSON.stringify({ cached_at: latestCached, data: nonEmpty }),
+    JSON.stringify({ cached_at: latestCached, data: intakes }),
     {
       headers: {
         "Content-Type": "application/json",
