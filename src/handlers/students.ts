@@ -281,11 +281,17 @@ export async function handlePiscinesList(
   }
 
   await ensureCacheTable(env);
+  const url = new URL(request.url);
+  const cursusParam = Number(url.searchParams.get("cursus"));
+  const cursusId =
+    Number.isInteger(cursusParam) && cursusParam > 0
+      ? cursusParam
+      : PISCINE_CURSUS_ID;
   const rows = await env.better_intra_d1
     .prepare(
       "SELECT data, range_begin, cached_at FROM students_cache WHERE cursus_id = ?",
     )
-    .bind(PISCINE_CURSUS_ID)
+    .bind(cursusId)
     .all<{ data: string; range_begin: string; cached_at: number }>();
 
   const intakes: Array<{ year: number; month: number; count: number }> = [];
