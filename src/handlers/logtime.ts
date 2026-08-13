@@ -13,7 +13,6 @@ interface LocationEntry {
   end_at: string;
 }
 
-const REFRESH_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_RETRIES = 2;
 
 async function fetchLocationsPage(
@@ -84,78 +83,73 @@ export async function handleLogtimeHistory(
       .first<{ days_json: string; updated_at: number } | null>();
 
     const now = Date.now();
-    const isStale = !row || now - row.updated_at > REFRESH_INTERVAL_MS;
 
-    if (isStale) {
-      const existing: Record<string, number> = row
-        ? JSON.parse(row.days_json)
-        : {};
-      const existingDates = Object.keys(existing);
-      const maxDate =
-        existingDates.length > 0 ? existingDates.sort().slice(-1)[0] : null;
+    const existing: Record<string, number> = row
+      ? JSON.parse(row.days_json)
+      : {};
+    const existingDates = Object.keys(existing);
+    const maxDate =
+      existingDates.length > 0 ? existingDates.sort().slice(-1)[0] : null;
 
-      const rangeStart = maxDate
-        ? new Date(
-            new Date(maxDate).getTime() + 24 * 60 * 60 * 1000,
-          ).toISOString()
-        : "2020-01-01T00:00:00Z";
+    const rangeStart = maxDate
+      ? new Date(
+          new Date(maxDate).getTime() + 24 * 60 * 60 * 1000,
+        ).toISOString()
+      : "2020-01-01T00:00:00Z";
 
-      const rangeEnd = before
-        ? `${before}T00:00:00Z`
-        : new Date(now + 24 * 60 * 60 * 1000).toISOString();
+    const rangeEnd = before
+      ? `${before}T00:00:00Z`
+      : new Date(now + 24 * 60 * 60 * 1000).toISOString();
 
-      if (rangeStart < rangeEnd) {
-        const token = await getUserToken(
-          env,
-          existingData,
-          loginParam,
-          request.headers.get("CF-IPCountry"),
+    if (rangeStart < rangeEnd) {
+      const token = await getUserToken(
+        env,
+        existingData,
+        loginParam,
+        request.headers.get("CF-IPCountry"),
+      );
+
+      const pageSize = 100;
+      const sessions: LocationEntry[] = [];
+      let page = 1;
+
+      while (true) {
+        const data = await fetchLocationsPage(
+          token,
+          targetLogin,
+          page,
+          pageSize,
+          rangeStart,
+          rangeEnd,
         );
 
-        const pageSize = 100;
-        const sessions: LocationEntry[] = [];
-        let page = 1;
+        if (data.length === 0) break;
 
-        while (true) {
-          const data = await fetchLocationsPage(
-            token,
-            targetLogin,
-            page,
-            pageSize,
-            rangeStart,
-            rangeEnd,
-          );
+        sessions.push(...data);
 
-          if (data.length === 0) break;
-
-          sessions.push(...data);
-
-          if (data.length < pageSize) break;
-          page++;
-        }
-
-        for (const session of sessions) {
-          const date = session.begin_at.slice(0, 10);
-          const begin = new Date(session.begin_at).getTime();
-          const end = new Date(session.end_at).getTime();
-          const seconds = Math.round((end - begin) / 1000);
-          if (seconds > 0) {
-            existing[date] = (existing[date] || 0) + seconds;
-          }
-        }
+        if (data.length < pageSize) break;
+        page++;
       }
 
-      await env.better_intra_d1
-        .prepare(
-          "INSERT OR REPLACE INTO logtime_history (login, days_json, updated_at) VALUES (?, ?, ?)",
-        )
-        .bind(targetLogin, JSON.stringify(existing), now)
-        .run();
-
-      return jsonRes({ days: existing });
+      for (const session of sessions) {
+        const date = session.begin_at.slice(0, 10);
+        const begin = new Date(session.begin_at).getTime();
+        const end = new Date(session.end_at).getTime();
+        const seconds = Math.round((end - begin) / 1000);
+        if (seconds > 0) {
+          existing[date] = (existing[date] || 0) + seconds;
+        }
+      }
     }
 
-    return jsonRes({ days: JSON.parse(row!.days_json) });
+    await env.better_intra_d1
+      .prepare(
+        "INSERT OR REPLACE INTO logtime_history (login, days_json, updated_at) VALUES (?, ?, ?)",
+      )
+      .bind(targetLogin, JSON.stringify(existing), now)
+      .run();
+
+    return jsonRes({ days: existing });
   } catch {
     return jsonRes({ days: {} });
   }
