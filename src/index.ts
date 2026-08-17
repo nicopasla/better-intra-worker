@@ -21,6 +21,9 @@ import {
   handlePiscinesList,
   handleStudentsRefresh,
   handlePiscinersRefresh,
+  handleFutureStudentsList,
+  handleFutureStudentsRefresh,
+  refreshFutureStudents,
 } from "./handlers/students";
 import {
   handleDiscordLink,
@@ -117,6 +120,10 @@ export default {
       return handlePiscinersRefresh(request, env);
     }
 
+    if (url.pathname === "/api/v1/future-students/refresh") {
+      return handleFutureStudentsRefresh(request, env);
+    }
+
     if (url.pathname === "/discord/auth") {
       return handleDiscordAuth(request, env);
     }
@@ -130,7 +137,9 @@ export default {
       return handleCalendarIcs(calMatch[1], env);
     }
 
-    const imgMatch = url.pathname.match(/^\/api\/v1\/public\/images\/([a-f0-9-]+)$/);
+    const imgMatch = url.pathname.match(
+      /^\/api\/v1\/public\/images\/([a-f0-9-]+)$/,
+    );
     if (imgMatch) {
       return handleImageServe(request, env, imgMatch[1]);
     }
@@ -157,8 +166,24 @@ export default {
       return handleStudentsList(request, env, origin, loginParam, existingData);
     }
 
+    if (url.pathname === "/api/v1/future-students") {
+      return handleFutureStudentsList(
+        request,
+        env,
+        origin,
+        loginParam,
+        existingData,
+      );
+    }
+
     if (url.pathname === "/api/v1/pisciners") {
-      return handlePiscinersList(request, env, origin, loginParam, existingData);
+      return handlePiscinersList(
+        request,
+        env,
+        origin,
+        loginParam,
+        existingData,
+      );
     }
 
     if (url.pathname === "/api/v1/piscines") {
@@ -228,6 +253,9 @@ export default {
     }
     if (event.cron === "* * * * *") {
       await handleRevealCatchup(env, ctx);
+    }
+    if (event.cron === "0 0 * * *") {
+      await refreshFutureStudents(env);
     }
   },
 };

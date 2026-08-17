@@ -49,6 +49,22 @@ function checkSecret(request: Request, env: Env): boolean {
   );
 }
 
+export function cursusUsersParams(
+  cursusId: number,
+  opts?: { future?: boolean; rangeBegin?: string; rangeEnd?: string },
+): URLSearchParams {
+  const params = new URLSearchParams({
+    "filter[cursus_id]": String(cursusId),
+    "filter[campus_id]": String(BELGIUM_CAMPUS_ID),
+    "page[size]": String(PAGE_SIZE),
+  });
+  if (opts?.future) params.set("filter[future]", "true");
+  if (opts?.rangeBegin && opts?.rangeEnd) {
+    params.set("range[begin_at]", `${opts.rangeBegin},${opts.rangeEnd}`);
+  }
+  return params;
+}
+
 async function ensureCacheTable(env: Env): Promise<void> {
   await env.better_intra_d1
     .prepare(
@@ -104,21 +120,19 @@ async function fetchAllCursusUsers(
   cursusId: number,
   rangeBegin?: string,
   rangeEnd?: string,
+  opts?: { future?: boolean },
 ): Promise<StudentEntry[] | null> {
   const token = await getAppToken(env);
   const all: StudentEntry[] = [];
   let page = 1;
 
   while (true) {
-    const params = new URLSearchParams({
-      "filter[cursus_id]": String(cursusId),
-      "filter[campus_id]": String(BELGIUM_CAMPUS_ID),
-      "page[size]": String(PAGE_SIZE),
-      "page[number]": String(page),
+    const params = cursusUsersParams(cursusId, {
+      future: opts?.future,
+      rangeBegin,
+      rangeEnd,
     });
-    if (rangeBegin && rangeEnd) {
-      params.set("range[begin_at]", `${rangeBegin},${rangeEnd}`);
-    }
+    params.set("page[number]", String(page));
 
     const apiRes = await fetch(`${API_BASE}/v2/cursus_users?${params}`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -323,7 +337,12 @@ export async function handlePiscinesList(
 
   const intakes = [...byKey.entries()].map(([key, v]) => {
     const [year, month] = key.split("-");
-    return { year: Number(year), month: Number(month), count: v.count, cursus: v.cursus };
+    return {
+      year: Number(year),
+      month: Number(month),
+      count: v.count,
+      cursus: v.cursus,
+    };
   });
   intakes.sort((a, b) => b.year - a.year || b.month - a.month);
 
@@ -399,4 +418,76 @@ export async function handlePiscinersRefresh(
     entries,
   );
   return jsonRes({ cached_at: cachedAt, data: entries });
+}
+
+export async function handleFutureStudentsList(
+  request: Request,
+  env: Env,
+  origin: string | null,
+  loginParam: string,
+  existingData: UserData | null,
+): Promise<Response> {
+  if (request.method !== "GET") return textRes("Method not allowed", 405);
+
+  const bearer = getBearerToken(request);
+  if (
+    !bearer ||
+    !loginParam ||
+    !existingData ||
+    !validateSession(existingData, bearer)
+  ) {
+    return textRes("Unauthorized", 401);
+  }
+
+  return readCache(env, origin, STUDENTS_CURSUS_ID, "FUTURE", "FUTURE");
+}
+
+export async function handleFutureStudentsRefresh(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  if (request.method !== "GET") return textRes("Method not allowed", 405);
+  if (!checkSecret(request, env)) return textRes("Forbidden", 403);
+
+  const all = await fetchAllCursusUsers(
+    env,
+    STUDENTS_CURSUS_ID,
+    undefined,
+    undefined,
+    { future: true },
+  );
+  if (!all) return textRes("42 API error", 502);
+
+  const cachedAt = await writeCache(
+    env,
+    STUDENTS_CURSUS_ID,
+    "FUTURE",
+    "FUTURE",
+    all,
+  );
+  return jsonRes({ cached_at: cachedAt, data: all });
+}
+
+export async function refreshFutureStudents(env: Env): Promise<void> {
+  const all = await fetchAllCursusUsers(
+    env,
+    STUDENTS_CURSUS_ID,
+    undefined,
+    undefined,
+    { future: true },
+  );
+  if (!all) {
+    console.warn("[future-students] 42 API error during cron refresh");
+    return;
+  }
+  const cachedAt = await writeCache(
+    env,
+    STUDENTS_CURSUS_ID,
+    "FUTURE",
+    "FUTURE",
+    all,
+  );
+  console.log(
+    `[future-students] cron refresh done — ${all.length} users (cached_at=${cachedAt})`,
+  );
 }
