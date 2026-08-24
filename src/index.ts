@@ -36,6 +36,7 @@ import {
 import { handleMainCron, handleRevealCatchup } from "./handlers/cron";
 import { handleLogtimeHistory } from "./handlers/logtime";
 import { handleAnnouncement } from "./handlers/announcement";
+import { handleStats } from "./handlers/stats";
 import { handleImageUpload } from "./handlers/image-upload";
 import { handleImageServe } from "./handlers/image-serve";
 import { Env, UserData } from "./types";
@@ -146,6 +147,10 @@ export default {
 
     if (url.pathname === "/api/v1/public/announcement") {
       return handleAnnouncement(request, env);
+    }
+
+    if (url.pathname === "/api/v1/public/stats") {
+      return handleStats(request, env);
     }
 
     const loginParam = url.searchParams.get("login");
