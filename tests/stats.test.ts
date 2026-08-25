@@ -64,6 +64,7 @@ describe("handleStats", () => {
     const res = await handleStats(new Request("https://x/stats"), env);
     expect(await res.json()).toEqual({
       total: 0,
+      newToday: 0,
       newLast30Days: 0,
       newLast14Days: 0,
       newLast7Days: 0,
@@ -82,12 +83,17 @@ describe("handleStats", () => {
     const res = await handleStats(new Request("https://x/stats"), env);
     const body = (await res.json()) as {
       total: number;
+      newToday: number;
       newLast30Days: number;
       newLast14Days: number;
       newLast7Days: number;
       countries: { country: string; count: number }[];
     };
     expect(body.total).toBe(4);
+    const dayStart = NOW - (NOW % 86_400);
+    expect(body.newToday).toBe(
+      d1.rows.filter((r) => r.created_at > dayStart).length,
+    );
     expect(body.newLast30Days).toBe(4);
     expect(body.newLast14Days).toBe(4);
     expect(body.newLast7Days).toBe(4);
@@ -110,12 +116,14 @@ describe("handleStats", () => {
     const res = await handleStats(new Request("https://x/stats"), env);
     const body = (await res.json()) as {
       total: number;
+      newToday: number;
       newLast30Days: number;
       newLast14Days: number;
       newLast7Days: number;
       countries: { country: string; count: number }[];
     };
     expect(body.total).toBe(4);
+    expect(body.newToday).toBe(0);
     expect(body.newLast30Days).toBe(3);
     expect(body.newLast14Days).toBe(2);
     expect(body.newLast7Days).toBe(1);
