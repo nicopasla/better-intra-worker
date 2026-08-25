@@ -34,6 +34,15 @@ CREATE TABLE IF NOT EXISTS projects (
   slug TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS subjects (
+  slug TEXT PRIMARY KEY,
+  url TEXT NOT NULL,
+  subject_id TEXT,
+  created_at INTEGER,
+  modified_at INTEGER,
+  last_changed_at INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS correction_point_historics (
   hash TEXT NOT NULL,
   historic_id INTEGER NOT NULL,

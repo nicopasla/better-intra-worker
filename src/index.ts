@@ -7,6 +7,7 @@ import { handleFriendsData } from "./handlers/friends";
 import { handleProxy } from "./handlers/proxy";
 import { handleGhProxy } from "./handlers/gh-proxy";
 import { handleEvaluations } from "./handlers/evaluations";
+import { handleSubjectsReport, handleSubjectsState } from "./handlers/subjects";
 import { handleOutstanding } from "./handlers/outstanding";
 import { handleProfileStats } from "./handlers/profile-stats";
 import {
@@ -209,6 +210,14 @@ export default {
 
     if (url.pathname === "/api/v1/private/evaluations") {
       return handleEvaluations(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/subjects/report") {
+      return handleSubjectsReport(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/subjects/state") {
+      return handleSubjectsState(request, env, loginParam, existingData);
     }
 
     if (url.pathname === "/api/v1/private/outstanding") {
