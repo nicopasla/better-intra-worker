@@ -11,10 +11,10 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260711.1",
+    "@cloudflare/workers-types": "^5.20260905.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10",
-    "wrangler": "^4.110.0"
+    "wrangler": "^4.129.0"
   },
   "allowScripts": {
     "esbuild": true,
