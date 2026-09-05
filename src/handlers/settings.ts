@@ -29,6 +29,7 @@ export async function handlePublicVisuals(
     avatarPosX: Number(settings.PROFILE_AVATAR_POSITION_X ?? 50),
     avatarPosY: Number(settings.PROFILE_AVATAR_POSITION_Y ?? 50),
     avatarScale: Number(settings.PROFILE_AVATAR_SCALE ?? 100),
+    badgeBg: settings.PROFILE_BADGE_BG || "",
 
     // Theme settings (for profile card)
     theme: {
