@@ -43,6 +43,7 @@ export async function handlePublicVisuals(
       emoji: settings.LOGTIME_EMOJI,
       emojiDivisor: settings.LOGTIME_EMOJI_DIVISOR,
       emojiRate: settings.LOGTIME_EMOJI_RATE,
+      rainbowPalette: settings.LOGTIME_RAINBOW_PALETTE,
     },
   });
 }
