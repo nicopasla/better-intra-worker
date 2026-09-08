@@ -268,7 +268,7 @@ export default {
     if (event.cron === "* * * * *") {
       await handleRevealCatchup(env, ctx);
     }
-    if (event.cron === "0 0 * * *") {
+    if (event.cron === "0 22,4,10,16 * * *") {
       await refreshFutureStudents(env);
     }
   },

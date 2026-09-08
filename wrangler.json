@@ -29,7 +29,7 @@
     "DISCORD_GUILD_ID": "1464227219923533838"
   },
   "triggers": {
-    "crons": ["*/10 * * * *", "* * * * *", "0 0 * * *"]
+    "crons": ["*/10 * * * *", "* * * * *", "0 22,4,10,16 * * *"]
   },
   "observability": {
     "enabled": false,
