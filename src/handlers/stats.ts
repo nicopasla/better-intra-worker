@@ -30,18 +30,34 @@ export async function handleStats(
     .first<{ c: number }>();
 
   const [newToday, newLast30Days, newLast14Days, newLast7Days] =
-  await Promise.all([
-    countNewToday(env),
-    countNew(env, 30),
-    countNew(env, 14),
-    countNew(env, 7),
-  ]);
+    await Promise.all([
+      countNewToday(env),
+      countNew(env, 30),
+      countNew(env, 14),
+      countNew(env, 7),
+    ]);
 
   const { results } = await env.better_intra_d1
     .prepare(
       "SELECT COALESCE(country, '?') AS country, COUNT(*) AS c FROM users GROUP BY country ORDER BY c DESC",
     )
     .all<{ country: string; c: number }>();
+
+  const campusRows = await env.better_intra_d1
+    .prepare(
+      "SELECT COALESCE(country, '?') AS country, campus_name AS campus, COUNT(*) AS c FROM users WHERE campus_name IS NOT NULL GROUP BY country, campus_name ORDER BY c DESC",
+    )
+    .all<{ country: string; campus: string; c: number }>();
+
+  const campusesByCountry = new Map<
+    string,
+    { name: string; count: number }[]
+  >();
+  for (const row of campusRows.results || []) {
+    const list = campusesByCountry.get(row.country) || [];
+    list.push({ name: row.campus, count: row.c });
+    campusesByCountry.set(row.country, list);
+  }
 
   return jsonRes({
     total: total?.c ?? 0,
@@ -52,6 +68,7 @@ export async function handleStats(
     countries: (results || []).map((r) => ({
       country: r.country,
       count: r.c,
+      campuses: campusesByCountry.get(r.country) || [],
     })),
   });
 }
