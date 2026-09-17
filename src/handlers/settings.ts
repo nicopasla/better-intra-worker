@@ -7,6 +7,35 @@ import {
   validateSession,
 } from "../utils";
 
+const MAX_LOOK_STRING = 64;
+
+/**
+ * Theme a user chose to publish on their profile. Presentation only: the
+ * extension validates the preset against its known themes and the mode before
+ * applying anything. Shared only when the user opted in (SHARE_LOOK).
+ */
+export function publicLook(
+  settings: Record<string, unknown>,
+): { preset: string; theme: string } | null {
+  if (settings.SHARE_LOOK !== true) return null;
+  const preset = settings.PROFILE_THEME_PRESET;
+  if (
+    typeof preset !== "string" ||
+    preset.length === 0 ||
+    preset.length > MAX_LOOK_STRING
+  ) {
+    return null;
+  }
+  const theme = settings.BETTER_INTRA_THEME;
+  return {
+    preset,
+    theme:
+      typeof theme === "string" && theme.length <= MAX_LOOK_STRING
+        ? theme
+        : "system",
+  };
+}
+
 export async function handlePublicVisuals(
   request: Request,
   existingData: UserData | null,
@@ -16,6 +45,9 @@ export async function handlePublicVisuals(
   const settings = existingData?.settings || {};
 
   return jsonRes({
+    // Theme the user opted in to publish for visitors (or null)
+    look: publicLook(settings),
+
     // Existing visual settings
     avatar: settings.PROFILE_IMAGE_URL || "",
     banner: settings.PROFILE_BANNER_URL || "",
