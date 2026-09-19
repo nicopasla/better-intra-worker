@@ -1,5 +1,7 @@
 import { Env, UserData } from "../types";
 import {
+  decryptBytes,
+  encryptBytes,
   getAppToken,
   getBearerToken,
   jsonRes,
@@ -68,7 +70,7 @@ export function cursusUsersParams(
 async function ensureCacheTable(env: Env): Promise<void> {
   await env.better_intra_d1
     .prepare(
-      "CREATE TABLE IF NOT EXISTS students_cache (cursus_id INTEGER NOT NULL, range_begin TEXT NOT NULL, range_end TEXT NOT NULL, data TEXT NOT NULL, cached_at INTEGER NOT NULL, PRIMARY KEY (cursus_id, range_begin, range_end))",
+      "CREATE TABLE IF NOT EXISTS students_cache (cursus_id INTEGER NOT NULL, range_begin TEXT NOT NULL, range_end TEXT NOT NULL, data BLOB NOT NULL, cached_at INTEGER NOT NULL, PRIMARY KEY (cursus_id, range_begin, range_end))",
     )
     .run();
 }
@@ -87,30 +89,33 @@ async function readCache(
       "SELECT data, cached_at FROM students_cache WHERE cursus_id = ? AND range_begin = ? AND range_end = ?",
     )
     .bind(cursusId, cacheBegin, cacheEnd)
-    .first<{ data: string; cached_at: number }>();
+    .first<{ data: ArrayBuffer | string; cached_at: number }>();
 
   if (cached) {
-    let data = cached.data;
-    if (stripLevels) {
-      try {
-        const parsed = JSON.parse(data);
-        if (Array.isArray(parsed)) {
-          data = JSON.stringify(
-            parsed.map((e) => {
-              const { level, ...rest } = e as { level?: number };
-              return rest;
-            }),
-          );
-        }
-      } catch {}
+    const decoded = await decryptBytes(env, cached.data);
+    if (decoded !== null) {
+      let data = decoded;
+      if (stripLevels) {
+        try {
+          const parsed = JSON.parse(data);
+          if (Array.isArray(parsed)) {
+            data = JSON.stringify(
+              parsed.map((e) => {
+                const { level, ...rest } = e as { level?: number };
+                return rest;
+              }),
+            );
+          }
+        } catch {}
+      }
+      const wrapped = `{"cached_at":${cached.cached_at},"data":${data}}`;
+      return new Response(wrapped, {
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": origin || "*",
+        },
+      });
     }
-    const wrapped = `{"cached_at":${cached.cached_at},"data":${data}}`;
-    return new Response(wrapped, {
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": origin || "*",
-      },
-    });
   }
   return jsonRes({ cached_at: 0, data: [] });
 }
@@ -202,7 +207,13 @@ async function writeCache(
     .prepare(
       "INSERT OR REPLACE INTO students_cache (cursus_id, range_begin, range_end, data, cached_at) VALUES (?, ?, ?, ?, ?)",
     )
-    .bind(cursusId, cacheBegin, cacheEnd, JSON.stringify(all), now)
+    .bind(
+      cursusId,
+      cacheBegin,
+      cacheEnd,
+      await encryptBytes(env, JSON.stringify(all)),
+      now,
+    )
     .run();
   return now;
 }
@@ -312,7 +323,7 @@ export async function handlePiscinesList(
     )
     .bind(...ids)
     .all<{
-      data: string;
+      data: ArrayBuffer | string;
       range_begin: string;
       cached_at: number;
       cursus_id: number;
@@ -324,7 +335,8 @@ export async function handlePiscinesList(
     if (!match) continue;
     let count = 0;
     try {
-      const parsed = JSON.parse(row.data);
+      const decoded = await decryptBytes(env, row.data);
+      const parsed = decoded ? JSON.parse(decoded) : null;
       if (Array.isArray(parsed)) count = parsed.length;
     } catch {}
     if (count <= 0) continue;

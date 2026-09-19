@@ -1,5 +1,7 @@
 import { Env, UserData, FortyTwoUser, CursusUser } from "../types";
 import {
+  decryptBytes,
+  encryptBytes,
   getBearerToken,
   getCursusMap,
   getUserToken,
@@ -125,15 +127,19 @@ export async function handleFriendsData(
 
   // Read online cache from D1 for the requested logins
   const placeholders = logins.map(() => "?").join(",");
+  const hashedLogins = await Promise.all(logins.map((l) => hashLogin(l)));
+  const hashByLogin = new Map<string, string>();
+  logins.forEach((l, i) => hashByLogin.set(l, hashedLogins[i]));
   const { results: d1Rows } = await env.better_intra_d1
     .prepare(
-      `SELECT login, location, seen_at FROM online_cache WHERE login IN (${placeholders})`,
+      `SELECT login_hash, seen_at FROM online_cache WHERE login_hash IN (${placeholders})`,
     )
-    .bind(...logins)
-    .all<{ login: string; location: string; seen_at: number }>();
-  const onlineCache: Record<string, { location: string; seenAt: number }> = {};
+    .bind(...hashedLogins)
+    .all<{ login_hash: string; seen_at: ArrayBuffer | string }>();
+  const onlineCache: Record<string, { seenAt: number }> = {};
   for (const row of d1Rows) {
-    onlineCache[row.login] = { location: row.location, seenAt: row.seen_at };
+    const seen = await decryptBytes(env, row.seen_at);
+    onlineCache[row.login_hash] = { seenAt: seen ? Number(seen) : 0 };
   }
 
   for (const entry of allCursusUsers) {
@@ -148,7 +154,7 @@ export async function handleFriendsData(
         ? `${String(new Date(`${user.pool_month} 1, 2000`).getMonth() + 1).padStart(2, "0")}/${user.pool_year}`
         : null;
 
-    const cached = onlineCache[user.login];
+    const cached = onlineCache[hashByLogin.get(user.login.toLowerCase()) ?? ""];
     friends.push({
       login: user.login,
       displayName: user.displayname ?? user.login,
@@ -196,12 +202,15 @@ export async function handleFriendsData(
   for (const entry of allCursusUsers) {
     const user = entry?.user;
     if (!user?.login || !user.location) continue;
+    const friendHash =
+      hashByLogin.get(user.login.toLowerCase()) ??
+      (await hashLogin(user.login));
     upsertStmts.push(
       env.better_intra_d1
         .prepare(
-          "INSERT OR REPLACE INTO online_cache (login, location, seen_at) VALUES (?, ?, ?)",
+          "INSERT OR REPLACE INTO online_cache (login_hash, seen_at) VALUES (?, ?)",
         )
-        .bind(user.login, user.location, now),
+        .bind(friendHash, await encryptBytes(env, String(now))),
     );
   }
   if (upsertStmts.length > 0) {

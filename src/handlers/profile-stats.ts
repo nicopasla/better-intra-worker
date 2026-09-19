@@ -1,5 +1,7 @@
 import { Env, UserData } from "../types";
 import {
+  decryptBytes,
+  encryptBytes,
   getBearerToken,
   getUserToken,
   hashLogin,
@@ -160,15 +162,17 @@ export async function handleProfileStats(
   const force = url.searchParams.has("force");
 
   const now = Math.floor(Date.now() / 1000);
+  const targetHash = await hashLogin(targetUsername);
   const cached = await env.better_intra_d1
     .prepare(
-      "SELECT response_body, cached_at FROM profile_stats_cache WHERE target_login = ?",
+      "SELECT response_body, cached_at FROM profile_stats_cache WHERE target_hash = ?",
     )
-    .bind(targetUsername)
-    .first<{ response_body: string; cached_at: number }>();
+    .bind(targetHash)
+    .first<{ response_body: ArrayBuffer | string; cached_at: number }>();
 
   if (!force && cached && now - cached.cached_at < CACHE_TTL) {
-    return jsonRes(JSON.parse(cached.response_body));
+    const decoded = await decryptBytes(env, cached.response_body);
+    if (decoded) return jsonRes(JSON.parse(decoded));
   }
 
   const country: string | null =
@@ -176,7 +180,7 @@ export async function handleProfileStats(
   const token = await getUserToken(env, existingData, loginParam, country);
   if (!token) return textRes("Failed to get API token", 500);
 
-  const hash = await hashLogin(targetUsername);
+  const hash = targetHash;
 
   // Roulette: sync from 42 API if needed
   const existingEntries = await getRouletteEntries(env, hash);
@@ -219,9 +223,9 @@ export async function handleProfileStats(
 
   await env.better_intra_d1
     .prepare(
-      "INSERT OR REPLACE INTO profile_stats_cache (target_login, response_body, cached_at) VALUES (?, ?, ?)",
+      "INSERT OR REPLACE INTO profile_stats_cache (target_hash, response_body, cached_at) VALUES (?, ?, ?)",
     )
-    .bind(targetUsername, JSON.stringify(body), now)
+    .bind(targetHash, await encryptBytes(env, JSON.stringify(body)), now)
     .run();
 
   return jsonRes(body);

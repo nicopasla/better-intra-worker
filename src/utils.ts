@@ -288,6 +288,60 @@ export async function decryptTokenData<T = Record<string, unknown>>(
   return JSON.parse(new TextDecoder().decode(decrypted)) as T;
 }
 
+/**
+ * Encrypt a UTF-8 string and return the raw `iv || ciphertext` bytes, meant to
+ * be stored in a D1 BLOB column. Unlike encryptTokenData this avoids the
+ * base64 round-trip, so large payloads (e.g. the student roster cache) do not
+ * inflate by ~33% or risk blowing the call stack in String.fromCharCode.
+ */
+export async function encryptBytes(
+  env: Env,
+  plaintext: string,
+): Promise<Uint8Array> {
+  const key = await getEncryptionKey(env);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoded = new TextEncoder().encode(plaintext);
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    encoded,
+  );
+  const combined = new Uint8Array(12 + ciphertext.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(ciphertext), 12);
+  return combined;
+}
+
+/**
+ * Decrypt an `iv || ciphertext` BLOB back to a UTF-8 string. Legacy plaintext
+ * rows (pre-migration) are returned untouched so reads keep working during a
+ * lazy migration; null/undefined and undecryptable values return null.
+ */
+export async function decryptBytes(
+  env: Env,
+  value: ArrayBuffer | Uint8Array | string | null | undefined,
+): Promise<string | null> {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") return value;
+
+  const combined = value instanceof Uint8Array ? value : new Uint8Array(value);
+  if (combined.byteLength <= 12) return null;
+
+  const key = await getEncryptionKey(env);
+  const iv = combined.slice(0, 12);
+  const ciphertext = combined.slice(12);
+  try {
+    const decrypted = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv },
+      key,
+      ciphertext,
+    );
+    return new TextDecoder().decode(decrypted);
+  } catch {
+    return null;
+  }
+}
+
 export async function getUserToken(
   env: Env,
   userData: UserData | null,

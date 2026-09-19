@@ -74,10 +74,10 @@ CREATE TABLE IF NOT EXISTS eval_stats_cache (
 );
 
 CREATE TABLE IF NOT EXISTS profile_stats_cache (
-  target_login TEXT NOT NULL,
-  response_body TEXT NOT NULL,
+  target_hash TEXT NOT NULL,
+  response_body BLOB NOT NULL,
   cached_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  PRIMARY KEY (target_login)
+  PRIMARY KEY (target_hash)
 );
 
 CREATE TABLE IF NOT EXISTS calendar_ics (
@@ -88,9 +88,14 @@ CREATE TABLE IF NOT EXISTS calendar_ics (
 );
 
 CREATE TABLE IF NOT EXISTS logtime_history (
-  login TEXT PRIMARY KEY,
-  days_json TEXT NOT NULL,
+  login_hash TEXT PRIMARY KEY,
+  days_json BLOB NOT NULL,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+CREATE TABLE IF NOT EXISTS online_cache (
+  login_hash TEXT PRIMARY KEY,
+  seen_at BLOB NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS cursus (

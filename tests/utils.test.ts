@@ -1,10 +1,66 @@
 import { describe, it, expect } from "vitest";
 import {
+  decryptBytes,
+  encryptBytes,
   hashLogin,
   getTokens,
   getBearerToken,
   isOriginAllowed,
 } from "../src/utils";
+import type { Env } from "../src/types";
+
+const testEnv = {
+  TOKEN_ENCRYPTION_KEY: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+} as unknown as Env;
+
+describe("encryptBytes / decryptBytes", () => {
+  it("round-trips a string", async () => {
+    const plaintext = JSON.stringify({ "2026-01-01": 3600 });
+    const encrypted = await encryptBytes(testEnv, plaintext);
+    expect(encrypted).toBeInstanceOf(Uint8Array);
+    expect(await decryptBytes(testEnv, encrypted)).toBe(plaintext);
+  });
+
+  it("accepts an ArrayBuffer (D1 BLOB read)", async () => {
+    const plaintext = "hello blob";
+    const encrypted = await encryptBytes(testEnv, plaintext);
+    expect(await decryptBytes(testEnv, encrypted.buffer as ArrayBuffer)).toBe(
+      plaintext,
+    );
+  });
+
+  it("does not leak the plaintext in the ciphertext", async () => {
+    const plaintext = "super-secret-roster";
+    const encrypted = await encryptBytes(testEnv, plaintext);
+    const asText = new TextDecoder().decode(encrypted);
+    expect(asText.includes(plaintext)).toBe(false);
+  });
+
+  it("uses a fresh IV per value", async () => {
+    const a = await encryptBytes(testEnv, "same");
+    const b = await encryptBytes(testEnv, "same");
+    expect(Array.from(a)).not.toEqual(Array.from(b));
+  });
+
+  it("passes legacy plaintext strings through untouched", async () => {
+    expect(await decryptBytes(testEnv, "legacy-plaintext")).toBe(
+      "legacy-plaintext",
+    );
+  });
+
+  it("returns null for null/undefined/empty", async () => {
+    expect(await decryptBytes(testEnv, null)).toBeNull();
+    expect(await decryptBytes(testEnv, undefined)).toBeNull();
+    expect(await decryptBytes(testEnv, new Uint8Array(0))).toBeNull();
+    expect(await decryptBytes(testEnv, new Uint8Array(5))).toBeNull();
+  });
+
+  it("returns null when the ciphertext cannot be decrypted", async () => {
+    const encrypted = await encryptBytes(testEnv, "value");
+    encrypted[encrypted.length - 1] ^= 0xff;
+    expect(await decryptBytes(testEnv, encrypted)).toBeNull();
+  });
+});
 
 describe("hashLogin", () => {
   it("produces a 64-char hex string", async () => {
@@ -54,7 +110,9 @@ describe("getTokens", () => {
   });
 
   it("prefers sessionTokens over sessionToken", () => {
-    expect(getTokens({ sessionTokens: ["new"], sessionToken: "old" })).toEqual(["new"]);
+    expect(getTokens({ sessionTokens: ["new"], sessionToken: "old" })).toEqual([
+      "new",
+    ]);
   });
 });
 

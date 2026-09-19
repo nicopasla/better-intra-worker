@@ -1,6 +1,9 @@
 import { Env, UserData } from "../types";
 import {
+  decryptBytes,
+  encryptBytes,
   getBearerToken,
+  hashLogin,
   jsonRes,
   textRes,
   validateSession,
@@ -75,18 +78,18 @@ export async function handleLogtimeHistory(
   const before = url.searchParams.get("before");
 
   try {
+    const loginHash = await hashLogin(targetLogin);
     const row = await env.better_intra_d1
       .prepare(
-        "SELECT days_json, updated_at FROM logtime_history WHERE login = ?",
+        "SELECT days_json, updated_at FROM logtime_history WHERE login_hash = ?",
       )
-      .bind(targetLogin)
-      .first<{ days_json: string; updated_at: number } | null>();
+      .bind(loginHash)
+      .first<{ days_json: ArrayBuffer | string; updated_at: number } | null>();
 
     const now = Date.now();
 
-    const existing: Record<string, number> = row
-      ? JSON.parse(row.days_json)
-      : {};
+    const decoded = row ? await decryptBytes(env, row.days_json) : null;
+    const existing: Record<string, number> = decoded ? JSON.parse(decoded) : {};
     const existingDates = Object.keys(existing);
     const maxDate =
       existingDates.length > 0 ? existingDates.sort().slice(-1)[0] : null;
@@ -144,9 +147,9 @@ export async function handleLogtimeHistory(
 
     await env.better_intra_d1
       .prepare(
-        "INSERT OR REPLACE INTO logtime_history (login, days_json, updated_at) VALUES (?, ?, ?)",
+        "INSERT OR REPLACE INTO logtime_history (login_hash, days_json, updated_at) VALUES (?, ?, ?)",
       )
-      .bind(targetLogin, JSON.stringify(existing), now)
+      .bind(loginHash, await encryptBytes(env, JSON.stringify(existing)), now)
       .run();
 
     return jsonRes({ days: existing });
