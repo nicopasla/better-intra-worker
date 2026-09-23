@@ -20,8 +20,6 @@ import {
   handleStudentsList,
   handlePiscinersList,
   handlePiscinesList,
-  handleStudentsRefresh,
-  handlePiscinersRefresh,
   handleFutureStudentsList,
   handleFutureStudentsRefresh,
   refreshFutureStudents,
@@ -112,14 +110,6 @@ export default {
 
     if (url.pathname === "/api/v1/cluster/svgs") {
       return handleClusterSvgs(env, origin);
-    }
-
-    if (url.pathname === "/api/v1/students/refresh") {
-      return handleStudentsRefresh(request, env);
-    }
-
-    if (url.pathname === "/api/v1/pisciners/refresh") {
-      return handlePiscinersRefresh(request, env);
     }
 
     if (url.pathname === "/api/v1/future-students/refresh") {

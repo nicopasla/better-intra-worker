@@ -1,9 +1,11 @@
 import { Env, UserData } from "../types";
+import { PISCINE_INTAKES } from "./piscine-intakes";
 import {
   decryptBytes,
   encryptBytes,
   getAppToken,
   getBearerToken,
+  getUserToken,
   jsonRes,
   textRes,
   validateSession,
@@ -13,8 +15,23 @@ const API_BASE = "https://api.intra.42.fr";
 const BELGIUM_CAMPUS_ID = 12;
 const PAGE_SIZE = 100;
 const STUDENTS_CURSUS_ID = 21;
-const PISCINE_CURSUS_ID = 64;
-const PISCINE_CURSUS_IDS = [4, 9, 64];
+const STUDENTS_CACHE_TTL = 24 * 60 * 60;
+const PISCINE_CACHE_TTL = 30 * 24 * 60 * 60;
+
+const MONTH_NAMES = [
+  "january",
+  "february",
+  "march",
+  "april",
+  "may",
+  "june",
+  "july",
+  "august",
+  "september",
+  "october",
+  "november",
+  "december",
+];
 
 interface StudentEntry {
   login: string;
@@ -28,20 +45,6 @@ interface StudentEntry {
   pool_year: string | null;
   alumnized_at?: string;
   level?: number;
-}
-
-interface Range {
-  begin: string;
-  end: string;
-}
-
-function monthRange(year: number, month: number): Range {
-  const endMonth = month + 1;
-  const endYear = endMonth > 12 ? year + 1 : year;
-  return {
-    begin: `${year}-${String(month).padStart(2, "0")}-01`,
-    end: `${endYear}-${String(endMonth > 12 ? 1 : endMonth).padStart(2, "0")}-01`,
-  };
 }
 
 function checkSecret(request: Request, env: Env): boolean {
@@ -75,14 +78,17 @@ async function ensureCacheTable(env: Env): Promise<void> {
     .run();
 }
 
-async function readCache(
+interface CacheRow {
+  data: string;
+  cached_at: number;
+}
+
+async function readCacheRow(
   env: Env,
-  origin: string | null,
   cursusId: number,
   cacheBegin: string,
   cacheEnd: string,
-  stripLevels = false,
-): Promise<Response> {
+): Promise<CacheRow | null> {
   await ensureCacheTable(env);
   const cached = await env.better_intra_d1
     .prepare(
@@ -91,32 +97,31 @@ async function readCache(
     .bind(cursusId, cacheBegin, cacheEnd)
     .first<{ data: ArrayBuffer | string; cached_at: number }>();
 
-  if (cached) {
-    const decoded = await decryptBytes(env, cached.data);
-    if (decoded !== null) {
-      let data = decoded;
-      if (stripLevels) {
-        try {
-          const parsed = JSON.parse(data);
-          if (Array.isArray(parsed)) {
-            data = JSON.stringify(
-              parsed.map((e) => {
-                const { level, ...rest } = e as { level?: number };
-                return rest;
-              }),
-            );
-          }
-        } catch {}
-      }
-      const wrapped = `{"cached_at":${cached.cached_at},"data":${data}}`;
-      return new Response(wrapped, {
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": origin || "*",
-        },
-      });
-    }
-  }
+  if (!cached) return null;
+  const decoded = await decryptBytes(env, cached.data);
+  if (decoded === null) return null;
+  return { data: decoded, cached_at: cached.cached_at };
+}
+
+function cacheResponse(origin: string | null, row: CacheRow): Response {
+  const wrapped = `{"cached_at":${row.cached_at},"data":${row.data}}`;
+  return new Response(wrapped, {
+    headers: {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": origin || "*",
+    },
+  });
+}
+
+async function readCache(
+  env: Env,
+  origin: string | null,
+  cursusId: number,
+  cacheBegin: string,
+  cacheEnd: string,
+): Promise<Response> {
+  const row = await readCacheRow(env, cursusId, cacheBegin, cacheEnd);
+  if (row) return cacheResponse(origin, row);
   return jsonRes({ cached_at: 0, data: [] });
 }
 
@@ -125,9 +130,9 @@ async function fetchAllCursusUsers(
   cursusId: number,
   rangeBegin?: string,
   rangeEnd?: string,
-  opts?: { future?: boolean },
+  opts?: { future?: boolean; token?: string },
 ): Promise<StudentEntry[] | null> {
-  const token = await getAppToken(env);
+  const token = opts?.token ?? (await getAppToken(env));
   const all: StudentEntry[] = [];
   let page = 1;
 
@@ -237,7 +242,40 @@ export async function handleStudentsList(
     return textRes("Unauthorized", 401);
   }
 
-  return readCache(env, origin, STUDENTS_CURSUS_ID, "", "");
+  const cached = await readCacheRow(env, STUDENTS_CURSUS_ID, "", "");
+  const now = Math.floor(Date.now() / 1000);
+  if (cached && cached.cached_at > now - STUDENTS_CACHE_TTL) {
+    return cacheResponse(origin, cached);
+  }
+
+  const country: string | null =
+    (request.cf?.country as string | undefined) || null;
+  let token: string | null = null;
+  try {
+    token = await getUserToken(env, existingData, loginParam, country);
+  } catch {
+    token = null;
+  }
+
+  if (token) {
+    const all = await fetchAllCursusUsers(
+      env,
+      STUDENTS_CURSUS_ID,
+      undefined,
+      undefined,
+      { token },
+    );
+    if (all) {
+      const cachedAt = await writeCache(env, STUDENTS_CURSUS_ID, "", "", all);
+      return cacheResponse(origin, {
+        data: JSON.stringify(all),
+        cached_at: cachedAt,
+      });
+    }
+  }
+
+  if (cached) return cacheResponse(origin, cached);
+  return jsonRes({ cached_at: 0, data: [] });
 }
 
 export async function handlePiscinersList(
@@ -271,19 +309,110 @@ export async function handlePiscinersList(
     return textRes("Missing or invalid year/month", 400);
   }
 
-  const range = monthRange(year, month);
+  const cacheBegin = `PISCINE:${year}-${String(month).padStart(2, "0")}`;
 
-  const cursusParam = Number(url.searchParams.get("cursus"));
-  const cursusId =
-    Number.isInteger(cursusParam) && cursusParam > 0
-      ? cursusParam
-      : PISCINE_CURSUS_ID;
+  const now = Math.floor(Date.now() / 1000);
+  const cached = await readCacheRow(env, STUDENTS_CURSUS_ID, cacheBegin, "");
+  if (cached && cached.cached_at > now - PISCINE_CACHE_TTL) {
+    return cacheResponse(origin, cached);
+  }
 
-  const now = new Date();
-  const stripLevels =
-    month === now.getMonth() + 1 && year === now.getFullYear();
+  const country: string | null =
+    (request.cf?.country as string | undefined) || null;
+  let token: string | null = null;
+  try {
+    token = await getUserToken(env, existingData, loginParam, country);
+  } catch {
+    token = null;
+  }
 
-  return readCache(env, origin, cursusId, range.begin, range.end, stripLevels);
+  if (token) {
+    const entries = await fetchPiscineCohort(token, year, month);
+    if (entries && entries.length > 0) {
+      const cachedAt = await writeCache(
+        env,
+        STUDENTS_CURSUS_ID,
+        cacheBegin,
+        "",
+        entries,
+      );
+      return cacheResponse(origin, {
+        data: JSON.stringify(entries),
+        cached_at: cachedAt,
+      });
+    }
+  }
+
+  if (cached) return cacheResponse(origin, cached);
+  return jsonRes({ cached_at: 0, data: [] });
+}
+
+async function fetchPiscineCohort(
+  token: string,
+  year: number,
+  month: number,
+): Promise<StudentEntry[] | null> {
+  const monthName = MONTH_NAMES[month - 1];
+  if (!monthName) return null;
+
+  const all: StudentEntry[] = [];
+  let page = 1;
+
+  while (true) {
+    const params = new URLSearchParams({
+      "filter[primary_campus_id]": String(BELGIUM_CAMPUS_ID),
+      "filter[pool_month]": monthName,
+      "filter[pool_year]": String(year),
+      "page[size]": String(PAGE_SIZE),
+      "page[number]": String(page),
+    });
+
+    const res = await fetch(`${API_BASE}/v2/users?${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return all.length > 0 ? all : null;
+
+    const users = (await res.json()) as Array<{
+      login: string;
+      displayname?: string;
+      first_name?: string;
+      last_name?: string;
+      image?: { versions?: { small?: string } };
+      kind?: string;
+      "active?"?: boolean;
+      "alumni?"?: boolean;
+      pool_month?: string | null;
+      pool_year?: string | null;
+      alumnized_at?: string | null;
+    }>;
+
+    if (users.length === 0) break;
+
+    for (const u of users) {
+      if (u.kind === "admin") continue;
+      all.push({
+        login: u.login,
+        displayname:
+          u.displayname ||
+          [u.first_name, u.last_name].filter(Boolean).join(" ") ||
+          u.login,
+        image_url:
+          u.image?.versions?.small ||
+          `https://cdn.intra.42.fr/users/${u.login}.jpg`,
+        begin_at: null,
+        blackholed_at: null,
+        active: u["active?"] ?? true,
+        alumni: u["alumni?"] ?? false,
+        pool_month: u.pool_month ?? null,
+        pool_year: u.pool_year ?? null,
+      });
+    }
+
+    if (users.length < PAGE_SIZE) break;
+    page++;
+  }
+
+  return all;
 }
 
 export async function handlePiscinesList(
@@ -305,66 +434,11 @@ export async function handlePiscinesList(
     return textRes("Unauthorized", 401);
   }
 
-  await ensureCacheTable(env);
-  const url = new URL(request.url);
-  const rawCursus = url.searchParams.get("cursus");
-  const cursusIds = rawCursus
-    ? rawCursus
-        .split(",")
-        .map((s) => Number(s.trim()))
-        .filter((n) => Number.isInteger(n) && n > 0)
-    : PISCINE_CURSUS_IDS;
-  const ids = cursusIds.length > 0 ? cursusIds : PISCINE_CURSUS_IDS;
-
-  const placeholders = ids.map(() => "?").join(", ");
-  const rows = await env.better_intra_d1
-    .prepare(
-      `SELECT data, range_begin, cached_at, cursus_id FROM students_cache WHERE cursus_id IN (${placeholders})`,
-    )
-    .bind(...ids)
-    .all<{
-      data: ArrayBuffer | string;
-      range_begin: string;
-      cached_at: number;
-      cursus_id: number;
-    }>();
-
-  const byKey = new Map<string, { count: number; cursus: number }>();
-  for (const row of rows.results ?? []) {
-    const match = /^(\d{4})-(\d{2})-01$/.exec(row.range_begin);
-    if (!match) continue;
-    let count = 0;
-    try {
-      const decoded = await decryptBytes(env, row.data);
-      const parsed = decoded ? JSON.parse(decoded) : null;
-      if (Array.isArray(parsed)) count = parsed.length;
-    } catch {}
-    if (count <= 0) continue;
-    const key = `${match[1]}-${match[2]}`;
-    const prev = byKey.get(key);
-    if (!prev || count > prev.count) {
-      byKey.set(key, { count, cursus: row.cursus_id });
-    }
-  }
-
-  const intakes = [...byKey.entries()].map(([key, v]) => {
-    const [year, month] = key.split("-");
-    return {
-      year: Number(year),
-      month: Number(month),
-      count: v.count,
-      cursus: v.cursus,
-    };
-  });
-  intakes.sort((a, b) => b.year - a.year || b.month - a.month);
-
-  const latestCached = (rows.results ?? []).reduce(
-    (max, r) => Math.max(max, r.cached_at),
-    0,
-  );
-
   return new Response(
-    JSON.stringify({ cached_at: latestCached, data: intakes }),
+    JSON.stringify({
+      cached_at: Math.floor(Date.now() / 1000),
+      data: PISCINE_INTAKES,
+    }),
     {
       headers: {
         "Content-Type": "application/json",
@@ -372,64 +446,6 @@ export async function handlePiscinesList(
       },
     },
   );
-}
-
-export async function handleStudentsRefresh(
-  request: Request,
-  env: Env,
-): Promise<Response> {
-  if (request.method !== "GET") return textRes("Method not allowed", 405);
-  if (!checkSecret(request, env)) return textRes("Forbidden", 403);
-
-  const all = await fetchAllCursusUsers(env, STUDENTS_CURSUS_ID);
-  if (!all) return textRes("42 API error", 502);
-
-  const cachedAt = await writeCache(env, STUDENTS_CURSUS_ID, "", "", all);
-  return jsonRes({ cached_at: cachedAt, data: all });
-}
-
-export async function handlePiscinersRefresh(
-  request: Request,
-  env: Env,
-): Promise<Response> {
-  if (request.method !== "GET") return textRes("Method not allowed", 405);
-  if (!checkSecret(request, env)) return textRes("Forbidden", 403);
-
-  const url = new URL(request.url);
-  const year = Number(url.searchParams.get("year"));
-  const month = Number(url.searchParams.get("month"));
-  if (
-    !Number.isInteger(year) ||
-    !Number.isInteger(month) ||
-    month < 1 ||
-    month > 12
-  ) {
-    return textRes("Missing or invalid year/month", 400);
-  }
-
-  const cursusParam = Number(url.searchParams.get("cursus"));
-  const cursusId =
-    Number.isInteger(cursusParam) && cursusParam > 0
-      ? cursusParam
-      : PISCINE_CURSUS_ID;
-
-  const range = monthRange(year, month);
-  const all = await fetchAllCursusUsers(env, cursusId, range.begin, range.end);
-  if (!all) return textRes("42 API error", 502);
-
-  const now = new Date();
-  const stripLevels =
-    month === now.getMonth() + 1 && year === now.getFullYear();
-  const entries = stripLevels ? all.map(({ level, ...rest }) => rest) : all;
-
-  const cachedAt = await writeCache(
-    env,
-    cursusId,
-    range.begin,
-    range.end,
-    entries,
-  );
-  return jsonRes({ cached_at: cachedAt, data: entries });
 }
 
 export async function handleFutureStudentsList(
