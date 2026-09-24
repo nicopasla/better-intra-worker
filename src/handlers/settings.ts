@@ -9,15 +9,9 @@ import {
 
 const MAX_LOOK_STRING = 64;
 
-/**
- * Theme a user chose to publish on their profile. Presentation only: the
- * extension validates the preset against its known themes and the mode before
- * applying anything. Shared only when the user opted in (SHARE_LOOK).
- */
 export function publicLook(
   settings: Record<string, unknown>,
 ): { preset: string; theme: string } | null {
-  if (settings.SHARE_LOOK !== true) return null;
   const preset = settings.PROFILE_THEME_PRESET;
   if (
     typeof preset !== "string" ||
