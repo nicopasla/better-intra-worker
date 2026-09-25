@@ -252,7 +252,9 @@ export async function handleStudentsList(
     (request.cf?.country as string | undefined) || null;
   let token: string | null = null;
   try {
-    token = await getUserToken(env, existingData, loginParam, country);
+    token = await getUserToken(env, existingData, loginParam, country, {
+      appTokenFallback: true,
+    });
   } catch {
     token = null;
   }
@@ -321,7 +323,9 @@ export async function handlePiscinersList(
     (request.cf?.country as string | undefined) || null;
   let token: string | null = null;
   try {
-    token = await getUserToken(env, existingData, loginParam, country);
+    token = await getUserToken(env, existingData, loginParam, country, {
+      appTokenFallback: true,
+    });
   } catch {
     token = null;
   }

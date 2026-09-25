@@ -347,7 +347,8 @@ export async function getUserToken(
   userData: UserData | null,
   loginParam: string,
   country?: string | null,
-): Promise<string> {
+  opts?: { appTokenFallback?: boolean },
+): Promise<string | null> {
   const d1Row = await getTokenFromD1(env, loginParam);
   const d1Token = d1Row?.forty_two_token ?? null;
   const encryptedToken = d1Token ?? userData?.fortyTwoToken;
@@ -366,10 +367,14 @@ export async function getUserToken(
   }
 
   if (!encryptedToken) {
+    await markTokenBroken(env, userData, loginParam);
+    if (!opts?.appTokenFallback) {
+      console.log(`[getUserToken] ${loginParam}: no fortyTwoToken, returning null`);
+      return null;
+    }
     console.log(
       `[getUserToken] ${loginParam}: no fortyTwoToken, using app token`,
     );
-    await markTokenBroken(env, userData, loginParam);
     return getAppToken(env);
   }
 
@@ -381,10 +386,14 @@ export async function getUserToken(
   try {
     tokenData = await decryptTokenData<typeof tokenData>(env, encryptedToken);
   } catch {
+    await markTokenBroken(env, userData, loginParam);
+    if (!opts?.appTokenFallback) {
+      console.log(`[getUserToken] ${loginParam}: decryption failed, returning null`);
+      return null;
+    }
     console.log(
       `[getUserToken] ${loginParam}: decryption failed, using app token`,
     );
-    await markTokenBroken(env, userData, loginParam);
     return getAppToken(env);
   }
 
@@ -433,21 +442,26 @@ export async function getUserToken(
       }
 
       console.log(
-        `[getUserToken] ${loginParam}: refresh failed (${res.status}), using app token`,
+        `[getUserToken] ${loginParam}: refresh failed (${res.status})`,
       );
     } catch {
       console.log(
-        `[getUserToken] ${loginParam}: refresh error, using app token`,
+        `[getUserToken] ${loginParam}: refresh error`,
       );
     }
   } else {
     console.log(
-      `[getUserToken] ${loginParam}: no refresh_token, using app token`,
+      `[getUserToken] ${loginParam}: no refresh_token`,
     );
   }
 
   await markTokenBroken(env, userData, loginParam);
-  return getAppToken(env);
+  if (opts?.appTokenFallback) {
+    console.log(`[getUserToken] ${loginParam}: using app token`);
+    return getAppToken(env);
+  }
+  console.log(`[getUserToken] ${loginParam}: returning null`);
+  return null;
 }
 
 export async function markTokenBroken(

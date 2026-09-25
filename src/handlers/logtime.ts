@@ -111,6 +111,15 @@ export async function handleLogtimeHistory(
         loginParam,
         request.headers.get("CF-IPCountry"),
       );
+      if (!token) {
+        await env.better_intra_d1
+          .prepare(
+            "INSERT OR REPLACE INTO logtime_history (login_hash, days_json, updated_at) VALUES (?, ?, ?)",
+          )
+          .bind(loginHash, await encryptBytes(env, JSON.stringify(existing)), now)
+          .run();
+        return jsonRes({ days: existing });
+      }
 
       const pageSize = 100;
       const sessions: LocationEntry[] = [];

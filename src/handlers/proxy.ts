@@ -30,6 +30,9 @@ export async function handleProxy(
 
   const country: string | null = (request.cf?.country as string | undefined) || null;
   const fortyTwoToken = await getUserToken(env, existingData, loginParam, country);
+  if (!fortyTwoToken) {
+    return textRes("Failed to get API token", 500);
+  }
   const tokenPrefix = fortyTwoToken.substring(0, 8);
 
   const apiUrl = new URL(`${API_BASE}${path}`);
