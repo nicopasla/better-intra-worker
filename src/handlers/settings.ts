@@ -9,6 +9,120 @@ import {
 } from "../utils";
 
 const MAX_LOOK_STRING = 64;
+const SETTINGS_HISTORY_LIMIT = 5;
+
+interface SettingsHistoryEntry {
+  revision: string | null;
+  createdAt: number;
+  settings: Record<string, unknown>;
+}
+
+export function appendHistory(
+  entries: SettingsHistoryEntry[],
+  entry: SettingsHistoryEntry,
+  limit = SETTINGS_HISTORY_LIMIT,
+): SettingsHistoryEntry[] {
+  if (
+    entries.length > 0 &&
+    JSON.stringify(entries[0].settings) === JSON.stringify(entry.settings)
+  ) {
+    return entries;
+  }
+  return [entry, ...entries].slice(0, limit);
+}
+
+function unauthorizedResponse(
+  request: Request,
+  loginParam: string,
+  existingData: UserData | null,
+): Response | null {
+  const authHeader = getBearerToken(request);
+  if (
+    !authHeader ||
+    !loginParam ||
+    !existingData ||
+    !validateSession(existingData, authHeader)
+  ) {
+    return textRes("Unauthorized", 401);
+  }
+  return null;
+}
+
+export async function handleSettingsHistory(
+  request: Request,
+  env: Env,
+  loginParam: string,
+  existingData: UserData | null,
+): Promise<Response> {
+  const unauthorized = unauthorizedResponse(request, loginParam, existingData);
+  if (unauthorized) return unauthorized;
+  if (request.method !== "GET") return textRes("Method not allowed", 405);
+
+  const entries = existingData!.settingsHistory || [];
+  return jsonRes({
+    entries: entries.map((entry, index) => ({
+      index,
+      revision: entry.revision,
+      createdAt: entry.createdAt,
+    })),
+  });
+}
+
+export async function handleSettingsRestore(
+  request: Request,
+  env: Env,
+  loginParam: string,
+  existingData: UserData | null,
+): Promise<Response> {
+  const unauthorized = unauthorizedResponse(request, loginParam, existingData);
+  if (unauthorized) return unauthorized;
+  if (request.method !== "POST") return textRes("Method not allowed", 405);
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return textRes("Invalid JSON body", 400);
+  }
+
+  const entries = existingData!.settingsHistory || [];
+  const index = Number(body?.index);
+  if (!Number.isInteger(index) || index < 0 || index >= entries.length) {
+    return textRes("Snapshot not found", 404);
+  }
+
+  const history = appendHistory(entries, {
+    revision: existingData!.settingsRevision ?? null,
+    createdAt: Date.now(),
+    settings: existingData!.settings || {},
+  });
+
+  const settings = entries[index].settings;
+  const revision = crypto.randomUUID();
+  await env.BETTER_INTRA_KV.put(
+    loginParam,
+    serializeUserData({
+      ...existingData!,
+      settings,
+      settingsHistory: history,
+      settingsRevision: revision,
+    }),
+  );
+  return jsonRes({ ok: true, revision, settings });
+}
+
+export function settingsWriteDecision(
+  current: string | null | undefined,
+  base: unknown,
+  force: unknown,
+): "conflict" | "write" {
+  if (force === true) return "write";
+  if (base === undefined) return "write";
+  const currentRev = typeof current === "string" && current ? current : null;
+  const baseRev = typeof base === "string" && base ? base : null;
+  if (currentRev && baseRev !== currentRev) return "conflict";
+  return "write";
+}
 
 export function publicLook(
   settings: Record<string, unknown>,
@@ -95,6 +209,7 @@ export async function handlePrivateSettings(
   if (request.method === "GET") {
     return jsonRes({
       settings: existingData.settings || {},
+      revision: existingData.settingsRevision ?? null,
       activeSessions: tokensList.length,
       discordId: existingData.discordId,
       discordUsername: existingData.discordUsername,
@@ -113,16 +228,47 @@ export async function handlePrivateSettings(
       return textRes("Invalid settings payload", 400);
     }
 
+    if (
+      settingsWriteDecision(
+        existingData.settingsRevision,
+        body.baseRevision,
+        body.force,
+      ) === "conflict"
+    ) {
+      return jsonRes(
+        {
+          conflict: true,
+          revision: existingData.settingsRevision ?? null,
+          settings: existingData.settings || {},
+        },
+        409,
+      );
+    }
+
     const settingsToSave = {
       ...(existingData.settings || {}),
       ...body.settings,
     };
+    const revision = crypto.randomUUID();
+    const history =
+      Object.keys(existingData.settings || {}).length > 0
+        ? appendHistory(existingData.settingsHistory || [], {
+            revision: existingData.settingsRevision ?? null,
+            createdAt: Date.now(),
+            settings: existingData.settings || {},
+          })
+        : existingData.settingsHistory || [];
 
     await env.BETTER_INTRA_KV.put(
       loginParam,
-      serializeUserData({ ...existingData, settings: settingsToSave }),
+      serializeUserData({
+        ...existingData,
+        settings: settingsToSave,
+        settingsHistory: history,
+        settingsRevision: revision,
+      }),
     );
-    return textRes("Saved");
+    return jsonRes({ ok: true, revision });
   }
 
   if (request.method === "DELETE") {

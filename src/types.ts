@@ -29,6 +29,12 @@ export type UserData = {
   sessionToken?: string;
   sessionMeta?: Record<string, SessionMeta>;
   settings?: Record<string, unknown>;
+  settingsRevision?: string;
+  settingsHistory?: {
+    revision: string | null;
+    createdAt: number;
+    settings: Record<string, unknown>;
+  }[];
   fortyTwoToken?: string; // AES-GCM encrypted JSON: { access_token, refresh_token, expires_at }
   fortyTwoUserId?: number;
   discordId?: string;

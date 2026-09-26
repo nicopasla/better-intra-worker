@@ -2,6 +2,8 @@ import { handleCallback, handleLogin } from "./handlers/auth";
 import {
   handlePrivateSettings,
   handlePublicVisuals,
+  handleSettingsHistory,
+  handleSettingsRestore,
 } from "./handlers/settings";
 import { handleFriendsData } from "./handlers/friends";
 import { handleSessions } from "./handlers/sessions";
@@ -189,6 +191,14 @@ export default {
 
     if (url.pathname === "/api/v1/private/settings") {
       return handlePrivateSettings(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/settings/history") {
+      return handleSettingsHistory(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/settings/restore") {
+      return handleSettingsRestore(request, env, loginParam, existingData);
     }
 
     if (url.pathname === "/api/v1/private/sessions") {
