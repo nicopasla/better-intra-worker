@@ -15,7 +15,7 @@ const API_BASE = "https://api.intra.42.fr";
 const BELGIUM_CAMPUS_ID = 12;
 const PAGE_SIZE = 100;
 const STUDENTS_CURSUS_ID = 21;
-const STUDENTS_CACHE_TTL = 7 * 24 * 60 * 60;
+const STUDENTS_CACHE_TTL = 24 * 60 * 60;
 const PISCINE_CACHE_TTL = 30 * 24 * 60 * 60;
 const STUDENTS_CACHE_VERSION = "v2";
 
