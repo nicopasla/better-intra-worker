@@ -1,5 +1,48 @@
-import { Env, UserData, TokenResponse, ProjectResponse } from "./types";
+import { UAParser } from "ua-parser-js";
+import {
+  Env,
+  UserData,
+  TokenResponse,
+  ProjectResponse,
+  SessionMeta,
+} from "./types";
 import { APP_TOKEN_CACHE } from "./constants";
+
+export const MAX_SESSION_TOKENS = 20;
+
+export function describeUserAgent(ua: string | null | undefined): string {
+  if (!ua) return "Unknown device";
+  const { browser, os } = new UAParser(ua).getResult();
+  const major = browser.major || browser.version?.split(".")[0];
+  const browserLabel = major ? `${browser.name} ${major}` : browser.name;
+  return `${browserLabel || "Browser"} · ${os.name || "Unknown OS"}`.slice(0, 40);
+}
+
+export function sanitizeDeviceName(
+  value: string | null | undefined,
+): string | undefined {
+  if (!value || !/^[A-Za-z ]{1,32}$/.test(value)) return undefined;
+  const cleaned = value.replace(/\s+/g, " ").trim();
+  return cleaned || undefined;
+}
+
+export async function sessionIdForToken(token: string): Promise<string> {
+  const data = new TextEncoder().encode(`session:${token}`);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest))
+    .slice(0, 8)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+export function serializeUserData(data: UserData): string {
+  const { sessionToken: _legacy, ...rest } = data;
+  return JSON.stringify({
+    ...rest,
+    sessionTokens: getTokens(data),
+    settings: data.settings || {},
+  });
+}
 
 export function getCallbackUrl(
   request: Request,

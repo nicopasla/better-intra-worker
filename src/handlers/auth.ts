@@ -1,10 +1,14 @@
-import { Env, UserData, TokenResponse, UserResponse } from "../types";
+import { Env, UserData, TokenResponse, UserResponse, SessionMeta } from "../types";
 import {
   encryptTokenData,
   getTokens,
   hashLogin,
   textRes,
   getCallbackUrl,
+  describeUserAgent,
+  sanitizeDeviceName,
+  serializeUserData,
+  MAX_SESSION_TOKENS,
 } from "../utils";
 
 export async function handleLogin(
@@ -117,6 +121,10 @@ export async function handleCallback(
         ? `${String(new Date(`${rawUser.pool_month} 1, 2000`).getMonth() + 1).padStart(2, "0")}/${rawUser.pool_year}`
         : null;
 
+    const deviceName = sanitizeDeviceName(
+      redirectTarget.searchParams.get("ft_device"),
+    );
+
     const hashedLogin = await hashLogin(rawLogin);
     const newSessionToken = crypto.randomUUID();
     const existing: UserData =
@@ -126,7 +134,20 @@ export async function handleCallback(
 
     const activeTokens = getTokens(existing);
     activeTokens.push(newSessionToken);
-    if (activeTokens.length > 10) activeTokens.shift();
+    const sessionMeta: Record<string, SessionMeta> = {
+      ...(existing.sessionMeta || {}),
+    };
+    while (activeTokens.length > MAX_SESSION_TOKENS) {
+      const evicted = activeTokens.shift();
+      if (evicted) delete sessionMeta[evicted];
+    }
+    sessionMeta[newSessionToken] = {
+      id: crypto.randomUUID(),
+      label: describeUserAgent(request.headers.get("User-Agent")),
+      ...(deviceName ? { name: deviceName } : {}),
+      country: (request.cf?.country as string | undefined) ?? undefined,
+      createdAt: Date.now(),
+    };
 
     const encryptedTokens = await encryptTokenData(env, {
       access_token: tokenData.access_token,
@@ -136,16 +157,10 @@ export async function handleCallback(
 
     await env.BETTER_INTRA_KV.put(
       hashedLogin,
-      JSON.stringify({
+      serializeUserData({
+        ...existing,
         sessionTokens: activeTokens,
-        settings: existing.settings || {},
-        discordId: existing.discordId,
-        discordUsername: existing.discordUsername,
-        discordQuietEnabled: existing.discordQuietEnabled,
-        discordQuietStart: existing.discordQuietStart,
-        discordQuietEnd: existing.discordQuietEnd,
-        discordQuietTimezone: existing.discordQuietTimezone,
-        tokenBroken: existing.tokenBroken,
+        sessionMeta,
       }),
     );
 

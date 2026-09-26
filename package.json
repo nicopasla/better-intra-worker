@@ -21,5 +21,8 @@
     "fsevents": true,
     "sharp": true,
     "workerd": true
+  },
+  "dependencies": {
+    "ua-parser-js": "^2.0.10"
   }
 }

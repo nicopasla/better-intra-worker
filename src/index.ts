@@ -4,6 +4,7 @@ import {
   handlePublicVisuals,
 } from "./handlers/settings";
 import { handleFriendsData } from "./handlers/friends";
+import { handleSessions } from "./handlers/sessions";
 import { handleProxy } from "./handlers/proxy";
 import { handleGhProxy } from "./handlers/gh-proxy";
 import { handleEvaluations } from "./handlers/evaluations";
@@ -188,6 +189,10 @@ export default {
 
     if (url.pathname === "/api/v1/private/settings") {
       return handlePrivateSettings(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/sessions") {
+      return handleSessions(request, env, loginParam, existingData);
     }
 
     if (url.pathname === "/api/v1/private/friends/data") {

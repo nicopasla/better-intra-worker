@@ -16,9 +16,18 @@ export interface Env {
   ANNOUNCEMENT_SECRET?: string;
 }
 
+export interface SessionMeta {
+  id: string;
+  label: string;
+  name?: string;
+  country?: string;
+  createdAt: number;
+}
+
 export type UserData = {
   sessionTokens?: string[];
-  sessionToken?: string; // legacy
+  sessionToken?: string;
+  sessionMeta?: Record<string, SessionMeta>;
   settings?: Record<string, unknown>;
   fortyTwoToken?: string; // AES-GCM encrypted JSON: { access_token, refresh_token, expires_at }
   fortyTwoUserId?: number;

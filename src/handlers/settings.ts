@@ -3,6 +3,7 @@ import {
   getBearerToken,
   getTokens,
   jsonRes,
+  serializeUserData,
   textRes,
   validateSession,
 } from "../utils";
@@ -119,17 +120,7 @@ export async function handlePrivateSettings(
 
     await env.BETTER_INTRA_KV.put(
       loginParam,
-      JSON.stringify({
-        sessionTokens: tokensList,
-        settings: settingsToSave,
-        discordId: existingData.discordId,
-        discordUsername: existingData.discordUsername,
-        discordQuietEnabled: existingData.discordQuietEnabled,
-        discordQuietStart: existingData.discordQuietStart,
-        discordQuietEnd: existingData.discordQuietEnd,
-        discordQuietTimezone: existingData.discordQuietTimezone,
-        tokenBroken: existingData.tokenBroken,
-      }),
+      serializeUserData({ ...existingData, settings: settingsToSave }),
     );
     return textRes("Saved");
   }
@@ -140,18 +131,14 @@ export async function handlePrivateSettings(
       await env.BETTER_INTRA_KV.delete(loginParam);
       return textRes("All cloud data deleted");
     }
+    const sessionMeta = { ...(existingData.sessionMeta || {}) };
+    delete sessionMeta[authHeader];
     await env.BETTER_INTRA_KV.put(
       loginParam,
-      JSON.stringify({
+      serializeUserData({
+        ...existingData,
         sessionTokens: tokensList.filter((t) => t !== authHeader),
-        settings: existingData.settings || {},
-        discordId: existingData.discordId,
-        discordUsername: existingData.discordUsername,
-        discordQuietEnabled: existingData.discordQuietEnabled,
-        discordQuietStart: existingData.discordQuietStart,
-        discordQuietEnd: existingData.discordQuietEnd,
-        discordQuietTimezone: existingData.discordQuietTimezone,
-        tokenBroken: existingData.tokenBroken,
+        sessionMeta,
       }),
     );
     return textRes("Session removed");
