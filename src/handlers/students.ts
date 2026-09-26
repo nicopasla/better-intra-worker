@@ -17,6 +17,10 @@ const PAGE_SIZE = 100;
 const STUDENTS_CURSUS_ID = 21;
 const STUDENTS_CACHE_TTL = 7 * 24 * 60 * 60;
 const PISCINE_CACHE_TTL = 30 * 24 * 60 * 60;
+const STUDENTS_CACHE_VERSION = "v2";
+
+const DEFAULT_PAGE_SIZE = 60;
+const MAX_PAGE_SIZE = 100;
 
 const MONTH_NAMES = [
   "january",
@@ -33,7 +37,22 @@ const MONTH_NAMES = [
   "december",
 ];
 
-interface StudentEntry {
+const MONTH_LABELS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+export interface StudentEntry {
   login: string;
   displayname: string;
   image_url: string;
@@ -45,6 +64,8 @@ interface StudentEntry {
   pool_year: string | null;
   alumnized_at?: string;
   level?: number;
+  correction_point?: number;
+  wallet?: number;
 }
 
 function checkSecret(request: Request, env: Env): boolean {
@@ -165,6 +186,8 @@ async function fetchAllCursusUsers(
         pool_month?: string | null;
         pool_year?: string | null;
         alumnized_at?: string | null;
+        correction_point?: number;
+        wallet?: number;
       };
     }>;
 
@@ -188,6 +211,8 @@ async function fetchAllCursusUsers(
         pool_month: u.user.pool_month ?? null,
         pool_year: u.user.pool_year ?? null,
         level: u.level ?? 0,
+        correction_point: u.user.correction_point ?? 0,
+        wallet: u.user.wallet ?? 0,
         ...(u.user.alumnized_at ? { alumnized_at: u.user.alumnized_at } : {}),
       });
     }
@@ -223,6 +248,231 @@ async function writeCache(
   return now;
 }
 
+export type StudentSortField = "name" | "date";
+export type StudentSortDir = "asc" | "desc";
+export type StudentStatusFilter = "none" | "blackhole" | "alumni" | "freeze";
+
+export interface StudentPageOptions {
+  offset: number;
+  limit: number;
+  sort: StudentSortField;
+  dir: StudentSortDir;
+  filter: StudentStatusFilter;
+  poolMonth: number | null;
+  poolYear: number | null;
+  q: string;
+}
+
+export interface StudentPageResult {
+  total: number;
+  active: number;
+  filtered: number;
+  data: StudentEntry[];
+  options?: {
+    intakes: { month: number; year: number; label: string }[];
+    poolYears: number[];
+  };
+}
+
+function normalizeSearch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function isFutureStudent(e: StudentEntry, now = Date.now()): boolean {
+  if (!e.begin_at) return false;
+  const t = new Date(e.begin_at).getTime();
+  return Number.isFinite(t) && t > now;
+}
+
+function isBlackholed(e: StudentEntry, now = Date.now()): boolean {
+  return (
+    e.active === false &&
+    typeof e.blackholed_at === "string" &&
+    new Date(e.blackholed_at).getTime() < now
+  );
+}
+
+function isFrozen(e: StudentEntry, now = Date.now()): boolean {
+  return (
+    e.active === false &&
+    typeof e.blackholed_at === "string" &&
+    new Date(e.blackholed_at).getTime() >= now
+  );
+}
+
+function beginTimestamp(e: StudentEntry): number {
+  return e.begin_at ? new Date(e.begin_at).getTime() : 0;
+}
+
+function poolTimestamp(e: StudentEntry): number {
+  if (!e.pool_year || !e.pool_month) return 0;
+  const d = new Date(Date.parse(`${e.pool_month} 1, ${e.pool_year}`));
+  return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+function monthNumber(name?: string | null): number | null {
+  if (!name) return null;
+  const idx = MONTH_NAMES.indexOf(name.toLowerCase());
+  return idx === -1 ? null : idx + 1;
+}
+
+function poolIntakes(
+  entries: StudentEntry[],
+  currentYear: number,
+): { month: number; year: number; label: string }[] {
+  const seen = new Set<string>();
+  const list: { month: number; year: number; label: string }[] = [];
+  for (const e of entries) {
+    const y = Number(e.pool_year);
+    const m = monthNumber(e.pool_month);
+    if (!Number.isInteger(y) || y <= 0 || y > currentYear || m == null)
+      continue;
+    const key = `${m}-${y}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    list.push({ month: m, year: y, label: `${MONTH_LABELS[m - 1]} ${y}` });
+  }
+  return list.sort((a, b) => b.year - a.year || b.month - a.month);
+}
+
+function yearOptions(currentYear: number): number[] {
+  const years: number[] = [];
+  for (let y = currentYear; y >= 2023; y--) years.push(y);
+  return years;
+}
+
+function poolYearOptions(
+  entries: StudentEntry[],
+  currentYear: number,
+): number[] {
+  const years = new Set<number>();
+  for (const e of entries) {
+    const y = Number(e.pool_year);
+    if (Number.isInteger(y) && y > 0 && y <= currentYear) years.add(y);
+  }
+  const list = [...years].sort((a, b) => b - a);
+  return list.length > 0 ? list : yearOptions(currentYear);
+}
+
+export function paginateStudents(
+  entries: StudentEntry[],
+  opts: StudentPageOptions,
+): StudentPageResult {
+  const now = Date.now();
+  const base = entries.filter((e) => !isFutureStudent(e, now));
+  const active = base.filter((e) => e.active !== false).length;
+
+  const q = normalizeSearch(opts.q.trim());
+  const filtered = base.filter((e) => {
+    if (opts.filter === "blackhole" && !isBlackholed(e, now)) return false;
+    if (opts.filter === "alumni" && !e.alumni) return false;
+    if (opts.filter === "freeze" && !isFrozen(e, now)) return false;
+    if (opts.poolMonth != null) {
+      if (
+        e.pool_year !== String(opts.poolYear) ||
+        e.pool_month?.toLowerCase() !== MONTH_NAMES[opts.poolMonth - 1]
+      )
+        return false;
+    } else if (opts.poolYear != null && e.pool_year !== String(opts.poolYear)) {
+      return false;
+    }
+    return !q || normalizeSearch(`${e.login} ${e.displayname}`).includes(q);
+  });
+
+  let display: StudentEntry[];
+  if (opts.filter === "blackhole") {
+    display = [...filtered].sort(
+      (a, b) =>
+        new Date(b.blackholed_at ?? 0).getTime() -
+        new Date(a.blackholed_at ?? 0).getTime(),
+    );
+  } else if (opts.filter === "alumni") {
+    display = [...filtered].sort((a, b) => {
+      const ta = a.alumnized_at ? new Date(a.alumnized_at).getTime() : 0;
+      const tb = b.alumnized_at ? new Date(b.alumnized_at).getTime() : 0;
+      return tb - ta;
+    });
+  } else if (opts.sort === "date") {
+    display = [...filtered].sort((a, b) => {
+      const diff = beginTimestamp(b) - beginTimestamp(a);
+      const result = opts.dir === "desc" ? diff : -diff;
+      return result || a.login.localeCompare(b.login);
+    });
+  } else {
+    display = [...filtered].sort((a, b) => {
+      const an = normalizeSearch(`${a.displayname || a.login}`);
+      const bn = normalizeSearch(`${b.displayname || b.login}`);
+      const cmp = an.localeCompare(bn) || a.login.localeCompare(b.login);
+      return opts.dir === "asc" ? cmp : -cmp;
+    });
+  }
+
+  const result: StudentPageResult = {
+    total: base.length,
+    active,
+    filtered: display.length,
+    data: display.slice(opts.offset, opts.offset + opts.limit),
+  };
+
+  if (opts.offset === 0) {
+    const currentYear = new Date(now).getFullYear();
+    result.options = {
+      intakes: poolIntakes(base, currentYear),
+      poolYears: poolYearOptions(base, currentYear),
+    };
+  }
+
+  return result;
+}
+
+export function parseStudentPageOptions(url: URL): StudentPageOptions {
+  const limitRaw = Number(url.searchParams.get("limit"));
+  const limit =
+    Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.min(Math.floor(limitRaw), MAX_PAGE_SIZE)
+      : DEFAULT_PAGE_SIZE;
+  const offsetRaw = Number(url.searchParams.get("offset"));
+  const offset =
+    Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.floor(offsetRaw) : 0;
+  const sort: StudentSortField =
+    url.searchParams.get("sort") === "date" ? "date" : "name";
+  const dirParam = url.searchParams.get("dir");
+  const dir: StudentSortDir =
+    dirParam === "asc" || dirParam === "desc"
+      ? dirParam
+      : sort === "name"
+        ? "asc"
+        : "desc";
+  const filterParam = url.searchParams.get("filter");
+  const filter: StudentStatusFilter =
+    filterParam === "blackhole" ||
+    filterParam === "alumni" ||
+    filterParam === "freeze"
+      ? filterParam
+      : "none";
+  const poolMonthRaw = Number(url.searchParams.get("pool_month"));
+  const poolMonth =
+    Number.isInteger(poolMonthRaw) && poolMonthRaw >= 1 && poolMonthRaw <= 12
+      ? poolMonthRaw
+      : null;
+  const poolYearRaw = Number(url.searchParams.get("pool_year"));
+  const poolYear =
+    Number.isInteger(poolYearRaw) && poolYearRaw > 0 ? poolYearRaw : null;
+  return {
+    offset,
+    limit,
+    sort,
+    dir,
+    filter,
+    poolMonth,
+    poolYear,
+    q: url.searchParams.get("q") ?? "",
+  };
+}
+
 export async function handleStudentsList(
   request: Request,
   env: Env,
@@ -242,10 +492,33 @@ export async function handleStudentsList(
     return textRes("Unauthorized", 401);
   }
 
-  const cached = await readCacheRow(env, STUDENTS_CURSUS_ID, "", "");
+  const url = new URL(request.url);
+  const paged = url.searchParams.has("limit");
+  const pageOpts = paged ? parseStudentPageOptions(url) : null;
+
+  const respond = (row: CacheRow): Response => {
+    if (!paged || !pageOpts) return cacheResponse(origin, row);
+    let entries: StudentEntry[] = [];
+    try {
+      entries = JSON.parse(row.data) as StudentEntry[];
+    } catch {
+      entries = [];
+    }
+    return jsonRes({
+      cached_at: row.cached_at,
+      ...paginateStudents(entries, pageOpts),
+    });
+  };
+
+  const cached = await readCacheRow(
+    env,
+    STUDENTS_CURSUS_ID,
+    STUDENTS_CACHE_VERSION,
+    "",
+  );
   const now = Math.floor(Date.now() / 1000);
   if (cached && cached.cached_at > now - STUDENTS_CACHE_TTL) {
-    return cacheResponse(origin, cached);
+    return respond(cached);
   }
 
   const country: string | null =
@@ -268,15 +541,29 @@ export async function handleStudentsList(
       { token },
     );
     if (all) {
-      const cachedAt = await writeCache(env, STUDENTS_CURSUS_ID, "", "", all);
-      return cacheResponse(origin, {
-        data: JSON.stringify(all),
-        cached_at: cachedAt,
-      });
+      const cachedAt = await writeCache(
+        env,
+        STUDENTS_CURSUS_ID,
+        STUDENTS_CACHE_VERSION,
+        "",
+        all,
+      );
+      return respond({ data: JSON.stringify(all), cached_at: cachedAt });
     }
   }
 
-  if (cached) return cacheResponse(origin, cached);
+  if (cached) return respond(cached);
+  if (paged && pageOpts) {
+    return jsonRes({
+      cached_at: 0,
+      total: 0,
+      active: 0,
+      filtered: 0,
+      offset: pageOpts.offset,
+      limit: pageOpts.limit,
+      data: [],
+    });
+  }
   return jsonRes({ cached_at: 0, data: [] });
 }
 
@@ -388,6 +675,8 @@ async function fetchPiscineCohort(
       pool_month?: string | null;
       pool_year?: string | null;
       alumnized_at?: string | null;
+      correction_point?: number;
+      wallet?: number;
     }>;
 
     if (users.length === 0) break;
@@ -409,6 +698,8 @@ async function fetchPiscineCohort(
         alumni: u["alumni?"] ?? false,
         pool_month: u.pool_month ?? null,
         pool_year: u.pool_year ?? null,
+        correction_point: u.correction_point ?? 0,
+        wallet: u.wallet ?? 0,
       });
     }
 
