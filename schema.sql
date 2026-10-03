@@ -105,3 +105,21 @@ CREATE TABLE IF NOT EXISTS cursus (
   kind TEXT,
   cached_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
+
+CREATE TABLE IF NOT EXISTS themes (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  author TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  colors_json TEXT NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+CREATE TABLE IF NOT EXISTS campus_locations (
+  id TEXT PRIMARY KEY,
+  latitude REAL,
+  longitude REAL,
+  timezone TEXT,
+  not_found INTEGER NOT NULL DEFAULT 0,
+  cached_at INTEGER NOT NULL DEFAULT (unixepoch())
+);

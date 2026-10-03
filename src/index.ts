@@ -11,6 +11,8 @@ import { handleProxy } from "./handlers/proxy";
 import { handleGhProxy } from "./handlers/gh-proxy";
 import { handleEvaluations } from "./handlers/evaluations";
 import { handleSubjectsReport, handleSubjectsState } from "./handlers/subjects";
+import { handleListThemes, handleUploadTheme } from "./handlers/themes";
+import { handleCampusLocation } from "./handlers/campus";
 import { handleOutstanding } from "./handlers/outstanding";
 import { handleProfileStats } from "./handlers/profile-stats";
 import {
@@ -147,6 +149,17 @@ export default {
       return handleStats(request, env);
     }
 
+    if (url.pathname === "/api/v1/public/themes") {
+      return handleListThemes(env);
+    }
+
+    const campusMatch = url.pathname.match(
+      /^\/api\/v1\/public\/campus\/([^/]+)$/,
+    );
+    if (campusMatch) {
+      return handleCampusLocation(request, env, campusMatch[1]);
+    }
+
     const loginParam = url.searchParams.get("login");
     if (!loginParam) {
       return textRes("Username hash required", 400);
@@ -223,6 +236,10 @@ export default {
 
     if (url.pathname === "/api/v1/private/subjects/state") {
       return handleSubjectsState(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/themes") {
+      return handleUploadTheme(request, env, loginParam, existingData);
     }
 
     if (url.pathname === "/api/v1/private/outstanding") {
