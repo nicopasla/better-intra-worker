@@ -14,7 +14,8 @@ function isInQuietHours(userData: UserData): boolean {
   if (!userData?.discordQuietEnabled) return false;
   const now = new Date();
   const offset = userData.discordQuietTimezone ?? 0;
-  const currentMinutes = (now.getUTCHours() * 60 + now.getUTCMinutes() - offset + 1440) % 1440;
+  const currentMinutes =
+    (now.getUTCHours() * 60 + now.getUTCMinutes() - offset + 1440) % 1440;
   const [startH, startM] = (userData.discordQuietStart || "22:00")
     .split(":")
     .map(Number);
@@ -80,7 +81,7 @@ async function pushTransition(
   const results = await Promise.allSettled(
     subs.map(async (sub) => ({
       endpoint: sub.endpoint,
-      status: await sendWebPush(env, sub, payload),
+      status: (await sendWebPush(env, sub, payload)).status,
     })),
   );
 
@@ -332,7 +333,9 @@ async function processCronUser(
         )
         .bind(hash, userData.fortyTwoToken, userData.fortyTwoToken)
         .run();
-      console.log(`[${prefix}] ${shortHash} backfilled fortyTwoToken from KV to D1`);
+      console.log(
+        `[${prefix}] ${shortHash} backfilled fortyTwoToken from KV to D1`,
+      );
     } else {
       console.log(`[${prefix}] ${shortHash} skip: no fortyTwoToken`);
       return;
@@ -475,9 +478,7 @@ export async function handleRevealCatchup(
       batch.map(({ hash }) =>
         processCronUser(env, ctx, hash, projectMap, "reveal-catchup").catch(
           (e) =>
-            console.warn(
-              `[reveal-catchup] ${hash.slice(0, 6)} error: ${e}`,
-            ),
+            console.warn(`[reveal-catchup] ${hash.slice(0, 6)} error: ${e}`),
         ),
       ),
     );

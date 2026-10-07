@@ -22,7 +22,8 @@ export interface PushPayload {
 
 function base64UrlToBytes(value: string): Uint8Array {
   const padded = value.replace(/-/g, "+").replace(/_/g, "/");
-  const pad = padded.length % 4 === 0 ? "" : "=".repeat(4 - (padded.length % 4));
+  const pad =
+    padded.length % 4 === 0 ? "" : "=".repeat(4 - (padded.length % 4));
   const binary = atob(padded + pad);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -32,7 +33,10 @@ function base64UrlToBytes(value: string): Uint8Array {
 function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
 function concat(...arrays: Uint8Array[]): Uint8Array {
@@ -184,16 +188,30 @@ async function encryptPayload(
 
   const recordSize = new Uint8Array(4);
   new DataView(recordSize.buffer).setUint32(0, 4096);
-  return concat(salt, recordSize, new Uint8Array([asPublic.byteLength]), asPublic, ciphertext);
+  return concat(
+    salt,
+    recordSize,
+    new Uint8Array([asPublic.byteLength]),
+    asPublic,
+    ciphertext,
+  );
 }
 
-/** Sends one Web Push message. Returns the HTTP status (0 on network error). */
+export interface PushSendResult {
+  status: number;
+  host: string;
+  reason?: string;
+}
+
+/** Sends one Web Push message and reports how the push service answered. */
 export async function sendWebPush(
   env: Env,
   sub: Pick<PushSubscription, "endpoint" | "p256dh" | "auth">,
   payload: PushPayload,
-): Promise<number> {
+): Promise<PushSendResult> {
+  let host = "unknown";
   try {
+    host = new URL(sub.endpoint).host;
     const uaPublicKey = base64UrlToBytes(sub.p256dh);
     const authSecret = base64UrlToBytes(sub.auth);
     const body = await encryptPayload(
@@ -209,14 +227,29 @@ export async function sendWebPush(
         ...vapid,
         "Content-Encoding": "aes128gcm",
         "Content-Type": "application/octet-stream",
-        TTL: "300",
+        TTL: "3600",
+        Urgency: "high",
       },
       body,
     });
-    return res.status;
+
+    let reason: string | undefined;
+    if (!res.ok) {
+      try {
+        const errBody = (await res.json()) as { reason?: unknown };
+        reason =
+          typeof errBody?.reason === "string" ? errBody.reason : undefined;
+      } catch {
+        /* non-JSON error body */
+      }
+    }
+    console.log(
+      `[push] send host=${host} status=${res.status}${reason ? ` reason=${reason}` : ""}`,
+    );
+    return { status: res.status, host, reason };
   } catch (e) {
-    console.warn(`[push] send failed: ${e}`);
-    return 0;
+    console.warn(`[push] send failed host=${host}: ${e}`);
+    return { status: 0, host };
   }
 }
 
@@ -226,10 +259,15 @@ export async function sendWebPush(
 
 function auth(request: Request, existingData: UserData | null) {
   const token = getBearerToken(request);
-  if (!token) return { error: textRes("Missing Authorization Token", 401), token: "" };
-  if (!existingData) return { error: textRes("User not found", 404), token: "" };
+  if (!token)
+    return { error: textRes("Missing Authorization Token", 401), token: "" };
+  if (!existingData)
+    return { error: textRes("User not found", 404), token: "" };
   if (!validateSession(existingData, token))
-    return { error: textRes("Unauthorized: Invalid Session Token", 401), token: "" };
+    return {
+      error: textRes("Unauthorized: Invalid Session Token", 401),
+      token: "",
+    };
   return { error: null, token };
 }
 
@@ -341,17 +379,18 @@ export async function handlePushTest(
           auth: body.keys.auth as string,
           addedAt: Date.now(),
         }
-      : (existingData!.pushSubscriptions || [])[0] ?? null;
+      : ((existingData!.pushSubscriptions || [])[0] ?? null);
 
   if (!target) return textRes("No push subscription", 404);
 
-  const status = await sendWebPush(env, target, {
+  const result = await sendWebPush(env, target, {
     title: "Better Intra",
     body: "Push notifications are working 🎉",
     url: "https://mobile.betterintra.com/",
     tag: "ft-test",
   });
 
-  if (status === 0) return textRes("Failed to reach push service", 502);
-  return jsonRes({ ok: status >= 200 && status < 300, status });
+  const ok = result.status >= 200 && result.status < 300;
+  if (result.status === 0) return textRes("Failed to reach push service", 502);
+  return jsonRes({ ok, ...result, status: result.status }, ok ? 200 : 502);
 }
