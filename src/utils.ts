@@ -64,7 +64,10 @@ export function isLocalDevOrigin(origin: string): boolean {
   return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
 }
 
-export function isOriginAllowed(origin: string, allowLocalDev = false): boolean {
+export function isOriginAllowed(
+  origin: string,
+  allowLocalDev = false,
+): boolean {
   if (ALLOWED_ORIGINS.includes(origin)) return true;
   if (origin.startsWith("chrome-extension://")) return true;
   if (origin.startsWith("moz-extension://")) return true;

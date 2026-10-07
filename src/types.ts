@@ -60,6 +60,24 @@ export interface PushSubscription {
   addedAt: number;
 }
 
+export interface MeData {
+  login: string;
+  displayName: string;
+  image: string | null;
+  wallet: number;
+  correctionPoints: number;
+  level: number;
+  grade: string | null;
+  campusId: number | null;
+  campusName: string | null;
+  poolLabel: string | null;
+  customAvatar: string | null;
+  avatarBg: string;
+  avatarPosX: number;
+  avatarPosY: number;
+  avatarScale: number;
+}
+
 export interface TokenResponse {
   access_token?: string;
   refresh_token?: string;

@@ -316,6 +316,16 @@ export async function handlePushSubscribe(
     loginParam,
     serializeUserData({ ...existingData!, pushSubscriptions: updated }),
   );
+
+  // Track this user in the eval cron (populates eval_states so both the
+  // upcoming list and their push notifications work) even without Discord.
+  await env.better_intra_d1
+    .prepare(
+      "INSERT INTO users (hash, evals_enabled) VALUES (?, 1) ON CONFLICT(hash) DO UPDATE SET evals_enabled = 1",
+    )
+    .bind(loginParam)
+    .run();
+
   return jsonRes({ ok: true, count: updated.length });
 }
 

@@ -1,9 +1,4 @@
-import {
-  handleCallback,
-  handleLogin,
-  handleAuthExchange,
-  handleDevLogin,
-} from "./handlers/auth";
+import { handleCallback, handleLogin, handleAuthExchange } from "./handlers/auth";
 import {
   handlePrivateSettings,
   handlePublicVisuals,
@@ -15,6 +10,7 @@ import { handleSessions } from "./handlers/sessions";
 import { handleProxy } from "./handlers/proxy";
 import { handleGhProxy } from "./handlers/gh-proxy";
 import { handleEvaluations } from "./handlers/evaluations";
+import { handleMe } from "./handlers/me";
 import { handleSubjectsReport, handleSubjectsState } from "./handlers/subjects";
 import {
   handleHideTheme,
@@ -169,10 +165,6 @@ export default {
       return handleAuthExchange(request, env);
     }
 
-    if (url.pathname === "/api/v1/public/auth/dev-login") {
-      return handleDevLogin(request, env);
-    }
-
     if (url.pathname === "/api/v1/public/push/key") {
       return handlePushPublicKey(env);
     }
@@ -261,6 +253,10 @@ export default {
 
     if (url.pathname === "/api/v1/private/evaluations") {
       return handleEvaluations(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/me") {
+      return handleMe(request, env, loginParam, existingData);
     }
 
     if (url.pathname === "/api/v1/private/push/subscribe") {

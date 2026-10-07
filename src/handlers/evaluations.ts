@@ -62,5 +62,40 @@ export async function handleEvaluations(
     return jsonRes({ ok: true });
   }
 
+  if (action === "upcoming") {
+    const { results } = await env.better_intra_d1
+      .prepare(
+        `SELECT es.eval_id, es.begin_at, es.state, p.name AS project, p.slug
+         FROM eval_states es
+         LEFT JOIN projects p ON es.project_id = p.id
+         WHERE es.hash = ? AND es.begin_at >= ? AND es.state IN ('booked', 'revealed')
+         ORDER BY es.begin_at ASC`,
+      )
+      .bind(loginParam, new Date().toISOString())
+      .all<{
+        eval_id: number;
+        begin_at: string;
+        state: string;
+        project: string | null;
+        slug: string | null;
+      }>();
+
+    const trackedRow = await env.better_intra_d1
+      .prepare("SELECT evals_enabled FROM users WHERE hash = ?")
+      .bind(loginParam)
+      .first<{ evals_enabled: number }>();
+
+    return jsonRes({
+      items: (results || []).map((r) => ({
+        id: r.eval_id,
+        beginAt: r.begin_at,
+        state: r.state,
+        project: r.project ?? null,
+        slug: r.slug ?? null,
+      })),
+      tracked: trackedRow?.evals_enabled === 1,
+    });
+  }
+
   return textRes("Unknown action", 400);
 }

@@ -9,20 +9,11 @@ import {
   describeUserAgent,
   sanitizeDeviceName,
   serializeUserData,
-  isLocalDevOrigin,
   MAX_SESSION_TOKENS,
 } from "../utils";
 import { AUTH_CODE_PREFIX } from "../constants";
 
 const PWA_HOST = "mobile.betterintra.com";
-
-function isLocalRedirect(hostname: string, protocol: string, env: Env): boolean {
-  return (
-    env.ALLOW_LOCAL_DEV === "true" &&
-    (hostname === "localhost" || hostname === "127.0.0.1") &&
-    (protocol === "http:" || protocol === "https:")
-  );
-}
 
 export async function handleLogin(
   request: Request,
@@ -48,9 +39,8 @@ export async function handleLogin(
     hostname === "profile-v3.intra.42.fr" ||
     (hostname.endsWith(".42.fr") && (parts.length === 3 || parts.length === 4));
   const isPwa = hostname === PWA_HOST;
-  const isLocal = isLocalRedirect(hostname, protocol, env);
 
-  if (!isExtension && !isIntra && !isPwa && !isLocal) {
+  if (!isExtension && !isIntra && !isPwa) {
     return textRes("Invalid redirect_uri", 400);
   }
 
@@ -90,8 +80,7 @@ export async function handleCallback(
     (cbHostname.endsWith(".42.fr") &&
       (cbParts.length === 3 || cbParts.length === 4));
   const cbIsPwa = cbHostname === PWA_HOST;
-  const cbIsLocal = isLocalRedirect(cbHostname, cbProtocol, env);
-  if (!cbIsExtension && !cbIsIntra && !cbIsPwa && !cbIsLocal) {
+  if (!cbIsExtension && !cbIsIntra && !cbIsPwa) {
     return textRes("Invalid state", 400);
   }
 
@@ -219,7 +208,7 @@ export async function handleCallback(
       )
       .run();
 
-    if (cbIsPwa || cbIsLocal) {
+    if (cbIsPwa) {
       const code = crypto.randomUUID();
       await env.BETTER_INTRA_KV.put(
         `${AUTH_CODE_PREFIX}${code}`,
@@ -294,50 +283,4 @@ export async function handleAuthExchange(
   await env.BETTER_INTRA_KV.delete(key);
 
   return jsonRes({ token: payload.token, login: payload.login });
-}
-
-/**
- * Local-development only convenience login: mints a session for any login so
- * the PWA can be exercised without the 42 round-trip (whose callback points at
- * production). Requires ALLOW_LOCAL_DEV and a localhost request origin.
- */
-export async function handleDevLogin(
-  request: Request,
-  env: Env,
-): Promise<Response> {
-  if (env.ALLOW_LOCAL_DEV !== "true") return textRes("Not found", 404);
-  if (request.method !== "POST") return textRes("Method not allowed", 405);
-  if (!isLocalDevOrigin(request.headers.get("Origin") || "")) {
-    return textRes("Forbidden", 403);
-  }
-
-  let body: { login?: unknown };
-  try {
-    body = (await request.json()) as { login?: unknown };
-  } catch {
-    return textRes("Invalid JSON", 400);
-  }
-  const login =
-    typeof body?.login === "string" ? body.login.trim().toLowerCase() : "";
-  if (!/^[a-z0-9_-]{2,16}$/.test(login)) return textRes("Invalid login", 400);
-
-  const hashedLogin = await hashLogin(login);
-  const existing: UserData =
-    (await env.BETTER_INTRA_KV.get(hashedLogin, { type: "json" })) || {};
-  const token = crypto.randomUUID();
-  const tokens = getTokens(existing);
-  tokens.push(token);
-  const sessionMeta: Record<string, SessionMeta> = {
-    ...(existing.sessionMeta || {}),
-  };
-  sessionMeta[token] = {
-    id: crypto.randomUUID(),
-    label: "Local dev",
-    createdAt: Date.now(),
-  };
-  await env.BETTER_INTRA_KV.put(
-    hashedLogin,
-    serializeUserData({ ...existing, sessionTokens: tokens, sessionMeta }),
-  );
-  return jsonRes({ token, login });
 }
