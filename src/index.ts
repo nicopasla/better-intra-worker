@@ -11,7 +11,12 @@ import { handleProxy } from "./handlers/proxy";
 import { handleGhProxy } from "./handlers/gh-proxy";
 import { handleEvaluations } from "./handlers/evaluations";
 import { handleSubjectsReport, handleSubjectsState } from "./handlers/subjects";
-import { handleListThemes, handleUploadTheme } from "./handlers/themes";
+import {
+  handleHideTheme,
+  handleLikeTheme,
+  handleListThemes,
+  handleUploadTheme,
+} from "./handlers/themes";
 import { handleCampusLocation } from "./handlers/campus";
 import { handleOutstanding } from "./handlers/outstanding";
 import { handleProfileStats } from "./handlers/profile-stats";
@@ -150,7 +155,12 @@ export default {
     }
 
     if (url.pathname === "/api/v1/public/themes") {
-      return handleListThemes(env);
+      return handleListThemes(request, env);
+    }
+
+    const likeMatch = url.pathname.match(/^\/api\/v1\/themes\/([^/]+)\/like$/);
+    if (likeMatch) {
+      return handleLikeTheme(request, env, likeMatch[1]);
     }
 
     const campusMatch = url.pathname.match(
@@ -240,6 +250,19 @@ export default {
 
     if (url.pathname === "/api/v1/themes") {
       return handleUploadTheme(request, env, loginParam, existingData);
+    }
+
+    const themeHideMatch = url.pathname.match(
+      /^\/api\/v1\/themes\/([^/]+)\/hide$/,
+    );
+    if (themeHideMatch) {
+      return handleHideTheme(
+        request,
+        env,
+        themeHideMatch[1],
+        loginParam,
+        existingData,
+      );
     }
 
     if (url.pathname === "/api/v1/private/outstanding") {

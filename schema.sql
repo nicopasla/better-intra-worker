@@ -110,8 +110,11 @@ CREATE TABLE IF NOT EXISTS themes (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   author TEXT NOT NULL,
+  author_hash TEXT,
   mode TEXT NOT NULL,
   colors_json TEXT NOT NULL,
+  likes INTEGER NOT NULL DEFAULT 0,
+  hidden INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
