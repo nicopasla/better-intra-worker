@@ -3,13 +3,26 @@ import {
   encryptTokenData,
   getTokens,
   hashLogin,
+  jsonRes,
   textRes,
   getCallbackUrl,
   describeUserAgent,
   sanitizeDeviceName,
   serializeUserData,
+  isLocalDevOrigin,
   MAX_SESSION_TOKENS,
 } from "../utils";
+import { AUTH_CODE_PREFIX } from "../constants";
+
+const PWA_HOST = "mobile.betterintra.com";
+
+function isLocalRedirect(hostname: string, protocol: string, env: Env): boolean {
+  return (
+    env.ALLOW_LOCAL_DEV === "true" &&
+    (hostname === "localhost" || hostname === "127.0.0.1") &&
+    (protocol === "http:" || protocol === "https:")
+  );
+}
 
 export async function handleLogin(
   request: Request,
@@ -34,8 +47,10 @@ export async function handleLogin(
   const isIntra =
     hostname === "profile-v3.intra.42.fr" ||
     (hostname.endsWith(".42.fr") && (parts.length === 3 || parts.length === 4));
+  const isPwa = hostname === PWA_HOST;
+  const isLocal = isLocalRedirect(hostname, protocol, env);
 
-  if (!isExtension && !isIntra) {
+  if (!isExtension && !isIntra && !isPwa && !isLocal) {
     return textRes("Invalid redirect_uri", 400);
   }
 
@@ -74,7 +89,9 @@ export async function handleCallback(
     cbHostname === "profile-v3.intra.42.fr" ||
     (cbHostname.endsWith(".42.fr") &&
       (cbParts.length === 3 || cbParts.length === 4));
-  if (!cbIsExtension && !cbIsIntra) {
+  const cbIsPwa = cbHostname === PWA_HOST;
+  const cbIsLocal = isLocalRedirect(cbHostname, cbProtocol, env);
+  if (!cbIsExtension && !cbIsIntra && !cbIsPwa && !cbIsLocal) {
     return textRes("Invalid state", 400);
   }
 
@@ -126,6 +143,22 @@ export async function handleCallback(
     );
 
     const hashedLogin = await hashLogin(rawLogin);
+
+    // The PWA is only available to people who already use Better Intra, i.e.
+    // they have a row in D1 (created on any extension login). Strict check.
+    if (cbIsPwa) {
+      const known = await env.better_intra_d1
+        .prepare("SELECT 1 AS ok FROM users WHERE hash = ?")
+        .bind(hashedLogin)
+        .first<{ ok: number }>();
+      if (!known) {
+        return Response.redirect(
+          `${redirectTarget.origin}/?error=not_registered`,
+          302,
+        );
+      }
+    }
+
     const newSessionToken = crypto.randomUUID();
     const existing: UserData =
       (await env.BETTER_INTRA_KV.get(hashedLogin, {
@@ -186,6 +219,19 @@ export async function handleCallback(
       )
       .run();
 
+    if (cbIsPwa || cbIsLocal) {
+      const code = crypto.randomUUID();
+      await env.BETTER_INTRA_KV.put(
+        `${AUTH_CODE_PREFIX}${code}`,
+        JSON.stringify({ token: newSessionToken, login: rawLogin, hash: hashedLogin }),
+        { expirationTtl: 120 },
+      );
+      return Response.redirect(
+        `${redirectTarget.origin}/?code=${encodeURIComponent(code)}`,
+        302,
+      );
+    }
+
     if (cbIsExtension) {
       return Response.redirect(
         `https://profile-v3.intra.42.fr/?token=${encodeURIComponent(newSessionToken)}&login=${encodeURIComponent(rawLogin)}`,
@@ -210,4 +256,88 @@ export async function handleCallback(
       500,
     );
   }
+}
+
+interface AuthCodePayload {
+  token: string;
+  login: string;
+  hash: string;
+}
+
+/**
+ * Single-use exchange for the PWA: trades the short-lived code handed back by
+ * the callback for the session token, so the token never rides in a URL.
+ */
+export async function handleAuthExchange(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  if (request.method !== "POST") return textRes("Method not allowed", 405);
+
+  let body: { code?: unknown };
+  try {
+    body = (await request.json()) as { code?: unknown };
+  } catch {
+    return textRes("Invalid JSON", 400);
+  }
+
+  const code = typeof body?.code === "string" ? body.code : "";
+  if (!/^[a-f0-9-]{8,64}$/i.test(code)) return textRes("Invalid code", 400);
+
+  const key = `${AUTH_CODE_PREFIX}${code}`;
+  const payload = await env.BETTER_INTRA_KV.get<AuthCodePayload>(key, {
+    type: "json",
+  });
+  if (!payload?.token || !payload?.login) {
+    return textRes("Invalid or expired code", 401);
+  }
+  await env.BETTER_INTRA_KV.delete(key);
+
+  return jsonRes({ token: payload.token, login: payload.login });
+}
+
+/**
+ * Local-development only convenience login: mints a session for any login so
+ * the PWA can be exercised without the 42 round-trip (whose callback points at
+ * production). Requires ALLOW_LOCAL_DEV and a localhost request origin.
+ */
+export async function handleDevLogin(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  if (env.ALLOW_LOCAL_DEV !== "true") return textRes("Not found", 404);
+  if (request.method !== "POST") return textRes("Method not allowed", 405);
+  if (!isLocalDevOrigin(request.headers.get("Origin") || "")) {
+    return textRes("Forbidden", 403);
+  }
+
+  let body: { login?: unknown };
+  try {
+    body = (await request.json()) as { login?: unknown };
+  } catch {
+    return textRes("Invalid JSON", 400);
+  }
+  const login =
+    typeof body?.login === "string" ? body.login.trim().toLowerCase() : "";
+  if (!/^[a-z0-9_-]{2,16}$/.test(login)) return textRes("Invalid login", 400);
+
+  const hashedLogin = await hashLogin(login);
+  const existing: UserData =
+    (await env.BETTER_INTRA_KV.get(hashedLogin, { type: "json" })) || {};
+  const token = crypto.randomUUID();
+  const tokens = getTokens(existing);
+  tokens.push(token);
+  const sessionMeta: Record<string, SessionMeta> = {
+    ...(existing.sessionMeta || {}),
+  };
+  sessionMeta[token] = {
+    id: crypto.randomUUID(),
+    label: "Local dev",
+    createdAt: Date.now(),
+  };
+  await env.BETTER_INTRA_KV.put(
+    hashedLogin,
+    serializeUserData({ ...existing, sessionTokens: tokens, sessionMeta }),
+  );
+  return jsonRes({ token, login });
 }

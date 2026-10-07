@@ -57,13 +57,19 @@ export function getCallbackUrl(
 const ALLOWED_ORIGINS = [
   "https://profile-v3.intra.42.fr",
   "https://meta.intra.42.fr",
+  "https://mobile.betterintra.com",
 ];
 
-export function isOriginAllowed(origin: string): boolean {
+export function isLocalDevOrigin(origin: string): boolean {
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+}
+
+export function isOriginAllowed(origin: string, allowLocalDev = false): boolean {
   if (ALLOWED_ORIGINS.includes(origin)) return true;
   if (origin.startsWith("chrome-extension://")) return true;
   if (origin.startsWith("moz-extension://")) return true;
   if (/^https:\/\/(?:[a-z0-9-]+\.)*intra\.42\.fr$/.test(origin)) return true;
+  if (allowLocalDev && isLocalDevOrigin(origin)) return true;
   return false;
 }
 

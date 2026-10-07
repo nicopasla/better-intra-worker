@@ -14,6 +14,10 @@ export interface Env {
   DISCORD_GUILD_ID?: string;
   PROXY_SECRET?: string;
   ANNOUNCEMENT_SECRET?: string;
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  VAPID_SUBJECT?: string;
+  ALLOW_LOCAL_DEV?: string;
 }
 
 export interface SessionMeta {
@@ -45,7 +49,16 @@ export type UserData = {
   discordQuietTimezone?: number;
   tokenBroken?: boolean;
   discordTestedAt?: number;
+  pushSubscriptions?: PushSubscription[];
 };
+
+export interface PushSubscription {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  ua?: string;
+  addedAt: number;
+}
 
 export interface TokenResponse {
   access_token?: string;

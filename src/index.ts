@@ -1,4 +1,9 @@
-import { handleCallback, handleLogin } from "./handlers/auth";
+import {
+  handleCallback,
+  handleLogin,
+  handleAuthExchange,
+  handleDevLogin,
+} from "./handlers/auth";
 import {
   handlePrivateSettings,
   handlePublicVisuals,
@@ -43,6 +48,12 @@ import {
   handleDiscordCallback,
 } from "./handlers/discord";
 import { handleMainCron, handleRevealCatchup } from "./handlers/cron";
+import {
+  handlePushPublicKey,
+  handlePushSubscribe,
+  handlePushUnsubscribe,
+  handlePushTest,
+} from "./handlers/push";
 import { handleLogtimeHistory } from "./handlers/logtime";
 import { handleAnnouncement } from "./handlers/announcement";
 import { handleStats } from "./handlers/stats";
@@ -62,7 +73,7 @@ export default {
     const url = new URL(request.url);
     const origin = request.headers.get("Origin");
 
-    if (origin && !isOriginAllowed(origin)) {
+    if (origin && !isOriginAllowed(origin, env.ALLOW_LOCAL_DEV === "true")) {
       return new Response("Origin not allowed", { status: 403 });
     }
 
@@ -154,6 +165,18 @@ export default {
       return handleStats(request, env);
     }
 
+    if (url.pathname === "/api/v1/public/auth/exchange") {
+      return handleAuthExchange(request, env);
+    }
+
+    if (url.pathname === "/api/v1/public/auth/dev-login") {
+      return handleDevLogin(request, env);
+    }
+
+    if (url.pathname === "/api/v1/public/push/key") {
+      return handlePushPublicKey(env);
+    }
+
     if (url.pathname === "/api/v1/public/themes") {
       return handleListThemes(request, env);
     }
@@ -238,6 +261,18 @@ export default {
 
     if (url.pathname === "/api/v1/private/evaluations") {
       return handleEvaluations(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/push/subscribe") {
+      return handlePushSubscribe(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/push/unsubscribe") {
+      return handlePushUnsubscribe(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/push/test") {
+      return handlePushTest(request, env, loginParam, existingData);
     }
 
     if (url.pathname === "/api/v1/private/subjects/report") {

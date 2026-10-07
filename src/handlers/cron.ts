@@ -1,6 +1,7 @@
-import { Env, UserData } from "../types";
-import { getUserToken } from "../utils";
+import { Env, UserData, PushSubscription } from "../types";
+import { getUserToken, serializeUserData } from "../utils";
 import { sendDiscordDm, DiscordEmbed } from "./discord";
+import { sendWebPush, PushPayload } from "./push";
 
 const CONCURRENCY = 5;
 const DEADLINE_MS = 30_000;
@@ -67,6 +68,59 @@ async function fetchScaleTeams(
   return { data: [], rateLimited: true };
 }
 
+async function pushTransition(
+  env: Env,
+  hash: string,
+  subs: PushSubscription[],
+  payload: PushPayload,
+): Promise<void> {
+  if (!subs || subs.length === 0) return;
+  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return;
+
+  const results = await Promise.allSettled(
+    subs.map(async (sub) => ({
+      endpoint: sub.endpoint,
+      status: await sendWebPush(env, sub, payload),
+    })),
+  );
+
+  const stale = new Set<string>();
+  for (const r of results) {
+    if (
+      r.status === "fulfilled" &&
+      (r.value.status === 404 || r.value.status === 410)
+    ) {
+      stale.add(r.value.endpoint);
+    }
+  }
+  if (stale.size === 0) return;
+
+  const remaining = subs.filter((s) => !stale.has(s.endpoint));
+  const fresh = await env.BETTER_INTRA_KV.get<UserData>(hash, { type: "json" });
+  if (fresh) {
+    await env.BETTER_INTRA_KV.put(
+      hash,
+      serializeUserData({ ...fresh, pushSubscriptions: remaining }),
+    );
+    console.log(`[push] ${hash.slice(0, 6)} pruned ${stale.size} stale sub(s)`);
+  }
+}
+
+function formatPushTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString("en-GB", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "UTC",
+      hour12: false,
+    });
+  } catch {
+    return "";
+  }
+}
+
 async function processItem(
   env: Env,
   ctx: ExecutionContext,
@@ -74,6 +128,7 @@ async function processItem(
   hash: string,
   projectMap: Record<string, { name: string; slug: string }>,
   discordId: string | undefined,
+  pushSubs: PushSubscription[],
 ) {
   const id = item.id;
   const beginAt: string = item.begin_at;
@@ -177,6 +232,16 @@ async function processItem(
           `[discord] ${shortHash} DM skipped type=revealed eval=${id} reason=${env.DISCORD_ENABLED !== "true" ? "global_disabled" : "no_discord_id"}`,
         );
       }
+
+      const revealedBody = `${projectName ?? "Evaluation"} · ${formatPushTime(beginAt)}`;
+      ctx.waitUntil(
+        pushTransition(env, hash, pushSubs, {
+          title: "Evaluation in 15 min",
+          body: revealedBody,
+          url: "https://mobile.betterintra.com/",
+          tag: `eval-${id}-revealed`,
+        }),
+      );
     } else if (!correctedsVisible && currentState === null) {
       console.log(
         `[cron] ${shortHash} eval=${id} null→booked project=${projectName ?? "?"}`,
@@ -225,6 +290,16 @@ async function processItem(
           `[discord] ${shortHash} DM skipped type=booked eval=${id} reason=${env.DISCORD_ENABLED !== "true" ? "global_disabled" : "no_discord_id"}`,
         );
       }
+
+      const bookedBody = `${projectName ?? "Evaluation"} · ${formatPushTime(beginAt)}`;
+      ctx.waitUntil(
+        pushTransition(env, hash, pushSubs, {
+          title: "Evaluation booked",
+          body: bookedBody,
+          url: "https://mobile.betterintra.com/",
+          tag: `eval-${id}-booked`,
+        }),
+      );
     }
   }
 }
@@ -288,6 +363,11 @@ async function processCronUser(
     console.log(`[${prefix}] ${shortHash} discord disabled in settings`);
   }
 
+  const pushSubs: PushSubscription[] =
+    userData.settings?.PUSH_ENABLED !== false
+      ? userData.pushSubscriptions || []
+      : [];
+
   const { data: rawData, rateLimited } = await fetchScaleTeams(
     fortyTwoToken,
     1,
@@ -298,7 +378,7 @@ async function processCronUser(
   }
 
   for (const item of rawData) {
-    await processItem(env, ctx, item, hash, projectMap, discordId);
+    await processItem(env, ctx, item, hash, projectMap, discordId, pushSubs);
   }
 
   await env.better_intra_d1
