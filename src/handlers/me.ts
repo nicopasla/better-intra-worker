@@ -99,6 +99,7 @@ export async function handleMe(
   const projectEntry = (p: any) => ({
     name: p.project?.name ?? "?",
     slug: p.project?.slug ?? null,
+    occurrence: p.occurrence ?? 0,
   });
   const projects = {
     total: scoped.length,
