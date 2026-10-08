@@ -18,8 +18,6 @@ export interface Env {
   VAPID_PRIVATE_KEY?: string;
   VAPID_SUBJECT?: string;
   ALLOW_LOCAL_DEV?: string;
-  INTRA_RELAY_URL?: string;
-  INTRA_RELAY_KEY?: string;
   CRON_SECRET?: string;
 }
 

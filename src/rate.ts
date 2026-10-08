@@ -30,22 +30,6 @@ export const intraHeaders = (extra?: HeadersInit): Record<string, string> => ({
   ...((extra as Record<string, string>) || {}),
 });
 
-/**
- * When going through the relay we do NOT impersonate a browser: a fake-Chrome
- * UA from a datacenter/TLS fingerprint that clearly isn't a browser can trigger
- * Cloudflare's Managed Challenge (notably on POST /oauth/token). A consistent,
- * descriptive non-browser identity tends to pass as a normal API client.
- */
-export const RELAY_USER_AGENT = "BetterIntra/1.0 (+https://better-intra.com)";
-
-export const relayHeaders = (
-  extra?: HeadersInit,
-): Record<string, string> => ({
-  "User-Agent": RELAY_USER_AGENT,
-  Accept: "application/json",
-  ...((extra as Record<string, string>) || {}),
-});
-
 interface Bucket {
   nextAt: number;
   intervalMs: number;
@@ -130,61 +114,18 @@ export function isChallenge(res: Response): boolean {
 }
 
 /**
- * Fetch a 42 URL, optionally through a non-Cloudflare relay (`INTRA_RELAY_URL`).
- * Cloudflare in front of api.intra.42.fr challenges Worker egress; the relay
- * forwards from a different network. Falls back to a direct GET if the relay
- * errors (never for non-GET, to avoid double-submitting a token refresh).
+ * Fetch a 42 URL, spaced by the global egress gate.
  */
 export async function fetchIntra(
-  env: Env,
+  _env: Env,
   url: string,
   init: RequestInit = {},
 ): Promise<Response> {
-  const relay = env.INTRA_RELAY_URL;
-  const method = (init.method ?? "GET").toUpperCase();
-
-  // Space out every outbound request so cron batches don't burst.
   await gateEgress();
-
-  const target = (() => {
-    try {
-      const u = new URL(url);
-      return `${u.host}${u.pathname}`;
-    } catch {
-      return url;
-    }
-  })();
-  const log = (via: string, res: Response) =>
-    console.log(
-      `[${via}] ${method} ${target} -> ${res.status} ${res.headers.get("content-type") || ""}`,
-    );
-
-  if (relay) {
-    try {
-      const endpoint = new URL(relay);
-      endpoint.searchParams.set("url", url);
-      const res = await fetch(endpoint.toString(), {
-        method,
-        headers: relayHeaders({
-          ...((init.headers as Record<string, string>) || {}),
-          "X-Relay-Key": env.INTRA_RELAY_KEY || "",
-        }),
-        body: init.body,
-      });
-      log("relay", res);
-      return res;
-    } catch (e) {
-      if (method !== "GET") throw e;
-      console.warn(`[rate] relay failed, falling back to direct GET: ${e}`);
-    }
-  }
-
-  const res = await fetch(url, {
+  return fetch(url, {
     ...init,
     headers: intraHeaders((init.headers as Record<string, string>) || {}),
   });
-  log("direct", res);
-  return res;
 }
 
 /**

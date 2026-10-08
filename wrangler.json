@@ -28,6 +28,9 @@
     "DISCORD_ENABLED": "true",
     "DISCORD_GUILD_ID": "1464227219923533838"
   },
+  "triggers": {
+    "crons": []
+  },
   "observability": {
     "enabled": false,
     "head_sampling_rate": 1,

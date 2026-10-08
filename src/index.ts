@@ -353,4 +353,10 @@ export default {
 
     return textRes("Not found", 404);
   },
+  // No-op: cron work runs via POST /api/v1/public/cron (fetch context), since
+  // scheduled events get Cloudflare-challenged by 42. Kept so any lingering cron
+  // trigger doesn't throw "no scheduled() handler".
+  async scheduled(): Promise<void> {
+    /* intentionally empty */
+  },
 };

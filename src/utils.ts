@@ -508,9 +508,6 @@ async function resolveUserTokenInner(
     opts?.refreshWithinMs != null && msLeft <= opts.refreshWithinMs;
 
   if (stillValid && !wantsEarlyRefresh) {
-    console.log(
-      `[getUserToken] ${loginParam}: using cached user token (expires in ${Math.round(msLeft / 1000)}s)`,
-    );
     await clearTokenBroken(env, userData, loginParam);
     return { token: tokenData.access_token };
   }
@@ -519,9 +516,6 @@ async function resolveUserTokenInner(
   // when the token isn't fresh; the proactive sweep refreshes it in the
   // background instead of clustering refreshes.
   if (opts?.noRefresh) {
-    console.log(
-      `[getUserToken] ${loginParam}: token not fresh (${Math.round(msLeft / 1000)}s) and noRefresh set — skipping`,
-    );
     return transient("not_fresh");
   }
 
@@ -536,13 +530,7 @@ async function resolveUserTokenInner(
   let status = 0;
   let errBody = "";
   let challenge = false;
-  console.log(
-    `[getUserToken] ${loginParam}: stored access token expired ${Math.round((Date.now() - tokenData.expires_at) / 1000)}s ago`,
-  );
   try {
-    console.log(
-      `[getUserToken] ${loginParam}: refreshing user token (stored refresh=${tokenData.refresh_token.slice(0, 6)}…)`,
-    );
     // The Cloudflare challenge is intermittent (per egress IP), so retry it a
     // couple of times before giving up.
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -663,9 +651,6 @@ async function resolveUserTokenInner(
 
 export function tokenFailureResponse(failure: TokenFailure): Response {
   const status = failure.reason === "reconnect" ? 401 : 503;
-  console.warn(
-    `[token] responding ${status} (${failure.reason}/${failure.detail})`,
-  );
   return textRes(
     failure.reason === "reconnect"
       ? "42 token unavailable — reconnect required"
@@ -683,15 +668,7 @@ export async function getUserToken(
 ): Promise<string | null> {
   const result = await resolveUserToken(env, userData, loginParam, country);
   if ("token" in result) return result.token;
-  if (opts?.appTokenFallback) {
-    console.log(
-      `[getUserToken] ${loginParam}: ${result.failure.detail}, using app token`,
-    );
-    return getAppToken(env);
-  }
-  console.log(
-    `[getUserToken] ${loginParam}: ${result.failure.detail}, returning null`,
-  );
+  if (opts?.appTokenFallback) return getAppToken(env);
   return null;
 }
 
