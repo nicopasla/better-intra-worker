@@ -30,6 +30,22 @@ export const intraHeaders = (extra?: HeadersInit): Record<string, string> => ({
   ...((extra as Record<string, string>) || {}),
 });
 
+/**
+ * When going through the relay we do NOT impersonate a browser: a fake-Chrome
+ * UA from a datacenter/TLS fingerprint that clearly isn't a browser can trigger
+ * Cloudflare's Managed Challenge (notably on POST /oauth/token). A consistent,
+ * descriptive non-browser identity tends to pass as a normal API client.
+ */
+export const RELAY_USER_AGENT = "BetterIntra/1.0 (+https://better-intra.com)";
+
+export const relayHeaders = (
+  extra?: HeadersInit,
+): Record<string, string> => ({
+  "User-Agent": RELAY_USER_AGENT,
+  Accept: "application/json",
+  ...((extra as Record<string, string>) || {}),
+});
+
 interface Bucket {
   nextAt: number;
   intervalMs: number;
@@ -131,7 +147,7 @@ export async function fetchIntra(
       endpoint.searchParams.set("url", url);
       const res = await fetch(endpoint.toString(), {
         method,
-        headers: intraHeaders({
+        headers: relayHeaders({
           ...((init.headers as Record<string, string>) || {}),
           "X-Relay-Key": env.INTRA_RELAY_KEY || "",
         }),
