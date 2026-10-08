@@ -1,5 +1,5 @@
 import { Env, UserData, PushSubscription } from "../types";
-import { getUserToken, serializeUserData } from "../utils";
+import { serializeUserData, resolveUserToken } from "../utils";
 import { intraFetch } from "../rate";
 import { sendDiscordDm, DiscordEmbed } from "./discord";
 import { sendWebPush, PushPayload } from "./push";
@@ -333,11 +333,18 @@ async function processCronUser(
     return;
   }
 
-  const fortyTwoToken = await getUserToken(env, userData, hash);
-  if (!fortyTwoToken) {
-    console.log(`[${prefix}] ${shortHash} skip: no getUserToken`);
+  // Use a cached token only. Token refreshes are spread across the every-minute
+  // sweep so the eval cron never clusters refresh requests.
+  const tokenResult = await resolveUserToken(env, userData, hash, null, {
+    noRefresh: true,
+  });
+  if ("failure" in tokenResult) {
+    console.log(
+      `[${prefix}] ${shortHash} skip: ${tokenResult.failure.detail} (sweep will refresh)`,
+    );
     return;
   }
+  const fortyTwoToken = tokenResult.token;
 
   const discordId: string | undefined =
     userData.settings?.DISCORD_ENABLED !== false
@@ -471,4 +478,52 @@ export async function handleRevealCatchup(
 function formatTime(iso: string): string {
   const unix = Math.floor(new Date(iso).getTime() / 1000);
   return `<t:${unix}:t>`;
+}
+
+const SWEEP_CURSOR_KEY = "TOKEN_SWEEP_CURSOR";
+const SWEEP_REFRESH_WITHIN_MS = 30 * 60 * 1000;
+
+/**
+ * Every-minute best-effort token refresh. Refreshes ONE eval-enabled user per
+ * run (rotation) so token refreshes are spread out in time instead of clustering
+ * in the 10-min eval cron — which Cloudflare challenges. Never marks tokens
+ * broken (transient failures are just retried next minute).
+ */
+export async function handleTokenRefreshSweep(env: Env): Promise<void> {
+  const { results } = await env.better_intra_d1
+    .prepare("SELECT hash FROM users WHERE evals_enabled = 1 ORDER BY hash")
+    .all<{ hash: string }>();
+  if (!results || results.length === 0) return;
+
+  const cursor = await env.BETTER_INTRA_KV.get(SWEEP_CURSOR_KEY);
+  const prev = cursor ? results.findIndex((r) => r.hash === cursor) : -1;
+  const next = results[(prev + 1) % results.length];
+
+  const userData = await env.BETTER_INTRA_KV.get<UserData>(next.hash, {
+    type: "json",
+  });
+  if (!userData) {
+    await env.BETTER_INTRA_KV.put(SWEEP_CURSOR_KEY, next.hash);
+    return;
+  }
+
+  try {
+    const result = await resolveUserToken(env, userData, next.hash, null, {
+      refreshWithinMs: SWEEP_REFRESH_WITHIN_MS,
+    });
+    if ("failure" in result && result.failure.reason === "transient") {
+      // Challenged / unavailable — stay on this user and retry next minute.
+      console.warn(
+        `[token-sweep] ${next.hash.slice(0, 6)} transient (${result.failure.detail}) — retrying next minute`,
+      );
+      return;
+    }
+    console.log(
+      `[token-sweep] ${next.hash.slice(0, 6)} ${"token" in result ? "fresh" : `reconnect:${result.failure.detail}`}`,
+    );
+    await env.BETTER_INTRA_KV.put(SWEEP_CURSOR_KEY, next.hash);
+  } catch (e) {
+    console.warn(`[token-sweep] ${next.hash.slice(0, 6)} error: ${e}`);
+    return;
+  }
 }

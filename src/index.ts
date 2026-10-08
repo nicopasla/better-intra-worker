@@ -48,7 +48,11 @@ import {
   handleDiscordAuth,
   handleDiscordCallback,
 } from "./handlers/discord";
-import { handleMainCron, handleRevealCatchup } from "./handlers/cron";
+import {
+  handleMainCron,
+  handleRevealCatchup,
+  handleTokenRefreshSweep,
+} from "./handlers/cron";
 import {
   handlePushPublicKey,
   handlePushSubscribe,
@@ -352,6 +356,7 @@ export default {
     }
     if (event.cron === "* * * * *") {
       await handleRevealCatchup(env, ctx);
+      await handleTokenRefreshSweep(env);
     }
     if (event.cron === "0 22,4,10,16 * * *") {
       await refreshFutureStudents(env);

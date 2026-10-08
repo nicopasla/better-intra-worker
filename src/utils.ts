@@ -428,17 +428,29 @@ const inflightRefreshes = new Map<string, Promise<TokenResult>>();
  * Concurrent calls for the same login within an isolate share one resolution,
  * since 42 refresh tokens are single-use/rotating (racing them 401s).
  */
+export interface ResolveTokenOptions {
+  /** Refresh even if still valid, once fewer than this many ms remain. */
+  refreshWithinMs?: number;
+  /** Never hit the refresh endpoint — return cached, or transient if expired. */
+  noRefresh?: boolean;
+}
+
 export function resolveUserToken(
   env: Env,
   userData: UserData | null,
   loginParam: string,
   country?: string | null,
+  opts?: ResolveTokenOptions,
 ): Promise<TokenResult> {
   const existing = inflightRefreshes.get(loginParam);
   if (existing) return existing;
-  const promise = resolveUserTokenInner(env, userData, loginParam, country).finally(
-    () => inflightRefreshes.delete(loginParam),
-  );
+  const promise = resolveUserTokenInner(
+    env,
+    userData,
+    loginParam,
+    country,
+    opts,
+  ).finally(() => inflightRefreshes.delete(loginParam));
   inflightRefreshes.set(loginParam, promise);
   return promise;
 }
@@ -448,6 +460,7 @@ async function resolveUserTokenInner(
   userData: UserData | null,
   loginParam: string,
   country?: string | null,
+  opts?: ResolveTokenOptions,
 ): Promise<TokenResult> {
   const d1Row = await getTokenFromD1(env, loginParam);
   const d1Token = d1Row?.forty_two_token ?? null;
@@ -489,13 +502,27 @@ async function resolveUserTokenInner(
     return reconnect("decrypt_failed");
   }
 
-  if (Date.now() < tokenData.expires_at - 60000) {
-    const remaining = Math.round((tokenData.expires_at - Date.now()) / 1000);
+  const msLeft = tokenData.expires_at - Date.now();
+  const stillValid = msLeft > 60000;
+  const wantsEarlyRefresh =
+    opts?.refreshWithinMs != null && msLeft <= opts.refreshWithinMs;
+
+  if (stillValid && !wantsEarlyRefresh) {
     console.log(
-      `[getUserToken] ${loginParam}: using cached user token (expires in ${remaining}s)`,
+      `[getUserToken] ${loginParam}: using cached user token (expires in ${Math.round(msLeft / 1000)}s)`,
     );
     await clearTokenBroken(env, userData, loginParam);
     return { token: tokenData.access_token };
+  }
+
+  // Callers that must not hit the refresh endpoint (e.g. the eval cron) skip
+  // when the token isn't fresh; the proactive sweep refreshes it in the
+  // background instead of clustering refreshes.
+  if (opts?.noRefresh) {
+    console.log(
+      `[getUserToken] ${loginParam}: token not fresh (${Math.round(msLeft / 1000)}s) and noRefresh set — skipping`,
+    );
+    return transient("not_fresh");
   }
 
   if (!tokenData.refresh_token) {
