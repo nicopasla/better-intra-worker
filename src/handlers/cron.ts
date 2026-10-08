@@ -4,7 +4,7 @@ import { intraFetch } from "../rate";
 import { sendDiscordDm, DiscordEmbed } from "./discord";
 import { sendWebPush, PushPayload } from "./push";
 
-const CONCURRENCY = 8;
+const CONCURRENCY = 2;
 const DEADLINE_MS = 30_000;
 
 function isInQuietHours(userData: UserData): boolean {

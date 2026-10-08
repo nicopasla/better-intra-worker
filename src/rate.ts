@@ -55,6 +55,20 @@ const buckets = new Map<string, Bucket>();
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * Minimum gap between ANY outbound 42 request (across all tokens), so the cron
+ * can't fan out a burst that triggers Cloudflare's bot challenge. The per-token
+ * limiter alone allows different users to fire simultaneously.
+ */
+const EGRESS_MIN_INTERVAL_MS = 200;
+let egressNextAt = 0;
+
+async function gateEgress(): Promise<void> {
+  const wait = egressNextAt - Date.now();
+  if (wait > 0) await sleep(wait);
+  egressNextAt = Date.now() + EGRESS_MIN_INTERVAL_MS;
+}
+
 const clamp = (ms: number): number =>
   Math.min(MAX_INTERVAL_MS, Math.max(MIN_INTERVAL_MS, ms));
 
@@ -128,6 +142,10 @@ export async function fetchIntra(
 ): Promise<Response> {
   const relay = env.INTRA_RELAY_URL;
   const method = (init.method ?? "GET").toUpperCase();
+
+  // Space out every outbound request so cron batches don't burst.
+  await gateEgress();
+
   const target = (() => {
     try {
       const u = new URL(url);
