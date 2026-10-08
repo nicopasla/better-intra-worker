@@ -13,6 +13,21 @@ const MIN_INTERVAL_MS = 50;
 const MAX_INTERVAL_MS = 2000;
 const MAX_429_RETRIES = 2;
 
+/**
+ * 42 sits behind Cloudflare bot management, which returns a "Just a moment…"
+ * JS challenge (403) to requests that look like bots (no browser-ish headers,
+ * e.g. from a Worker). A realistic User-Agent + Accept avoids the challenge.
+ */
+export const INTRA_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
+export const intraHeaders = (extra?: HeadersInit): Record<string, string> => ({
+  "User-Agent": INTRA_USER_AGENT,
+  Accept: "application/json",
+  "Accept-Language": "en-US,en;q=0.9",
+  ...((extra as Record<string, string>) || {}),
+});
+
 interface Bucket {
   nextAt: number;
   intervalMs: number;
@@ -83,10 +98,10 @@ export async function intraFetch(
     await gate(token);
     const res = await fetch(input, {
       ...init,
-      headers: {
+      headers: intraHeaders({
         ...((init.headers as Record<string, string>) || {}),
         Authorization: `Bearer ${token}`,
-      },
+      }),
     });
     observe(token, res);
     return res;

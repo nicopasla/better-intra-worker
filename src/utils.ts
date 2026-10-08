@@ -7,6 +7,7 @@ import {
   SessionMeta,
 } from "./types";
 import { APP_TOKEN_CACHE } from "./constants";
+import { intraHeaders } from "./rate";
 
 export const MAX_SESSION_TOKENS = 20;
 
@@ -152,7 +153,9 @@ export async function getAppToken(env: Env): Promise<string> {
   const promise = (async () => {
     const res = await fetch("https://api.intra.42.fr/oauth/token", {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers: intraHeaders({
+        "Content-Type": "application/x-www-form-urlencoded",
+      }),
       body: new URLSearchParams({
         grant_type: "client_credentials",
         client_id: env.CLIENT_ID,
@@ -470,7 +473,9 @@ export async function getUserToken(
       console.log(`[getUserToken] ${loginParam}: refreshing user token`);
       const res = await fetch("https://api.intra.42.fr/oauth/token", {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers: intraHeaders({
+          "Content-Type": "application/x-www-form-urlencoded",
+        }),
         body: new URLSearchParams({
           grant_type: "refresh_token",
           client_id: env.CLIENT_ID,
@@ -509,6 +514,18 @@ export async function getUserToken(
       }
 
       const errBody = await res.text().catch(() => "");
+      // Cloudflare bot management in front of api.intra.42.fr can return a
+      // "Just a moment…" JS challenge (403 HTML) to Worker egress. That is not
+      // a token problem, so it must not count toward marking the token broken.
+      if (
+        res.status === 403 &&
+        /just a moment|cf-chl|<html|cloudflare/i.test(errBody)
+      ) {
+        console.warn(
+          `[getUserToken] ${loginParam}: 42 blocked by Cloudflare challenge (403) — not marking token broken`,
+        );
+        return opts?.appTokenFallback ? getAppToken(env) : null;
+      }
       console.log(
         `[getUserToken] ${loginParam}: refresh failed (${res.status}) ${errBody.slice(0, 300)}`,
       );

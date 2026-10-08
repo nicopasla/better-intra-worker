@@ -1,4 +1,10 @@
-import { Env, UserData, TokenResponse, UserResponse, SessionMeta } from "../types";
+import {
+  Env,
+  UserData,
+  TokenResponse,
+  UserResponse,
+  SessionMeta,
+} from "../types";
 import {
   encryptTokenData,
   getTokens,
@@ -12,6 +18,7 @@ import {
   MAX_SESSION_TOKENS,
 } from "../utils";
 import { AUTH_CODE_PREFIX } from "../constants";
+import { intraHeaders } from "../rate";
 
 const PWA_HOST = "mobile.betterintra.com";
 
@@ -96,7 +103,9 @@ export async function handleCallback(
 
     const tokenResponse = await fetch("https://api.intra.42.fr/oauth/token", {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers: intraHeaders({
+        "Content-Type": "application/x-www-form-urlencoded",
+      }),
       body: tokenParams.toString(),
     });
     if (!tokenResponse.ok) {
@@ -110,7 +119,9 @@ export async function handleCallback(
       );
 
     const userResponse = await fetch("https://api.intra.42.fr/v2/me", {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      headers: intraHeaders({
+        Authorization: `Bearer ${tokenData.access_token}`,
+      }),
     });
     if (!userResponse.ok) {
       return textRes("Failed to fetch user info from 42", 502);
@@ -214,7 +225,11 @@ export async function handleCallback(
       const code = crypto.randomUUID();
       await env.BETTER_INTRA_KV.put(
         `${AUTH_CODE_PREFIX}${code}`,
-        JSON.stringify({ token: newSessionToken, login: rawLogin, hash: hashedLogin }),
+        JSON.stringify({
+          token: newSessionToken,
+          login: rawLogin,
+          hash: hashedLogin,
+        }),
         { expirationTtl: 120 },
       );
       return Response.redirect(
