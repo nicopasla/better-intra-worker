@@ -135,18 +135,6 @@ function cacheResponse(origin: string | null, row: CacheRow): Response {
   });
 }
 
-async function readCache(
-  env: Env,
-  origin: string | null,
-  cursusId: number,
-  cacheBegin: string,
-  cacheEnd: string,
-): Promise<Response> {
-  const row = await readCacheRow(env, cursusId, cacheBegin, cacheEnd);
-  if (row) return cacheResponse(origin, row);
-  return jsonRes({ cached_at: 0, data: [] });
-}
-
 async function fetchAllCursusUsers(
   env: Env,
   cursusId: number,
@@ -166,7 +154,11 @@ async function fetchAllCursusUsers(
     });
     params.set("page[number]", String(page));
 
-    const apiRes = await intraFetch(env, token, `${API_BASE}/v2/cursus_users?${params}`);
+    const apiRes = await intraFetch(
+      env,
+      token,
+      `${API_BASE}/v2/cursus_users?${params}`,
+    );
     if (!apiRes.ok) return null;
 
     const users = (await apiRes.json()) as Array<{
@@ -760,7 +752,37 @@ export async function handleFutureStudentsList(
     return textRes("Unauthorized", 401);
   }
 
-  return readCache(env, origin, STUDENTS_CURSUS_ID, "FUTURE", "FUTURE");
+  const row = await readCacheRow(env, STUDENTS_CURSUS_ID, "FUTURE", "FUTURE");
+  const now = Math.floor(Date.now() / 1000);
+  if (row && now - row.cached_at < STUDENTS_CACHE_TTL) {
+    return cacheResponse(origin, row);
+  }
+
+  // Stale or missing: refresh lazily (same 24h TTL as the students tab). On
+  // failure, serve the stale cache rather than erroring.
+  try {
+    const all = await fetchAllCursusUsers(
+      env,
+      STUDENTS_CURSUS_ID,
+      undefined,
+      undefined,
+      { future: true },
+    );
+    if (all) {
+      const cachedAt = await writeCache(
+        env,
+        STUDENTS_CURSUS_ID,
+        "FUTURE",
+        "FUTURE",
+        all,
+      );
+      return jsonRes({ cached_at: cachedAt, data: all });
+    }
+  } catch {
+    /* fall through to stale/empty */
+  }
+
+  return row ? cacheResponse(origin, row) : jsonRes({ cached_at: 0, data: [] });
 }
 
 export async function handleFutureStudentsRefresh(
@@ -787,28 +809,4 @@ export async function handleFutureStudentsRefresh(
     all,
   );
   return jsonRes({ cached_at: cachedAt, data: all });
-}
-
-export async function refreshFutureStudents(env: Env): Promise<void> {
-  const all = await fetchAllCursusUsers(
-    env,
-    STUDENTS_CURSUS_ID,
-    undefined,
-    undefined,
-    { future: true },
-  );
-  if (!all) {
-    console.warn("[future-students] 42 API error during cron refresh");
-    return;
-  }
-  const cachedAt = await writeCache(
-    env,
-    STUDENTS_CURSUS_ID,
-    "FUTURE",
-    "FUTURE",
-    all,
-  );
-  console.log(
-    `[future-students] cron refresh done — ${all.length} users (cached_at=${cachedAt})`,
-  );
 }
