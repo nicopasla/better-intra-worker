@@ -109,7 +109,6 @@ export async function handleMe(
     recent: finished
       .filter((p) => p.marked_at)
       .sort((a, b) => String(b.marked_at).localeCompare(String(a.marked_at)))
-      .slice(0, 8)
       .map((p) => ({
         ...projectEntry(p),
         finalMark: p.final_mark ?? null,
@@ -125,6 +124,9 @@ export async function handleMe(
       tier: a.tier ?? null,
       kind: a.kind ?? null,
       nbrOfSuccess: a.nbr_of_success ?? null,
+      image: a.image
+        ? `https://cdn.intra.42.fr${String(a.image).replace(/^\/uploads/, "")}`
+        : null,
     }))
     .sort((a: any, b: any) => a.name.localeCompare(b.name));
 
