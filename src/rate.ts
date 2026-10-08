@@ -111,27 +111,46 @@ export async function fetchIntra(
   init: RequestInit = {},
 ): Promise<Response> {
   const relay = env.INTRA_RELAY_URL;
+  const method = (init.method ?? "GET").toUpperCase();
+  const target = (() => {
+    try {
+      const u = new URL(url);
+      return `${u.host}${u.pathname}`;
+    } catch {
+      return url;
+    }
+  })();
+  const log = (via: string, res: Response) =>
+    console.log(
+      `[${via}] ${method} ${target} -> ${res.status} ${res.headers.get("content-type") || ""}`,
+    );
+
   if (relay) {
     try {
-      const target = new URL(relay);
-      target.searchParams.set("url", url);
-      return await fetch(target.toString(), {
-        method: init.method ?? "GET",
+      const endpoint = new URL(relay);
+      endpoint.searchParams.set("url", url);
+      const res = await fetch(endpoint.toString(), {
+        method,
         headers: intraHeaders({
           ...((init.headers as Record<string, string>) || {}),
           "X-Relay-Key": env.INTRA_RELAY_KEY || "",
         }),
         body: init.body,
       });
+      log("relay", res);
+      return res;
     } catch (e) {
-      if ((init.method ?? "GET").toUpperCase() !== "GET") throw e;
+      if (method !== "GET") throw e;
       console.warn(`[rate] relay failed, falling back to direct GET: ${e}`);
     }
   }
-  return fetch(url, {
+
+  const res = await fetch(url, {
     ...init,
     headers: intraHeaders((init.headers as Record<string, string>) || {}),
   });
+  log("direct", res);
+  return res;
 }
 
 /**
