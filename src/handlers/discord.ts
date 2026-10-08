@@ -132,7 +132,7 @@ export async function handleDiscordTest(
     return textRes("42 token unavailable — please reconnect in Account tab", 401);
   }
   try {
-    const meRes = await intraFetch(token42, "https://api.intra.42.fr/v2/me");
+    const meRes = await intraFetch(env, token42, "https://api.intra.42.fr/v2/me");
     if (!meRes.ok) {
       if (meRes.status === 401) {
         await markTokenBroken(env, existingData, loginParam, "42_401");

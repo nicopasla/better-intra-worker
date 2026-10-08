@@ -166,7 +166,7 @@ async function fetchAllCursusUsers(
     });
     params.set("page[number]", String(page));
 
-    const apiRes = await intraFetch(token, `${API_BASE}/v2/cursus_users?${params}`);
+    const apiRes = await intraFetch(env, token, `${API_BASE}/v2/cursus_users?${params}`);
     if (!apiRes.ok) return null;
 
     const users = (await apiRes.json()) as Array<{
@@ -617,7 +617,7 @@ export async function handlePiscinersList(
   }
 
   if (token) {
-    const entries = await fetchPiscineCohort(token, year, month);
+    const entries = await fetchPiscineCohort(env, token, year, month);
     if (entries && entries.length > 0) {
       const cachedAt = await writeCache(
         env,
@@ -638,6 +638,7 @@ export async function handlePiscinersList(
 }
 
 async function fetchPiscineCohort(
+  env: Env,
   token: string,
   year: number,
   month: number,
@@ -657,7 +658,7 @@ async function fetchPiscineCohort(
       "page[number]": String(page),
     });
 
-    const res = await intraFetch(token, `${API_BASE}/v2/users?${params}`);
+    const res = await intraFetch(env, token, `${API_BASE}/v2/users?${params}`);
     if (!res.ok) return all.length > 0 ? all : null;
 
     const users = (await res.json()) as Array<{

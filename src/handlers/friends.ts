@@ -76,6 +76,7 @@ export async function handleFriendsData(
 
   if (unknownLogins.length > 0) {
     const users = await fetchAllPages<FortyTwoUser>(
+      env,
       `${INTRA_API}/users?filter[login]=${unknownLogins.join(",")}&page[size]=${PAGE_SIZE}`,
       intraToken,
     );
@@ -94,6 +95,7 @@ export async function handleFriendsData(
   if (allIds.length === 0) return jsonRes({ friends: [] });
 
   const cursusUsers = await fetchAllPages<CursusUser>(
+    env,
     `${INTRA_API}/cursus_users?filter[user_id]=${allIds.join(",")}&page[size]=${PAGE_SIZE}`,
     intraToken,
   );
@@ -226,12 +228,16 @@ export async function handleFriendsData(
   return jsonRes({ friends });
 }
 
-async function fetchAllPages<T>(url: string, token: string): Promise<T[]> {
+async function fetchAllPages<T>(
+  env: Env,
+  url: string,
+  token: string,
+): Promise<T[]> {
   const results: T[] = [];
   let page = 1;
   while (true) {
     const sep = url.includes("?") ? "&" : "?";
-    const res = await intraFetch(token, `${url}${sep}page[number]=${page}`);
+    const res = await intraFetch(env, token, `${url}${sep}page[number]=${page}`);
     const hourly = res.headers.get("x-hourly-ratelimit-remaining") ?? "?";
     const secondly = res.headers.get("x-secondly-ratelimit-remaining") ?? "?";
     console.log(

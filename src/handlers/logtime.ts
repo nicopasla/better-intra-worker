@@ -18,6 +18,7 @@ interface LocationEntry {
 }
 
 async function fetchLocationsPage(
+  env: Env,
   token: string,
   targetLogin: string,
   page: number,
@@ -31,6 +32,7 @@ async function fetchLocationsPage(
     `&page%5Bsize%5D=${pageSize}&page%5Bnumber%5D=${page}`;
 
   const res = await intraFetch(
+    env,
     token,
     `https://api.intra.42.fr/v2/users/${targetLogin}/locations${qs}`,
   );
@@ -110,6 +112,7 @@ export async function handleLogtimeHistory(
 
       while (true) {
         const data = await fetchLocationsPage(
+          env,
           token,
           targetLogin,
           page,

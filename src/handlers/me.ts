@@ -57,12 +57,12 @@ export async function handleMe(
   if ("failure" in tokenResult) return tokenFailureResponse(tokenResult.failure);
   const token = tokenResult.token;
 
-  const meRes = await intraFetch(token, `${API_BASE}/v2/me`);
+  const meRes = await intraFetch(env, token, `${API_BASE}/v2/me`);
   if (!meRes.ok) return textRes(`42 API error: ${meRes.status}`, 502);
   const me = (await meRes.json()) as any;
 
   const login: string = me.login;
-  const cursusRes = await intraFetch(
+  const cursusRes = await intraFetch(env, 
     token,
     `${API_BASE}/v2/users/${login}/cursus_users?page[size]=100&page[number]=1`,
   );

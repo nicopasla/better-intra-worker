@@ -7,6 +7,8 @@
  * adapt from the headers, so the worker self-tunes if the quota changes.
  */
 
+import type { Env } from "./types";
+
 const DEFAULT_SECONDLY_LIMIT = 4;
 const HOURLY_FLOOR = 100; // remaining below this → slow down to protect the hourly cap
 const MIN_INTERVAL_MS = 50;
@@ -86,22 +88,71 @@ function observe(token: string, res: Response): void {
 }
 
 /**
+ * Cloudflare's challenge response is `403` + `text/html`; the real 42 API
+ * returns `application/json`. Detected without consuming the body so callers
+ * can still read it.
+ */
+export function isChallenge(res: Response): boolean {
+  return (
+    res.status === 403 &&
+    (res.headers.get("content-type") || "").includes("text/html")
+  );
+}
+
+/**
+ * Fetch a 42 URL, optionally through a non-Cloudflare relay (`INTRA_RELAY_URL`).
+ * Cloudflare in front of api.intra.42.fr challenges Worker egress; the relay
+ * forwards from a different network. Falls back to a direct GET if the relay
+ * errors (never for non-GET, to avoid double-submitting a token refresh).
+ */
+export async function fetchIntra(
+  env: Env,
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const relay = env.INTRA_RELAY_URL;
+  if (relay) {
+    try {
+      const target = new URL(relay);
+      target.searchParams.set("url", url);
+      return await fetch(target.toString(), {
+        method: init.method ?? "GET",
+        headers: intraHeaders({
+          ...((init.headers as Record<string, string>) || {}),
+          "X-Relay-Key": env.INTRA_RELAY_KEY || "",
+        }),
+        body: init.body,
+      });
+    } catch (e) {
+      if ((init.method ?? "GET").toUpperCase() !== "GET") throw e;
+      console.warn(`[rate] relay failed, falling back to direct GET: ${e}`);
+    }
+  }
+  return fetch(url, {
+    ...init,
+    headers: intraHeaders((init.headers as Record<string, string>) || {}),
+  });
+}
+
+/**
  * `fetch` against the 42 API with `Authorization: Bearer <token>`, gated by the
- * per-token limiter and retrying up to {@link MAX_429_RETRIES} times on 429.
+ * per-token limiter and retrying up to {@link MAX_RETRIES} times on 429 or a
+ * Cloudflare challenge.
  */
 export async function intraFetch(
+  env: Env,
   token: string,
   input: string,
   init: RequestInit = {},
 ): Promise<Response> {
   const run = async (): Promise<Response> => {
     await gate(token);
-    const res = await fetch(input, {
+    const res = await fetchIntra(env, input, {
       ...init,
-      headers: intraHeaders({
+      headers: {
         ...((init.headers as Record<string, string>) || {}),
         Authorization: `Bearer ${token}`,
-      }),
+      },
     });
     observe(token, res);
     return res;
@@ -122,16 +173,4 @@ export async function intraFetch(
     res = await run();
   }
   return res;
-}
-
-/**
- * Cloudflare's challenge response is `403` + `text/html`; the real 42 API
- * returns `application/json`. Detected without consuming the body so callers
- * can still read it.
- */
-export function isChallenge(res: Response): boolean {
-  return (
-    res.status === 403 &&
-    (res.headers.get("content-type") || "").includes("text/html")
-  );
 }

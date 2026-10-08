@@ -7,7 +7,7 @@ import {
   SessionMeta,
 } from "./types";
 import { APP_TOKEN_CACHE } from "./constants";
-import { intraHeaders } from "./rate";
+import { fetchIntra } from "./rate";
 
 export const MAX_SESSION_TOKENS = 20;
 
@@ -151,11 +151,9 @@ export async function getAppToken(env: Env): Promise<string> {
   }
 
   const promise = (async () => {
-    const res = await fetch("https://api.intra.42.fr/oauth/token", {
+    const res = await fetchIntra(env, "https://api.intra.42.fr/oauth/token", {
       method: "POST",
-      headers: intraHeaders({
-        "Content-Type": "application/x-www-form-urlencoded",
-      }),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         grant_type: "client_credentials",
         client_id: env.CLIENT_ID,
@@ -521,11 +519,9 @@ async function resolveUserTokenInner(
     // The Cloudflare challenge is intermittent (per egress IP), so retry it a
     // couple of times before giving up.
     for (let attempt = 0; attempt < 3; attempt++) {
-      const res = await fetch("https://api.intra.42.fr/oauth/token", {
+      const res = await fetchIntra(env, "https://api.intra.42.fr/oauth/token", {
         method: "POST",
-        headers: intraHeaders({
-          "Content-Type": "application/x-www-form-urlencoded",
-        }),
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           grant_type: "refresh_token",
           client_id: env.CLIENT_ID,

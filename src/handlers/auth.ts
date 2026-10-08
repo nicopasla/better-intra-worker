@@ -18,7 +18,7 @@ import {
   MAX_SESSION_TOKENS,
 } from "../utils";
 import { AUTH_CODE_PREFIX } from "../constants";
-import { intraHeaders } from "../rate";
+import { fetchIntra } from "../rate";
 
 const PWA_HOST = "mobile.betterintra.com";
 
@@ -101,13 +101,15 @@ export async function handleCallback(
       redirect_uri: cbUrl,
     });
 
-    const tokenResponse = await fetch("https://api.intra.42.fr/oauth/token", {
-      method: "POST",
-      headers: intraHeaders({
-        "Content-Type": "application/x-www-form-urlencoded",
-      }),
-      body: tokenParams.toString(),
-    });
+    const tokenResponse = await fetchIntra(
+      env,
+      "https://api.intra.42.fr/oauth/token",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: tokenParams.toString(),
+      },
+    );
     if (!tokenResponse.ok) {
       return textRes("42 OAuth token exchange failed", 502);
     }
@@ -118,10 +120,8 @@ export async function handleCallback(
         400,
       );
 
-    const userResponse = await fetch("https://api.intra.42.fr/v2/me", {
-      headers: intraHeaders({
-        Authorization: `Bearer ${tokenData.access_token}`,
-      }),
+    const userResponse = await fetchIntra(env, "https://api.intra.42.fr/v2/me", {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
     if (!userResponse.ok) {
       return textRes("Failed to fetch user info from 42", 502);
