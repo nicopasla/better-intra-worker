@@ -7,6 +7,7 @@ import {
   getUserToken,
   hashLogin,
 } from "../utils";
+import { intraFetch } from "../rate";
 
 const OUTSTANDING_RESYNC_SECONDS = 60;
 
@@ -22,9 +23,7 @@ async function syncFromApi(
 
   while (page <= maxPages) {
     const url = `https://api.intra.42.fr/v2/users/${userIdentifier}/scale_teams/as_corrected?filter[flag_id]=9&page[size]=100&page[number]=${page}&sort=-id`;
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${userToken}` },
-    });
+    const res = await intraFetch(userToken, url);
     if (!res.ok) break;
 
     const data: any[] = await res.json();
@@ -159,9 +158,7 @@ export async function handleOutstanding(
   const userToken = await getUserToken(env, existingData, loginParam, country);
 
   if (userToken && !userId) {
-    const meRes = await fetch("https://api.intra.42.fr/v2/me", {
-      headers: { Authorization: `Bearer ${userToken}` },
-    });
+    const meRes = await intraFetch(userToken, "https://api.intra.42.fr/v2/me");
     if (meRes.ok) {
       const meData = (await meRes.json()) as { id?: number };
       if (meData.id) {

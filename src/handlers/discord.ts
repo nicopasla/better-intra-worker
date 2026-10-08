@@ -8,6 +8,7 @@ import {
   textRes,
   validateSession,
 } from "../utils";
+import { intraFetch } from "../rate";
 
 export async function handleDiscordLink(
   request: Request,
@@ -127,10 +128,11 @@ export async function handleDiscordTest(
 
   const country: string | null = (request.cf?.country as string | undefined) || null;
   const token42 = await getUserToken(env, existingData, loginParam, country);
+  if (!token42) {
+    return textRes("42 token unavailable — please reconnect in Account tab", 401);
+  }
   try {
-    const meRes = await fetch("https://api.intra.42.fr/v2/me", {
-      headers: { Authorization: `Bearer ${token42}` },
-    });
+    const meRes = await intraFetch(token42, "https://api.intra.42.fr/v2/me");
     if (!meRes.ok) {
       if (meRes.status === 401) {
         await markTokenBroken(env, existingData, loginParam, "42_401");

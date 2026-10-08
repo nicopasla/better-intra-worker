@@ -9,14 +9,13 @@ import {
   validateSession,
   getUserToken,
 } from "../utils";
+import { intraFetch } from "../rate";
 
 interface LocationEntry {
   id: number;
   begin_at: string;
   end_at: string;
 }
-
-const MAX_RETRIES = 2;
 
 async function fetchLocationsPage(
   token: string,
@@ -31,29 +30,13 @@ async function fetchLocationsPage(
     `&sort=begin_at` +
     `&page%5Bsize%5D=${pageSize}&page%5Bnumber%5D=${page}`;
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const res = await fetch(
-      `https://api.intra.42.fr/v2/users/${targetLogin}/locations${qs}`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-
-    if (res.ok) {
-      const data = (await res.json()) as LocationEntry[];
-      if (Array.isArray(data)) return data;
-    }
-
-    if (res.status === 429 && attempt < MAX_RETRIES) {
-      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-      continue;
-    }
-
-    if (attempt < MAX_RETRIES) {
-      await new Promise((r) => setTimeout(r, 500));
-      continue;
-    }
-  }
-
-  return [];
+  const res = await intraFetch(
+    token,
+    `https://api.intra.42.fr/v2/users/${targetLogin}/locations${qs}`,
+  );
+  if (!res.ok) return [];
+  const data = (await res.json()) as LocationEntry[];
+  return Array.isArray(data) ? data : [];
 }
 
 export async function handleLogtimeHistory(

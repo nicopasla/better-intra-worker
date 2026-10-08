@@ -18,7 +18,10 @@ export function describeUserAgent(ua: string | null | undefined): string {
   const { browser, os } = new UAParser(ua).getResult();
   const major = browser.major || browser.version?.split(".")[0];
   const browserLabel = major ? `${browser.name} ${major}` : browser.name;
-  return `${browserLabel || "Browser"} · ${os.name || "Unknown OS"}`.slice(0, 40);
+  return `${browserLabel || "Browser"} · ${os.name || "Unknown OS"}`.slice(
+    0,
+    40,
+  );
 }
 
 export function sanitizeDeviceName(
@@ -424,7 +427,9 @@ export async function getUserToken(
   if (!encryptedToken) {
     await markTokenBroken(env, userData, loginParam, "no_token");
     if (!opts?.appTokenFallback) {
-      console.log(`[getUserToken] ${loginParam}: no fortyTwoToken, returning null`);
+      console.log(
+        `[getUserToken] ${loginParam}: no fortyTwoToken, returning null`,
+      );
       return null;
     }
     console.log(
@@ -443,7 +448,9 @@ export async function getUserToken(
   } catch {
     await markTokenBroken(env, userData, loginParam, "decrypt_failed");
     if (!opts?.appTokenFallback) {
-      console.log(`[getUserToken] ${loginParam}: decryption failed, returning null`);
+      console.log(
+        `[getUserToken] ${loginParam}: decryption failed, returning null`,
+      );
       return null;
     }
     console.log(
@@ -479,7 +486,12 @@ export async function getUserToken(
           console.log(
             `[getUserToken] ${loginParam}: refresh response missing access_token`,
           );
-          await markTokenBroken(env, userData, loginParam, "refresh_no_access_token");
+          await markTokenBroken(
+            env,
+            userData,
+            loginParam,
+            "refresh_no_access_token",
+          );
           return getAppToken(env);
         }
         const newTokenData = {
@@ -496,18 +508,15 @@ export async function getUserToken(
         return newAccessToken;
       }
 
+      const errBody = await res.text().catch(() => "");
       console.log(
-        `[getUserToken] ${loginParam}: refresh failed (${res.status})`,
+        `[getUserToken] ${loginParam}: refresh failed (${res.status}) ${errBody.slice(0, 300)}`,
       );
     } catch {
-      console.log(
-        `[getUserToken] ${loginParam}: refresh error`,
-      );
+      console.log(`[getUserToken] ${loginParam}: refresh error`);
     }
   } else {
-    console.log(
-      `[getUserToken] ${loginParam}: no refresh_token`,
-    );
+    console.log(`[getUserToken] ${loginParam}: no refresh_token`);
   }
 
   await markTokenBroken(env, userData, loginParam, "refresh_failed");

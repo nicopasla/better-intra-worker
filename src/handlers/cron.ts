@@ -1,14 +1,11 @@
 import { Env, UserData, PushSubscription } from "../types";
 import { getUserToken, serializeUserData } from "../utils";
+import { intraFetch } from "../rate";
 import { sendDiscordDm, DiscordEmbed } from "./discord";
 import { sendWebPush, PushPayload } from "./push";
 
-const CONCURRENCY = 5;
+const CONCURRENCY = 8;
 const DEADLINE_MS = 30_000;
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function isInQuietHours(userData: UserData): boolean {
   if (!userData?.discordQuietEnabled) return false;
@@ -37,36 +34,24 @@ async function fetchScaleTeams(
 ): Promise<{ data: any[]; rateLimited: boolean }> {
   const url = `https://api.intra.42.fr/v2/me/scale_teams/as_corrector?page[size]=100&page[number]=${page}`;
 
-  let waitMs = 1500;
+  const apiRes = await intraFetch(fortyTwoToken, url);
 
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const apiRes = await fetch(url, {
-      headers: { Authorization: `Bearer ${fortyTwoToken}` },
-    });
-
-    if (apiRes.status !== 429) {
-      if (!apiRes.ok) {
-        console.warn(
-          `[cron] scale_teams page=${page} status=${apiRes.status} error`,
-        );
-        return { data: [], rateLimited: false };
-      }
-      const data: any[] = await apiRes.json();
-      console.log(
-        `[cron] scale_teams page=${page} status=${apiRes.status} items=${data.length}`,
-      );
-      return { data, rateLimited: false };
-    }
-
-    if (attempt < 2) {
-      const retryAfter = apiRes.headers.get("Retry-After");
-      const delayMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : waitMs;
-      await delay(delayMs);
-      waitMs *= 2;
-    }
+  if (apiRes.status === 429) {
+    console.warn(`[cron] scale_teams page=${page} status=429 rate limited`);
+    return { data: [], rateLimited: true };
+  }
+  if (!apiRes.ok) {
+    console.warn(
+      `[cron] scale_teams page=${page} status=${apiRes.status} error`,
+    );
+    return { data: [], rateLimited: false };
   }
 
-  return { data: [], rateLimited: true };
+  const data: any[] = await apiRes.json();
+  console.log(
+    `[cron] scale_teams page=${page} status=${apiRes.status} items=${data.length}`,
+  );
+  return { data, rateLimited: false };
 }
 
 async function pushTransition(

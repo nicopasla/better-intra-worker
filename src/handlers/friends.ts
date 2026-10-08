@@ -11,6 +11,7 @@ import {
   validateSession,
 } from "../utils";
 import { FRIEND_USER_IDS } from "../constants";
+import { intraFetch } from "../rate";
 
 const INTRA_API = "https://api.intra.42.fr/v2";
 const PAGE_SIZE = 100;
@@ -225,9 +226,7 @@ async function fetchAllPages<T>(url: string, token: string): Promise<T[]> {
   let page = 1;
   while (true) {
     const sep = url.includes("?") ? "&" : "?";
-    const res = await fetch(`${url}${sep}page[number]=${page}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await intraFetch(token, `${url}${sep}page[number]=${page}`);
     const hourly = res.headers.get("x-hourly-ratelimit-remaining") ?? "?";
     const secondly = res.headers.get("x-secondly-ratelimit-remaining") ?? "?";
     console.log(

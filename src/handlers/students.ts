@@ -10,6 +10,7 @@ import {
   textRes,
   validateSession,
 } from "../utils";
+import { intraFetch } from "../rate";
 
 const API_BASE = "https://api.intra.42.fr";
 const BELGIUM_CAMPUS_ID = 12;
@@ -165,9 +166,7 @@ async function fetchAllCursusUsers(
     });
     params.set("page[number]", String(page));
 
-    const apiRes = await fetch(`${API_BASE}/v2/cursus_users?${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const apiRes = await intraFetch(token, `${API_BASE}/v2/cursus_users?${params}`);
     if (!apiRes.ok) return null;
 
     const users = (await apiRes.json()) as Array<{
@@ -658,9 +657,7 @@ async function fetchPiscineCohort(
       "page[number]": String(page),
     });
 
-    const res = await fetch(`${API_BASE}/v2/users?${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await intraFetch(token, `${API_BASE}/v2/users?${params}`);
     if (!res.ok) return all.length > 0 ? all : null;
 
     const users = (await res.json()) as Array<{
