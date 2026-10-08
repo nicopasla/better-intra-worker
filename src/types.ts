@@ -20,6 +20,7 @@ export interface Env {
   ALLOW_LOCAL_DEV?: string;
   INTRA_RELAY_URL?: string;
   INTRA_RELAY_KEY?: string;
+  CRON_SECRET?: string;
 }
 
 export interface SessionMeta {

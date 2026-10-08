@@ -38,7 +38,6 @@ import {
   handlePiscinesList,
   handleFutureStudentsList,
   handleFutureStudentsRefresh,
-  refreshFutureStudents,
 } from "./handlers/students";
 import {
   handleDiscordLink,
@@ -48,11 +47,7 @@ import {
   handleDiscordAuth,
   handleDiscordCallback,
 } from "./handlers/discord";
-import {
-  handleMainCron,
-  handleRevealCatchup,
-  handleTokenRefreshSweep,
-} from "./handlers/cron";
+import { handleCronTrigger } from "./handlers/cron-trigger";
 import {
   handlePushPublicKey,
   handlePushSubscribe,
@@ -74,7 +69,11 @@ import {
 } from "./utils";
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<Response> {
     const url = new URL(request.url);
     const origin = request.headers.get("Origin");
 
@@ -164,6 +163,10 @@ export default {
 
     if (url.pathname === "/api/v1/public/announcement") {
       return handleAnnouncement(request, env);
+    }
+
+    if (url.pathname === "/api/v1/public/cron") {
+      return handleCronTrigger(request, env, ctx);
     }
 
     if (url.pathname === "/api/v1/public/stats") {
@@ -349,17 +352,5 @@ export default {
     }
 
     return textRes("Not found", 404);
-  },
-  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    if (event.cron === "*/10 * * * *") {
-      await handleMainCron(env, ctx);
-    }
-    if (event.cron === "* * * * *") {
-      await handleRevealCatchup(env, ctx);
-      await handleTokenRefreshSweep(env);
-    }
-    if (event.cron === "0 22,4,10,16 * * *") {
-      await refreshFutureStudents(env);
-    }
   },
 };
