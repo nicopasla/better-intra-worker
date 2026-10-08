@@ -1,5 +1,6 @@
 import { Env, UserData } from "../types";
-import { getBearerToken, getUserToken, textRes, validateSession, corsHeaders } from "../utils";
+import { getBearerToken, resolveUserToken, textRes, tokenFailureResponse, validateSession, corsHeaders } from "../utils";
+import { intraFetch } from "../rate";
 
 const API_BASE = "https://api.intra.42.fr";
 
@@ -29,10 +30,9 @@ export async function handleProxy(
   }
 
   const country: string | null = (request.cf?.country as string | undefined) || null;
-  const fortyTwoToken = await getUserToken(env, existingData, loginParam, country);
-  if (!fortyTwoToken) {
-    return textRes("Failed to get API token", 500);
-  }
+  const tokenResult = await resolveUserToken(env, existingData, loginParam, country);
+  if ("failure" in tokenResult) return tokenFailureResponse(tokenResult.failure);
+  const fortyTwoToken = tokenResult.token;
   const tokenPrefix = fortyTwoToken.substring(0, 8);
 
   const apiUrl = new URL(`${API_BASE}${path}`);
@@ -42,9 +42,7 @@ export async function handleProxy(
     }
   });
 
-  const apiRes = await fetch(apiUrl.toString(), {
-    headers: { Authorization: `Bearer ${fortyTwoToken}` },
-  });
+  const apiRes = await intraFetch(fortyTwoToken, apiUrl.toString());
 
   const body = apiRes.headers
     .get("content-type")

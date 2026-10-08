@@ -4,10 +4,11 @@ import {
   encryptBytes,
   getBearerToken,
   getCursusMap,
-  getUserToken,
   hashLogin,
   jsonRes,
+  resolveUserToken,
   textRes,
+  tokenFailureResponse,
   validateSession,
 } from "../utils";
 import { FRIEND_USER_IDS } from "../constants";
@@ -49,10 +50,14 @@ export async function handleFriendsData(
 
   const country: string | null =
     (request.cf?.country as string | undefined) || null;
-  const intraToken = await getUserToken(env, existingData, loginParam, country);
-  if (!intraToken) {
-    return textRes("Failed to get API token", 500);
-  }
+  const tokenResult = await resolveUserToken(
+    env,
+    existingData,
+    loginParam,
+    country,
+  );
+  if ("failure" in tokenResult) return tokenFailureResponse(tokenResult.failure);
+  const intraToken = tokenResult.token;
 
   const idMap =
     (await env.BETTER_INTRA_KV.get<Record<string, number>>(FRIEND_USER_IDS, {

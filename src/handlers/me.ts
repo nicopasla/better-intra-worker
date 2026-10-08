@@ -2,11 +2,13 @@ import { Env, UserData } from "../types";
 import {
   getBearerToken,
   getCursusMap,
-  getUserToken,
   jsonRes,
+  resolveUserToken,
   textRes,
+  tokenFailureResponse,
   validateSession,
 } from "../utils";
+import { intraFetch } from "../rate";
 
 const API_BASE = "https://api.intra.42.fr";
 const ME_CACHE_TTL = 60;
@@ -46,19 +48,23 @@ export async function handleMe(
 
   const country: string | null =
     (request.cf?.country as string | undefined) || null;
-  const token = await getUserToken(env, existingData, loginParam, country);
-  if (!token) return textRes("Failed to get API token", 500);
+  const tokenResult = await resolveUserToken(
+    env,
+    existingData,
+    loginParam,
+    country,
+  );
+  if ("failure" in tokenResult) return tokenFailureResponse(tokenResult.failure);
+  const token = tokenResult.token;
 
-  const meRes = await fetch(`${API_BASE}/v2/me`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const meRes = await intraFetch(token, `${API_BASE}/v2/me`);
   if (!meRes.ok) return textRes(`42 API error: ${meRes.status}`, 502);
   const me = (await meRes.json()) as any;
 
   const login: string = me.login;
-  const cursusRes = await fetch(
+  const cursusRes = await intraFetch(
+    token,
     `${API_BASE}/v2/users/${login}/cursus_users?page[size]=100&page[number]=1`,
-    { headers: { Authorization: `Bearer ${token}` } },
   );
   let level = 0;
   let grade: string | null = null;

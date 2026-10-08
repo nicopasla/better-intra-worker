@@ -403,13 +403,34 @@ export async function decryptBytes(
   }
 }
 
-export async function getUserToken(
+export type TokenFailureReason = "reconnect" | "transient";
+
+export interface TokenFailure {
+  reason: TokenFailureReason;
+  detail: string;
+}
+
+export type TokenResult = { token: string } | { failure: TokenFailure };
+
+const reconnect = (detail: string): TokenResult => ({
+  failure: { reason: "reconnect", detail },
+});
+const transient = (detail: string): TokenResult => ({
+  failure: { reason: "transient", detail },
+});
+
+/**
+ * Resolves a usable 42 user token, classifying failures so callers can respond
+ * with the right HTTP status:
+ *  - `reconnect` → the user's token is gone/invalid and they must re-auth (401)
+ *  - `transient` → temporary (Cloudflare challenge, rate limit, 5xx, network) (503)
+ */
+export async function resolveUserToken(
   env: Env,
   userData: UserData | null,
   loginParam: string,
   country?: string | null,
-  opts?: { appTokenFallback?: boolean },
-): Promise<string | null> {
+): Promise<TokenResult> {
   const d1Row = await getTokenFromD1(env, loginParam);
   const d1Token = d1Row?.forty_two_token ?? null;
   const encryptedToken = d1Token ?? userData?.fortyTwoToken;
@@ -429,16 +450,7 @@ export async function getUserToken(
 
   if (!encryptedToken) {
     await markTokenBroken(env, userData, loginParam, "no_token");
-    if (!opts?.appTokenFallback) {
-      console.log(
-        `[getUserToken] ${loginParam}: no fortyTwoToken, returning null`,
-      );
-      return null;
-    }
-    console.log(
-      `[getUserToken] ${loginParam}: no fortyTwoToken, using app token`,
-    );
-    return getAppToken(env);
+    return reconnect("no_token");
   }
 
   let tokenData: {
@@ -450,98 +462,121 @@ export async function getUserToken(
     tokenData = await decryptTokenData<typeof tokenData>(env, encryptedToken);
   } catch {
     await markTokenBroken(env, userData, loginParam, "decrypt_failed");
-    if (!opts?.appTokenFallback) {
-      console.log(
-        `[getUserToken] ${loginParam}: decryption failed, returning null`,
-      );
-      return null;
-    }
-    console.log(
-      `[getUserToken] ${loginParam}: decryption failed, using app token`,
-    );
-    return getAppToken(env);
+    return reconnect("decrypt_failed");
   }
 
   if (Date.now() < tokenData.expires_at - 60000) {
     console.log(`[getUserToken] ${loginParam}: using cached user token`);
     await clearTokenBroken(env, userData, loginParam);
-    return tokenData.access_token;
+    return { token: tokenData.access_token };
   }
 
-  if (tokenData.refresh_token) {
-    try {
-      console.log(`[getUserToken] ${loginParam}: refreshing user token`);
-      const res = await fetch("https://api.intra.42.fr/oauth/token", {
-        method: "POST",
-        headers: intraHeaders({
-          "Content-Type": "application/x-www-form-urlencoded",
-        }),
-        body: new URLSearchParams({
-          grant_type: "refresh_token",
-          client_id: env.CLIENT_ID,
-          client_secret: env.CLIENT_SECRET,
-          refresh_token: tokenData.refresh_token,
-        }),
-      });
+  if (!tokenData.refresh_token) {
+    await markTokenBroken(env, userData, loginParam, "no_refresh_token");
+    return reconnect("no_refresh_token");
+  }
 
-      if (res.ok) {
-        const data = (await res.json()) as TokenResponse;
-        const newAccessToken = data.access_token;
-        if (!newAccessToken) {
-          console.log(
-            `[getUserToken] ${loginParam}: refresh response missing access_token`,
-          );
-          await markTokenBroken(
-            env,
-            userData,
-            loginParam,
-            "refresh_no_access_token",
-          );
-          return getAppToken(env);
-        }
-        const newTokenData = {
-          access_token: newAccessToken,
-          refresh_token: data.refresh_token ?? tokenData.refresh_token,
-          expires_at: Date.now() + (data.expires_in ?? 7200) * 1000,
-        };
-        const encrypted = await encryptTokenData(env, newTokenData);
-        await saveTokenToD1(env, loginParam, encrypted);
-        await clearTokenBroken(env, userData, loginParam);
-        console.log(
-          `[getUserToken] ${loginParam}: refreshed and stored new user token to D1`,
-        );
-        return newAccessToken;
-      }
+  let status = 0;
+  let errBody = "";
+  try {
+    console.log(`[getUserToken] ${loginParam}: refreshing user token`);
+    const res = await fetch("https://api.intra.42.fr/oauth/token", {
+      method: "POST",
+      headers: intraHeaders({
+        "Content-Type": "application/x-www-form-urlencoded",
+      }),
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: env.CLIENT_ID,
+        client_secret: env.CLIENT_SECRET,
+        refresh_token: tokenData.refresh_token,
+      }),
+    });
 
-      const errBody = await res.text().catch(() => "");
-      // Cloudflare bot management in front of api.intra.42.fr can return a
-      // "Just a moment…" JS challenge (403 HTML) to Worker egress. That is not
-      // a token problem, so it must not count toward marking the token broken.
-      if (
-        res.status === 403 &&
-        /just a moment|cf-chl|<html|cloudflare/i.test(errBody)
-      ) {
+    if (res.ok) {
+      const data = (await res.json()) as TokenResponse;
+      const newAccessToken = data.access_token;
+      if (!newAccessToken) {
         console.warn(
-          `[getUserToken] ${loginParam}: 42 blocked by Cloudflare challenge (403) — not marking token broken`,
+          `[getUserToken] ${loginParam}: refresh response missing access_token`,
         );
-        return opts?.appTokenFallback ? getAppToken(env) : null;
+        return transient("refresh_no_access_token");
       }
+      const newTokenData = {
+        access_token: newAccessToken,
+        refresh_token: data.refresh_token ?? tokenData.refresh_token,
+        expires_at: Date.now() + (data.expires_in ?? 7200) * 1000,
+      };
+      const encrypted = await encryptTokenData(env, newTokenData);
+      await saveTokenToD1(env, loginParam, encrypted);
+      await clearTokenBroken(env, userData, loginParam);
       console.log(
-        `[getUserToken] ${loginParam}: refresh failed (${res.status}) ${errBody.slice(0, 300)}`,
+        `[getUserToken] ${loginParam}: refreshed and stored new user token to D1`,
       );
-    } catch {
-      console.log(`[getUserToken] ${loginParam}: refresh error`);
+      return { token: newAccessToken };
     }
-  } else {
-    console.log(`[getUserToken] ${loginParam}: no refresh_token`);
+
+    status = res.status;
+    errBody = await res.text().catch(() => "");
+  } catch {
+    console.warn(`[getUserToken] ${loginParam}: refresh network error`);
+    return transient("network");
   }
 
-  await markTokenBroken(env, userData, loginParam, "refresh_failed");
+  // Cloudflare bot management in front of api.intra.42.fr can return a
+  // "Just a moment…" JS challenge (403 HTML) to Worker egress. Not a token
+  // problem and not fixable by the user reconnecting → transient.
+  if (
+    status === 403 &&
+    /just a moment|cf-chl|<html|cloudflare/i.test(errBody)
+  ) {
+    console.warn(
+      `[getUserToken] ${loginParam}: 42 blocked by Cloudflare challenge (403) — transient`,
+    );
+    return transient("cloudflare_challenge");
+  }
+
+  console.log(
+    `[getUserToken] ${loginParam}: refresh failed (${status}) ${errBody.slice(0, 300)}`,
+  );
+
+  // Rate limiting / upstream errors are transient, not an auth problem.
+  if (status === 429 || status >= 500) {
+    return transient(`refresh_${status}`);
+  }
+
+  // 400 / 401 / 403 (non-challenge) ⇒ refresh token invalid or expired.
+  await markTokenBroken(env, userData, loginParam, `refresh_${status}`);
+  return reconnect(`refresh_${status}`);
+}
+
+export function tokenFailureResponse(failure: TokenFailure): Response {
+  return textRes(
+    failure.reason === "reconnect"
+      ? "42 token unavailable — reconnect required"
+      : "42 temporarily unavailable — try again later",
+    failure.reason === "reconnect" ? 401 : 503,
+  );
+}
+
+export async function getUserToken(
+  env: Env,
+  userData: UserData | null,
+  loginParam: string,
+  country?: string | null,
+  opts?: { appTokenFallback?: boolean },
+): Promise<string | null> {
+  const result = await resolveUserToken(env, userData, loginParam, country);
+  if ("token" in result) return result.token;
   if (opts?.appTokenFallback) {
-    console.log(`[getUserToken] ${loginParam}: using app token`);
+    console.log(
+      `[getUserToken] ${loginParam}: ${result.failure.detail}, using app token`,
+    );
     return getAppToken(env);
   }
-  console.log(`[getUserToken] ${loginParam}: returning null`);
+  console.log(
+    `[getUserToken] ${loginParam}: ${result.failure.detail}, returning null`,
+  );
   return null;
 }
 
@@ -552,6 +587,7 @@ export async function markTokenBroken(
   reason?: string,
 ): Promise<void> {
   if (!userData) return;
+  if (userData.tokenBroken) return;
 
   const failures = (userData.tokenFailures ?? 0) + 1;
   userData.tokenFailures = failures;
