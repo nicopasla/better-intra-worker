@@ -469,6 +469,9 @@ async function resolveUserTokenInner(
   }
 
   if (!encryptedToken) {
+    console.warn(
+      `[getUserToken] ${loginParam}: no stored token (d1=${Boolean(d1Token)}, kv=${Boolean(userData?.fortyTwoToken)})`,
+    );
     await markTokenBroken(env, userData, loginParam, "no_token");
     return reconnect("no_token");
   }
@@ -481,17 +484,26 @@ async function resolveUserTokenInner(
   try {
     tokenData = await decryptTokenData<typeof tokenData>(env, encryptedToken);
   } catch {
+    console.warn(
+      `[getUserToken] ${loginParam}: decrypt failed (source=${d1Token ? "d1" : "kv"})`,
+    );
     await markTokenBroken(env, userData, loginParam, "decrypt_failed");
     return reconnect("decrypt_failed");
   }
 
   if (Date.now() < tokenData.expires_at - 60000) {
-    console.log(`[getUserToken] ${loginParam}: using cached user token`);
+    const remaining = Math.round((tokenData.expires_at - Date.now()) / 1000);
+    console.log(
+      `[getUserToken] ${loginParam}: using cached user token (expires in ${remaining}s)`,
+    );
     await clearTokenBroken(env, userData, loginParam);
     return { token: tokenData.access_token };
   }
 
   if (!tokenData.refresh_token) {
+    console.warn(
+      `[getUserToken] ${loginParam}: token expired but no refresh_token stored`,
+    );
     await markTokenBroken(env, userData, loginParam, "no_refresh_token");
     return reconnect("no_refresh_token");
   }
@@ -499,8 +511,13 @@ async function resolveUserTokenInner(
   let status = 0;
   let errBody = "";
   let challenge = false;
+  console.log(
+    `[getUserToken] ${loginParam}: stored access token expired ${Math.round((Date.now() - tokenData.expires_at) / 1000)}s ago`,
+  );
   try {
-    console.log(`[getUserToken] ${loginParam}: refreshing user token`);
+    console.log(
+      `[getUserToken] ${loginParam}: refreshing user token (stored refresh=${tokenData.refresh_token.slice(0, 6)}…)`,
+    );
     // The Cloudflare challenge is intermittent (per egress IP), so retry it a
     // couple of times before giving up.
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -526,16 +543,22 @@ async function resolveUserTokenInner(
           );
           return transient("refresh_no_access_token");
         }
+        const returnedRefresh = data.refresh_token ?? "";
+        const rotation = !returnedRefresh
+          ? "absent(kept-old)"
+          : returnedRefresh === tokenData.refresh_token
+            ? "same"
+            : "rotated";
         const newTokenData = {
           access_token: newAccessToken,
-          refresh_token: data.refresh_token ?? tokenData.refresh_token,
+          refresh_token: returnedRefresh || tokenData.refresh_token,
           expires_at: Date.now() + (data.expires_in ?? 7200) * 1000,
         };
         const encrypted = await encryptTokenData(env, newTokenData);
         await saveTokenToD1(env, loginParam, encrypted);
         await clearTokenBroken(env, userData, loginParam);
         console.log(
-          `[getUserToken] ${loginParam}: refreshed and stored new user token to D1`,
+          `[getUserToken] ${loginParam}: refreshed ok (expires_in=${data.expires_in ?? "?"}s, refresh_token=${rotation}, new refresh=${newTokenData.refresh_token.slice(0, 6)}…)`,
         );
         return { token: newAccessToken };
       }
@@ -545,10 +568,19 @@ async function resolveUserTokenInner(
       challenge =
         status === 403 &&
         /just a moment|cf-chl|<html|cloudflare/i.test(errBody);
-      if (challenge && attempt < 2) {
-        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
-        continue;
+      if (challenge) {
+        const ct = res.headers.get("content-type") || "?";
+        console.warn(
+          `[getUserToken] ${loginParam}: CF challenge on refresh attempt ${attempt + 1}/3 (content-type=${ct})`,
+        );
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+          continue;
+        }
       }
+      console.log(
+        `[getUserToken] ${loginParam}: refresh non-ok (status=${status}, content-type=${res.headers.get("content-type") || "?"})`,
+      );
       break;
     }
   } catch {
@@ -607,11 +639,15 @@ async function resolveUserTokenInner(
 }
 
 export function tokenFailureResponse(failure: TokenFailure): Response {
+  const status = failure.reason === "reconnect" ? 401 : 503;
+  console.warn(
+    `[token] responding ${status} (${failure.reason}/${failure.detail})`,
+  );
   return textRes(
     failure.reason === "reconnect"
       ? "42 token unavailable — reconnect required"
       : "42 temporarily unavailable — try again later",
-    failure.reason === "reconnect" ? 401 : 503,
+    status,
   );
 }
 
