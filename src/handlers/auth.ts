@@ -183,6 +183,8 @@ export async function handleCallback(
         ...existing,
         sessionTokens: activeTokens,
         sessionMeta,
+        tokenBroken: false,
+        tokenFailures: 0,
       }),
     );
 

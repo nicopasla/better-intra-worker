@@ -48,6 +48,7 @@ export type UserData = {
   discordQuietEnd?: string;
   discordQuietTimezone?: number;
   tokenBroken?: boolean;
+  tokenFailures?: number;
   discordTestedAt?: number;
   pushSubscriptions?: PushSubscription[];
 };

@@ -10,6 +10,9 @@ import { APP_TOKEN_CACHE } from "./constants";
 
 export const MAX_SESSION_TOKENS = 20;
 
+/** Consecutive token failures tolerated before a user is marked broken. */
+export const MAX_TOKEN_FAILURES = 5;
+
 export function describeUserAgent(ua: string | null | undefined): string {
   if (!ua) return "Unknown device";
   const { browser, os } = new UAParser(ua).getResult();
@@ -419,7 +422,7 @@ export async function getUserToken(
   }
 
   if (!encryptedToken) {
-    await markTokenBroken(env, userData, loginParam);
+    await markTokenBroken(env, userData, loginParam, "no_token");
     if (!opts?.appTokenFallback) {
       console.log(`[getUserToken] ${loginParam}: no fortyTwoToken, returning null`);
       return null;
@@ -438,7 +441,7 @@ export async function getUserToken(
   try {
     tokenData = await decryptTokenData<typeof tokenData>(env, encryptedToken);
   } catch {
-    await markTokenBroken(env, userData, loginParam);
+    await markTokenBroken(env, userData, loginParam, "decrypt_failed");
     if (!opts?.appTokenFallback) {
       console.log(`[getUserToken] ${loginParam}: decryption failed, returning null`);
       return null;
@@ -476,7 +479,7 @@ export async function getUserToken(
           console.log(
             `[getUserToken] ${loginParam}: refresh response missing access_token`,
           );
-          await markTokenBroken(env, userData, loginParam);
+          await markTokenBroken(env, userData, loginParam, "refresh_no_access_token");
           return getAppToken(env);
         }
         const newTokenData = {
@@ -507,7 +510,7 @@ export async function getUserToken(
     );
   }
 
-  await markTokenBroken(env, userData, loginParam);
+  await markTokenBroken(env, userData, loginParam, "refresh_failed");
   if (opts?.appTokenFallback) {
     console.log(`[getUserToken] ${loginParam}: using app token`);
     return getAppToken(env);
@@ -520,13 +523,24 @@ export async function markTokenBroken(
   env: Env,
   userData: UserData | null,
   loginParam: string,
+  reason?: string,
 ): Promise<void> {
   if (!userData) return;
-  if (userData.tokenBroken) return;
-  userData.tokenBroken = true;
+
+  const failures = (userData.tokenFailures ?? 0) + 1;
+  userData.tokenFailures = failures;
+
+  if (failures >= MAX_TOKEN_FAILURES) {
+    userData.tokenBroken = true;
+  }
+
   try {
     await env.BETTER_INTRA_KV.put(loginParam, JSON.stringify(userData));
   } catch {}
+
+  console.warn(
+    `[token] ${loginParam.slice(0, 6)} failure ${failures}/${MAX_TOKEN_FAILURES}${reason ? ` (${reason})` : ""}${userData.tokenBroken ? " — marked broken" : ""}`,
+  );
 }
 
 async function clearTokenBroken(
@@ -535,8 +549,9 @@ async function clearTokenBroken(
   loginParam: string,
 ): Promise<void> {
   if (!userData) return;
-  if (!userData.tokenBroken) return;
+  if (!userData.tokenBroken && !userData.tokenFailures) return;
   userData.tokenBroken = false;
+  userData.tokenFailures = 0;
   try {
     await env.BETTER_INTRA_KV.put(loginParam, JSON.stringify(userData));
   } catch {}

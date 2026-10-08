@@ -133,7 +133,7 @@ export async function handleDiscordTest(
     });
     if (!meRes.ok) {
       if (meRes.status === 401) {
-        await markTokenBroken(env, existingData, loginParam);
+        await markTokenBroken(env, existingData, loginParam, "42_401");
         return textRes("42 token expired — marked as broken, please reconnect in Account tab", 401);
       }
       return textRes(`42 API unreachable (${meRes.status})`, 502);
