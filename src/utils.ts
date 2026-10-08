@@ -419,13 +419,33 @@ const transient = (detail: string): TokenResult => ({
   failure: { reason: "transient", detail },
 });
 
+const inflightRefreshes = new Map<string, Promise<TokenResult>>();
+
 /**
  * Resolves a usable 42 user token, classifying failures so callers can respond
  * with the right HTTP status:
  *  - `reconnect` → the user's token is gone/invalid and they must re-auth (401)
  *  - `transient` → temporary (Cloudflare challenge, rate limit, 5xx, network) (503)
+ *
+ * Concurrent calls for the same login within an isolate share one resolution,
+ * since 42 refresh tokens are single-use/rotating (racing them 401s).
  */
-export async function resolveUserToken(
+export function resolveUserToken(
+  env: Env,
+  userData: UserData | null,
+  loginParam: string,
+  country?: string | null,
+): Promise<TokenResult> {
+  const existing = inflightRefreshes.get(loginParam);
+  if (existing) return existing;
+  const promise = resolveUserTokenInner(env, userData, loginParam, country).finally(
+    () => inflightRefreshes.delete(loginParam),
+  );
+  inflightRefreshes.set(loginParam, promise);
+  return promise;
+}
+
+async function resolveUserTokenInner(
   env: Env,
   userData: UserData | null,
   loginParam: string,
@@ -553,6 +573,32 @@ export async function resolveUserToken(
   // Rate limiting / upstream errors are transient, not an auth problem.
   if (status === 429 || status >= 500) {
     return transient(`refresh_${status}`);
+  }
+
+  // Rotating refresh tokens are single-use: if another request refreshed
+  // concurrently, our refresh fails with invalid_grant while D1 now holds a
+  // brand-new valid token. Re-read it instead of forcing a reconnect.
+  const freshRow = await getTokenFromD1(env, loginParam);
+  if (
+    freshRow?.forty_two_token &&
+    freshRow.forty_two_token !== encryptedToken
+  ) {
+    try {
+      const fresh = await decryptTokenData<{
+        access_token: string;
+        refresh_token: string;
+        expires_at: number;
+      }>(env, freshRow.forty_two_token);
+      if (Date.now() < fresh.expires_at - 60000) {
+        await clearTokenBroken(env, userData, loginParam);
+        console.log(
+          `[getUserToken] ${loginParam}: concurrent refresh detected, reusing fresh token`,
+        );
+        return { token: fresh.access_token };
+      }
+    } catch {
+      /* fall through to reconnect */
+    }
   }
 
   // 400 / 401 / 403 (non-challenge) ⇒ refresh token invalid or expired.
