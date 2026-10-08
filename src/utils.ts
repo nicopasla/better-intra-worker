@@ -478,46 +478,59 @@ export async function resolveUserToken(
 
   let status = 0;
   let errBody = "";
+  let challenge = false;
   try {
     console.log(`[getUserToken] ${loginParam}: refreshing user token`);
-    const res = await fetch("https://api.intra.42.fr/oauth/token", {
-      method: "POST",
-      headers: intraHeaders({
-        "Content-Type": "application/x-www-form-urlencoded",
-      }),
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        client_id: env.CLIENT_ID,
-        client_secret: env.CLIENT_SECRET,
-        refresh_token: tokenData.refresh_token,
-      }),
-    });
+    // The Cloudflare challenge is intermittent (per egress IP), so retry it a
+    // couple of times before giving up.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const res = await fetch("https://api.intra.42.fr/oauth/token", {
+        method: "POST",
+        headers: intraHeaders({
+          "Content-Type": "application/x-www-form-urlencoded",
+        }),
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          client_id: env.CLIENT_ID,
+          client_secret: env.CLIENT_SECRET,
+          refresh_token: tokenData.refresh_token,
+        }),
+      });
 
-    if (res.ok) {
-      const data = (await res.json()) as TokenResponse;
-      const newAccessToken = data.access_token;
-      if (!newAccessToken) {
-        console.warn(
-          `[getUserToken] ${loginParam}: refresh response missing access_token`,
+      if (res.ok) {
+        const data = (await res.json()) as TokenResponse;
+        const newAccessToken = data.access_token;
+        if (!newAccessToken) {
+          console.warn(
+            `[getUserToken] ${loginParam}: refresh response missing access_token`,
+          );
+          return transient("refresh_no_access_token");
+        }
+        const newTokenData = {
+          access_token: newAccessToken,
+          refresh_token: data.refresh_token ?? tokenData.refresh_token,
+          expires_at: Date.now() + (data.expires_in ?? 7200) * 1000,
+        };
+        const encrypted = await encryptTokenData(env, newTokenData);
+        await saveTokenToD1(env, loginParam, encrypted);
+        await clearTokenBroken(env, userData, loginParam);
+        console.log(
+          `[getUserToken] ${loginParam}: refreshed and stored new user token to D1`,
         );
-        return transient("refresh_no_access_token");
+        return { token: newAccessToken };
       }
-      const newTokenData = {
-        access_token: newAccessToken,
-        refresh_token: data.refresh_token ?? tokenData.refresh_token,
-        expires_at: Date.now() + (data.expires_in ?? 7200) * 1000,
-      };
-      const encrypted = await encryptTokenData(env, newTokenData);
-      await saveTokenToD1(env, loginParam, encrypted);
-      await clearTokenBroken(env, userData, loginParam);
-      console.log(
-        `[getUserToken] ${loginParam}: refreshed and stored new user token to D1`,
-      );
-      return { token: newAccessToken };
-    }
 
-    status = res.status;
-    errBody = await res.text().catch(() => "");
+      status = res.status;
+      errBody = await res.text().catch(() => "");
+      challenge =
+        status === 403 &&
+        /just a moment|cf-chl|<html|cloudflare/i.test(errBody);
+      if (challenge && attempt < 2) {
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+        continue;
+      }
+      break;
+    }
   } catch {
     console.warn(`[getUserToken] ${loginParam}: refresh network error`);
     return transient("network");
@@ -526,10 +539,7 @@ export async function resolveUserToken(
   // Cloudflare bot management in front of api.intra.42.fr can return a
   // "Just a moment…" JS challenge (403 HTML) to Worker egress. Not a token
   // problem and not fixable by the user reconnecting → transient.
-  if (
-    status === 403 &&
-    /just a moment|cf-chl|<html|cloudflare/i.test(errBody)
-  ) {
+  if (challenge) {
     console.warn(
       `[getUserToken] ${loginParam}: 42 blocked by Cloudflare challenge (403) — transient`,
     );

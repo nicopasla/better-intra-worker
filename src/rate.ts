@@ -11,7 +11,7 @@ const DEFAULT_SECONDLY_LIMIT = 4;
 const HOURLY_FLOOR = 100; // remaining below this → slow down to protect the hourly cap
 const MIN_INTERVAL_MS = 50;
 const MAX_INTERVAL_MS = 2000;
-const MAX_429_RETRIES = 2;
+const MAX_RETRIES = 3;
 
 /**
  * 42 sits behind Cloudflare bot management, which returns a "Just a moment…"
@@ -110,7 +110,7 @@ export async function intraFetch(
   let res = await run();
   for (
     let attempt = 0;
-    attempt < MAX_429_RETRIES && res.status === 429;
+    attempt < MAX_RETRIES && (res.status === 429 || isChallenge(res));
     attempt++
   ) {
     const retryAfter = Number(res.headers.get("Retry-After"));
@@ -122,4 +122,16 @@ export async function intraFetch(
     res = await run();
   }
   return res;
+}
+
+/**
+ * Cloudflare's challenge response is `403` + `text/html`; the real 42 API
+ * returns `application/json`. Detected without consuming the body so callers
+ * can still read it.
+ */
+export function isChallenge(res: Response): boolean {
+  return (
+    res.status === 403 &&
+    (res.headers.get("content-type") || "").includes("text/html")
+  );
 }
