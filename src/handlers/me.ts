@@ -62,10 +62,10 @@ export async function handleMe(
   );
   let level = 0;
   let grade: string | null = null;
+  let best: any = null;
   if (cursusRes.ok) {
     const cursusUsers = (await cursusRes.json()) as any[];
     const cursusMap = await getCursusMap(env);
-    let best: any = null;
     for (const cu of cursusUsers) {
       const r = rankCursus(cursusMap[cu.cursus_id]?.kind);
       if (
@@ -83,11 +83,62 @@ export async function handleMe(
     }
   }
 
+  // --- Projects (scoped to the current main cursus) ---
+  const mainCursusId: number | null = best?.cursus_id ?? null;
+  const allProjects: any[] = Array.isArray(me.projects_users)
+    ? me.projects_users
+    : [];
+  const scoped =
+    mainCursusId != null
+      ? allProjects.filter((p) =>
+          (p.cursus_ids ?? []).includes(mainCursusId),
+        )
+      : allProjects;
+  const finished = scoped.filter((p) => p.status === "finished");
+  const inProgress = scoped.filter((p) => p.status === "in_progress");
+  const projectEntry = (p: any) => ({
+    name: p.project?.name ?? "?",
+    slug: p.project?.slug ?? null,
+  });
+  const projects = {
+    total: scoped.length,
+    validated: finished.filter((p) => p["validated?"] === true).length,
+    failed: finished.filter((p) => p["validated?"] === false).length,
+    inProgress: inProgress.length,
+    active: inProgress.map(projectEntry),
+    recent: finished
+      .filter((p) => p.marked_at)
+      .sort((a, b) => String(b.marked_at).localeCompare(String(a.marked_at)))
+      .slice(0, 8)
+      .map((p) => ({
+        ...projectEntry(p),
+        finalMark: p.final_mark ?? null,
+        validated: p["validated?"] === true,
+        markedAt: p.marked_at ?? null,
+      })),
+  };
+
+  const achievements = (Array.isArray(me.achievements) ? me.achievements : [])
+    .map((a: any) => ({
+      name: a.name ?? "?",
+      description: a.description ?? "",
+      tier: a.tier ?? null,
+      kind: a.kind ?? null,
+      nbrOfSuccess: a.nbr_of_success ?? null,
+    }))
+    .sort((a: any, b: any) => a.name.localeCompare(b.name));
+
   const s = existingData.settings || {};
   const body = {
     login,
     displayName: me.displayname ?? login,
+    usualFullName: me.usual_full_name ?? me.displayname ?? login,
     image: me.image?.versions?.large ?? me.image?.link ?? null,
+    kind: me.kind ?? null,
+    staff: Boolean(me["staff?"]),
+    alumni: Boolean(me["alumni?"]),
+    active: me["active?"] ?? true,
+    memberSince: me.created_at ?? null,
     wallet: me.wallet ?? 0,
     correctionPoints: me.correction_point ?? 0,
     level,
@@ -95,10 +146,28 @@ export async function handleMe(
     location: me.location ?? null,
     campusId: me.campus?.[0]?.id ?? null,
     campusName: me.campus?.[0]?.name ?? null,
+    poolMonth: me.pool_month ?? null,
+    poolYear: me.pool_year ?? null,
     poolLabel:
       me.pool_month && me.pool_year
         ? `${String(new Date(`${me.pool_month} 1, 2000`).getMonth() + 1).padStart(2, "0")}/${me.pool_year}`
         : null,
+    groups: (Array.isArray(me.groups) ? me.groups : []).map(
+      (g: any) => g.name,
+    ),
+    cursus: best
+      ? {
+          name: best.cursus?.name ?? null,
+          slug: best.cursus?.slug ?? null,
+          kind: best.cursus?.kind ?? null,
+          beginAt: best.begin_at ?? null,
+          endAt: best.end_at ?? null,
+        }
+      : null,
+    blackholedAt: best?.blackholed_at ?? null,
+    projects,
+    achievements,
+    achievementsCount: achievements.length,
     customAvatar: (s.PROFILE_IMAGE_URL as string) || null,
     avatarBg: (s.PROFILE_AVATAR_BG as string) || "transparent",
     avatarPosX: Number(s.PROFILE_AVATAR_POSITION_X ?? 50),
