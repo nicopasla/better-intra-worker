@@ -92,6 +92,7 @@ export async function handleMe(
     correctionPoints: me.correction_point ?? 0,
     level,
     grade,
+    location: me.location ?? null,
     campusId: me.campus?.[0]?.id ?? null,
     campusName: me.campus?.[0]?.name ?? null,
     poolLabel:
