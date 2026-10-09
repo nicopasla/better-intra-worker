@@ -158,10 +158,7 @@ export async function handleDiscordTest(
     {
       title: "Evaluation Booked",
       color: 0x5865f2,
-      fields: [
-        { name: "Project", value: "Unknown", inline: true },
-        { name: "Time", value: timeStr, inline: true },
-      ],
+      fields: [{ name: "Time", value: timeStr, inline: true }],
       timestamp: testBeginAt,
     },
     {

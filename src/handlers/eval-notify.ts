@@ -1,18 +1,22 @@
 import type { PushPayload } from "./push";
 
+/** UTC fallback stamp: "HH:MM" when today, else "DD/MM/YY HH:MM".
+ *  Clients that support it render `beginAt` in the device's local timezone. */
 export function formatPushTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString("en-GB", {
-      day: "2-digit",
-      month: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      timeZone: "UTC",
-      hour12: false,
-    });
-  } catch {
-    return "";
-  }
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  const sameDay =
+    d.getUTCFullYear() === now.getUTCFullYear() &&
+    d.getUTCMonth() === now.getUTCMonth() &&
+    d.getUTCDate() === now.getUTCDate();
+  const p = (n: number) => String(n).padStart(2, "0");
+  const time = `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+  return sameDay
+    ? time
+    : `${p(d.getUTCDate())}/${p(d.getUTCMonth() + 1)}/${String(
+        d.getUTCFullYear(),
+      ).slice(2)} ${time}`;
 }
 
 export interface EvalPushInput {
@@ -26,27 +30,22 @@ export interface EvalPushInput {
  *  support it render `beginAt` in the device's local timezone instead.
  *  Shared by the cron and the test endpoint so previews match production. */
 export function buildEvalPush(input: EvalPushInput): PushPayload {
-  const project = input.project ?? "Evaluation";
+  const project = input.project ?? null;
   const names = input.correcteds ?? [];
-  const time = formatPushTime(input.beginAt);
+  const stamp = formatPushTime(input.beginAt);
 
-  if (input.kind === "revealed") {
-    return {
-      title: "Evaluation in 15 min",
-      body: names.length
-        ? `Correcting ${names.join(", ")} · ${project} · ${time}`
-        : `${project} · ${time}`,
-      beginAt: input.beginAt,
-      project,
-      correcteds: names,
-    };
+  const parts: string[] = [];
+  if (input.kind === "revealed" && names.length) {
+    parts.push(`Correcting ${names.join(", ")}`);
   }
+  if (project) parts.push(project);
+  if (stamp) parts.push(stamp);
 
   return {
-    title: "Evaluation Booked",
-    body: `${project} · ${time}`,
+    title: input.kind === "revealed" ? "Evaluation in 15 min" : "Evaluation Booked",
+    body: parts.join(" · "),
     beginAt: input.beginAt,
     project,
-    correcteds: [],
+    correcteds: input.kind === "revealed" ? names : [],
   };
 }

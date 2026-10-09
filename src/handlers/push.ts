@@ -406,7 +406,7 @@ export async function handlePushTest(
       ? {
           ...buildEvalPush({
             kind: "booked",
-            project: "Unknown",
+            project: null,
             beginAt: testBeginAt,
           }),
           url: "https://mobile.betterintra.com/",

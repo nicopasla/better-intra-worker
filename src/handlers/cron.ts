@@ -182,13 +182,15 @@ async function processItem(
           title: "Evaluation in 15 min",
           color: 0x57f287,
           fields: [
-            {
-              name: "Project",
-              value: projectName
-                ? `[${projectName}](https://projects.intra.42.fr/projects/${projectSlug})`
-                : "Unknown",
-              inline: true,
-            },
+            ...(projectName
+              ? [
+                  {
+                    name: "Project",
+                    value: `[${projectName}](https://projects.intra.42.fr/projects/${projectSlug})`,
+                    inline: true,
+                  },
+                ]
+              : []),
             { name: "Time", value: formatTime(beginAt), inline: true },
             { name: "Correcting", value: logins },
           ],
@@ -266,13 +268,15 @@ async function processItem(
           title: "Evaluation Booked",
           color: 0x5865f2,
           fields: [
-            {
-              name: "Project",
-              value: projectName
-                ? `[${projectName}](https://projects.intra.42.fr/projects/${projectSlug})`
-                : "Unknown",
-              inline: true,
-            },
+            ...(projectName
+              ? [
+                  {
+                    name: "Project",
+                    value: `[${projectName}](https://projects.intra.42.fr/projects/${projectSlug})`,
+                    inline: true,
+                  },
+                ]
+              : []),
             { name: "Time", value: formatTime(beginAt), inline: true },
           ],
           timestamp: beginAt,
