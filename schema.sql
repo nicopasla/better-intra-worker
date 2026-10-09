@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS eval_states (
   notified_at INTEGER,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
   begin_at TEXT,
+  correcteds TEXT,
   PRIMARY KEY (hash, eval_id, role)
 );
 

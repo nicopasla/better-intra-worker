@@ -65,7 +65,7 @@ export async function handleEvaluations(
   if (action === "upcoming") {
     const { results } = await env.better_intra_d1
       .prepare(
-        `SELECT es.eval_id, es.begin_at, es.state, p.name AS project, p.slug
+        `SELECT es.eval_id, es.begin_at, es.state, es.correcteds, p.name AS project, p.slug
          FROM eval_states es
          LEFT JOIN projects p ON es.project_id = p.id
          WHERE es.hash = ? AND es.begin_at >= ? AND es.state IN ('booked', 'revealed')
@@ -76,6 +76,7 @@ export async function handleEvaluations(
         eval_id: number;
         begin_at: string;
         state: string;
+        correcteds: string | null;
         project: string | null;
         slug: string | null;
       }>();
@@ -92,6 +93,7 @@ export async function handleEvaluations(
         state: r.state,
         project: r.project ?? null,
         slug: r.slug ?? null,
+        correcteds: r.correcteds ? JSON.parse(r.correcteds) : [],
       })),
       tracked: trackedRow?.evals_enabled === 1,
     });

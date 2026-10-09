@@ -133,14 +133,14 @@ async function processItem(
     const correctedsVisible =
       Array.isArray(item.correcteds) && item.correcteds.length > 0;
 
-    let row: { state: string } | null = null;
+    let row: { state: string; correcteds: string | null } | null = null;
     try {
       row = await env.better_intra_d1
         .prepare(
-          "SELECT state FROM eval_states WHERE hash = ? AND eval_id = ? AND role = ?",
+          "SELECT state, correcteds FROM eval_states WHERE hash = ? AND eval_id = ? AND role = ?",
         )
         .bind(hash, id, role)
-        .first<{ state: string }>();
+        .first<{ state: string; correcteds: string | null }>();
     } catch (e) {
       console.warn(
         `[cron] D1 SELECT eval_states failed ${shortHash} eval=${id}: ${e}`,
@@ -149,6 +149,11 @@ async function processItem(
     }
 
     const currentState = row?.state ?? null;
+
+    const correctedsLogins: string[] = correctedsVisible
+      ? item.correcteds.map((c: any) => String(c.login))
+      : [];
+    const correctedsJson = JSON.stringify(correctedsLogins);
 
     if (correctedsVisible && currentState !== "revealed") {
       const transition =
@@ -167,16 +172,16 @@ async function processItem(
         if (currentState === "booked") {
           await env.better_intra_d1
             .prepare(
-              "UPDATE eval_states SET state = 'revealed', project_id = ?, updated_at = unixepoch() WHERE hash = ? AND eval_id = ? AND role = ?",
+              "UPDATE eval_states SET state = 'revealed', project_id = ?, correcteds = ?, updated_at = unixepoch() WHERE hash = ? AND eval_id = ? AND role = ?",
             )
-            .bind(projectId, hash, id, role)
+            .bind(projectId, correctedsJson, hash, id, role)
             .run();
         } else {
           await env.better_intra_d1
             .prepare(
-              "INSERT OR REPLACE INTO eval_states (hash, eval_id, role, state, project_id, begin_at) VALUES (?, ?, ?, 'revealed', ?, ?)",
+              "INSERT OR REPLACE INTO eval_states (hash, eval_id, role, state, project_id, begin_at, correcteds) VALUES (?, ?, ?, 'revealed', ?, ?, ?)",
             )
-            .bind(hash, id, role, projectId, beginAt)
+            .bind(hash, id, role, projectId, beginAt, correctedsJson)
             .run();
         }
       } catch (e) {
@@ -220,7 +225,7 @@ async function processItem(
         );
       }
 
-      const revealedBody = `${projectName ?? "Evaluation"} · ${formatPushTime(beginAt)}`;
+      const revealedBody = `Correcting ${correctedsLogins.join(", ")} · ${projectName ?? "Evaluation"} · ${formatPushTime(beginAt)}`;
       ctx.waitUntil(
         pushTransition(env, hash, pushSubs, {
           title: "Evaluation in 15 min",
@@ -229,6 +234,26 @@ async function processItem(
           tag: `eval-${id}-revealed`,
         }),
       );
+    } else if (
+      correctedsVisible &&
+      currentState === "revealed" &&
+      !row?.correcteds
+    ) {
+      try {
+        await env.better_intra_d1
+          .prepare(
+            "UPDATE eval_states SET correcteds = ? WHERE hash = ? AND eval_id = ? AND role = ?",
+          )
+          .bind(correctedsJson, hash, id, role)
+          .run();
+        console.log(
+          `[cron] ${shortHash} eval=${id} backfilled correcteds=${correctedsLogins.join(",")}`,
+        );
+      } catch (e) {
+        console.warn(
+          `[cron] D1 backfill correcteds failed ${shortHash} eval=${id}: ${e}`,
+        );
+      }
     } else if (!correctedsVisible && currentState === null) {
       console.log(
         `[cron] ${shortHash} eval=${id} null→booked project=${projectName ?? "?"}`,
@@ -281,7 +306,7 @@ async function processItem(
       const bookedBody = `${projectName ?? "Evaluation"} · ${formatPushTime(beginAt)}`;
       ctx.waitUntil(
         pushTransition(env, hash, pushSubs, {
-          title: "Evaluation booked",
+          title: "Evaluation Booked",
           body: bookedBody,
           url: "https://mobile.betterintra.com/",
           tag: `eval-${id}-booked`,
