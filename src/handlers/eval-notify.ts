@@ -26,24 +26,30 @@ export interface EvalPushInput {
   correcteds?: string[];
 }
 
-/** Builds an eval push. The body is a UTC-formatted fallback; clients that
- *  support it render `beginAt` in the device's local timezone instead.
+/** Builds an eval push. Title is always "Better Intra"; the status and details
+ *  live in the body (two lines). The body is a UTC-formatted fallback; clients
+ *  that support it render `beginAt` in the device's local timezone instead.
  *  Shared by the cron and the test endpoint so previews match production. */
 export function buildEvalPush(input: EvalPushInput): PushPayload {
   const project = input.project ?? null;
   const names = input.correcteds ?? [];
   const stamp = formatPushTime(input.beginAt);
+  const status =
+    input.kind === "revealed" ? "Evaluation in 15 min" : "Evaluation Booked";
 
-  const parts: string[] = [];
-  if (input.kind === "revealed" && names.length) {
-    parts.push(`Correcting ${names.join(", ")}`);
+  const detail: string[] = [];
+  if (input.kind === "revealed") {
+    if (names.length) detail.push(`Correcting ${names.join(", ")}`);
+    if (project) detail.push(project);
+  } else {
+    detail.push("Evaluating someone");
   }
-  if (project) parts.push(project);
-  if (stamp) parts.push(stamp);
+  if (stamp) detail.push(`at ${stamp}`);
 
   return {
-    title: input.kind === "revealed" ? "Evaluation in 15 min" : "Evaluation Booked",
-    body: parts.join(" · "),
+    title: "Better Intra",
+    body: `${status}\n${detail.join(" ")}`,
+    kind: input.kind,
     beginAt: input.beginAt,
     project,
     correcteds: input.kind === "revealed" ? names : [],
