@@ -6,6 +6,7 @@ import {
   textRes,
   validateSession,
 } from "../utils";
+import { buildEvalPush } from "./eval-notify";
 
 const MAX_SUBSCRIPTIONS_PER_USER = 10;
 
@@ -14,6 +15,10 @@ export interface PushPayload {
   body: string;
   url?: string;
   tag?: string;
+  /** Structured eval fields so the service worker can render local time. */
+  beginAt?: string;
+  project?: string | null;
+  correcteds?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +377,7 @@ export async function handlePushTest(
   let body: {
     endpoint?: unknown;
     keys?: { p256dh?: unknown; auth?: unknown };
+    variant?: unknown;
   } = {};
   try {
     body = await request.json();
@@ -393,12 +399,38 @@ export async function handlePushTest(
 
   if (!target) return textRes("No push subscription", 404);
 
-  const result = await sendWebPush(env, target, {
-    title: "Better Intra",
-    body: "Push notifications are working 🎉",
-    url: "https://mobile.betterintra.com/",
-    tag: "ft-test",
-  });
+  const testBeginAt = new Date(Date.now() + 15 * 60000).toISOString();
+  const variant = typeof body?.variant === "string" ? body.variant : "";
+  const payload: PushPayload =
+    variant === "booked"
+      ? {
+          ...buildEvalPush({
+            kind: "booked",
+            project: "Unknown",
+            beginAt: testBeginAt,
+          }),
+          url: "https://mobile.betterintra.com/",
+          tag: "ft-test-booked",
+        }
+      : variant === "revealed"
+        ? {
+            ...buildEvalPush({
+              kind: "revealed",
+              project: "ft_transcendence",
+              beginAt: testBeginAt,
+              correcteds: ["elmo", "kermit"],
+            }),
+            url: "https://mobile.betterintra.com/",
+            tag: "ft-test-revealed",
+          }
+        : {
+            title: "Better Intra",
+            body: "Push notifications are working 🎉",
+            url: "https://mobile.betterintra.com/",
+            tag: "ft-test",
+          };
+
+  const result = await sendWebPush(env, target, payload);
 
   const ok = result.status >= 200 && result.status < 300;
   if (result.status === 0) return textRes("Failed to reach push service", 502);

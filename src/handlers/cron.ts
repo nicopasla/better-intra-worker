@@ -3,6 +3,7 @@ import { serializeUserData, resolveUserToken } from "../utils";
 import { intraFetch } from "../rate";
 import { sendDiscordDm, DiscordEmbed } from "./discord";
 import { sendWebPush, PushPayload } from "./push";
+import { buildEvalPush } from "./eval-notify";
 
 const CONCURRENCY = 2;
 const DEADLINE_MS = 30_000;
@@ -90,21 +91,6 @@ async function pushTransition(
       serializeUserData({ ...fresh, pushSubscriptions: remaining }),
     );
     console.log(`[push] ${hash.slice(0, 6)} pruned ${stale.size} stale sub(s)`);
-  }
-}
-
-function formatPushTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString("en-GB", {
-      day: "2-digit",
-      month: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      timeZone: "UTC",
-      hour12: false,
-    });
-  } catch {
-    return "";
   }
 }
 
@@ -225,11 +211,14 @@ async function processItem(
         );
       }
 
-      const revealedBody = `Correcting ${correctedsLogins.join(", ")} · ${projectName ?? "Evaluation"} · ${formatPushTime(beginAt)}`;
       ctx.waitUntil(
         pushTransition(env, hash, pushSubs, {
-          title: "Evaluation in 15 min",
-          body: revealedBody,
+          ...buildEvalPush({
+            kind: "revealed",
+            project: projectName,
+            beginAt,
+            correcteds: correctedsLogins,
+          }),
           url: "https://mobile.betterintra.com/",
           tag: `eval-${id}-revealed`,
         }),
@@ -303,11 +292,13 @@ async function processItem(
         );
       }
 
-      const bookedBody = `${projectName ?? "Evaluation"} · ${formatPushTime(beginAt)}`;
       ctx.waitUntil(
         pushTransition(env, hash, pushSubs, {
-          title: "Evaluation Booked",
-          body: bookedBody,
+          ...buildEvalPush({
+            kind: "booked",
+            project: projectName,
+            beginAt,
+          }),
           url: "https://mobile.betterintra.com/",
           tag: `eval-${id}-booked`,
         }),
