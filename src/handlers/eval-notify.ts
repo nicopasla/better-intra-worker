@@ -47,8 +47,8 @@ export function buildEvalPush(input: EvalPushInput): PushPayload {
   if (stamp) detail.push(`at ${stamp}`);
 
   return {
-    title: "Better Intra",
-    body: `${status}\n${detail.join(" ")}`,
+    title: status,
+    body: detail.join(" "),
     kind: input.kind,
     beginAt: input.beginAt,
     project,

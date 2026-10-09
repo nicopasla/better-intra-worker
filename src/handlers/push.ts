@@ -425,7 +425,7 @@ export async function handlePushTest(
             tag: "ft-test-revealed",
           }
         : {
-            title: "Better Intra",
+            title: "Push test",
             body: "Push notifications are working 🎉",
             url: "https://mobile.betterintra.com/",
             tag: "ft-test",
