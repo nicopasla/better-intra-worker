@@ -54,7 +54,8 @@ export async function handleMe(
     loginParam,
     country,
   );
-  if ("failure" in tokenResult) return tokenFailureResponse(tokenResult.failure);
+  if ("failure" in tokenResult)
+    return tokenFailureResponse(tokenResult.failure);
   const token = tokenResult.token;
 
   const meRes = await intraFetch(env, token, `${API_BASE}/v2/me`);
@@ -62,7 +63,8 @@ export async function handleMe(
   const me = (await meRes.json()) as any;
 
   const login: string = me.login;
-  const cursusRes = await intraFetch(env, 
+  const cursusRes = await intraFetch(
+    env,
     token,
     `${API_BASE}/v2/users/${login}/cursus_users?page[size]=100&page[number]=1`,
   );
@@ -96,13 +98,12 @@ export async function handleMe(
     : [];
   const scoped =
     mainCursusId != null
-      ? allProjects.filter((p) =>
-          (p.cursus_ids ?? []).includes(mainCursusId),
-        )
+      ? allProjects.filter((p) => (p.cursus_ids ?? []).includes(mainCursusId))
       : allProjects;
   const finished = scoped.filter((p) => p.status === "finished");
   const inProgress = scoped.filter((p) => p.status === "in_progress");
   const projectEntry = (p: any) => ({
+    id: p.id ?? null,
     name: p.project?.name ?? "?",
     slug: p.project?.slug ?? null,
     occurrence: p.occurrence ?? 0,
@@ -161,9 +162,7 @@ export async function handleMe(
       me.pool_month && me.pool_year
         ? `${String(new Date(`${me.pool_month} 1, 2000`).getMonth() + 1).padStart(2, "0")}/${me.pool_year}`
         : null,
-    groups: (Array.isArray(me.groups) ? me.groups : []).map(
-      (g: any) => g.name,
-    ),
+    groups: (Array.isArray(me.groups) ? me.groups : []).map((g: any) => g.name),
     cursus: best
       ? {
           name: best.cursus?.name ?? null,
