@@ -55,3 +55,22 @@ export function buildEvalPush(input: EvalPushInput): PushPayload {
     correcteds: input.kind === "revealed" ? names : [],
   };
 }
+
+export interface CorrectedPushInput {
+  beginAt: string;
+  corrector: string;
+}
+
+/** Push for when the user is being evaluated and their evaluator is revealed. */
+export function buildCorrectedPush(input: CorrectedPushInput): PushPayload {
+  const stamp = formatPushTime(input.beginAt);
+  const detail = [`Your evaluator: ${input.corrector}`];
+  if (stamp) detail.push(`at ${stamp}`);
+  return {
+    title: "Evaluation in 15 min",
+    body: detail.join(" "),
+    kind: "corrected",
+    beginAt: input.beginAt,
+    corrector: input.corrector,
+  };
+}

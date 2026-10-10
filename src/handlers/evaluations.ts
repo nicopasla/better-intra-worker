@@ -63,22 +63,32 @@ export async function handleEvaluations(
   }
 
   if (action === "upcoming") {
+    const nowIso = new Date().toISOString();
     const { results } = await env.better_intra_d1
       .prepare(
-        `SELECT es.eval_id, es.begin_at, es.state, es.correcteds, p.name AS project, p.slug
+        `SELECT es.eval_id AS id, es.begin_at AS begin_at, es.state, es.correcteds,
+                p.name AS project, p.slug, 'evaluator' AS role, NULL AS corrector
          FROM eval_states es
          LEFT JOIN projects p ON es.project_id = p.id
          WHERE es.hash = ? AND es.begin_at >= ? AND es.state IN ('booked', 'revealed')
-         ORDER BY es.begin_at ASC`,
+         UNION ALL
+         SELECT ec.eval_id AS id, ec.begin_at AS begin_at, ec.state, NULL AS correcteds,
+                p.name AS project, p.slug, 'corrected' AS role, ec.corrector AS corrector
+         FROM eval_corrected ec
+         LEFT JOIN projects p ON ec.project_id = p.id
+         WHERE ec.hash = ? AND ec.begin_at >= ? AND ec.state IN ('booked', 'revealed')
+         ORDER BY begin_at ASC`,
       )
-      .bind(loginParam, new Date().toISOString())
+      .bind(loginParam, nowIso, loginParam, nowIso)
       .all<{
-        eval_id: number;
+        id: number;
         begin_at: string;
         state: string;
         correcteds: string | null;
         project: string | null;
         slug: string | null;
+        role: string;
+        corrector: string | null;
       }>();
 
     const trackedRow = await env.better_intra_d1
@@ -88,12 +98,14 @@ export async function handleEvaluations(
 
     return jsonRes({
       items: (results || []).map((r) => ({
-        id: r.eval_id,
+        id: r.id,
         beginAt: r.begin_at,
         state: r.state,
         project: r.project ?? null,
         slug: r.slug ?? null,
+        role: r.role,
         correcteds: r.correcteds ? JSON.parse(r.correcteds) : [],
+        corrector: r.corrector ?? null,
       })),
       tracked: trackedRow?.evals_enabled === 1,
     });

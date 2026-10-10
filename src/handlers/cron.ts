@@ -3,7 +3,7 @@ import { serializeUserData, resolveUserToken } from "../utils";
 import { intraFetch } from "../rate";
 import { sendDiscordDm, DiscordEmbed } from "./discord";
 import { sendWebPush, PushPayload } from "./push";
-import { buildEvalPush } from "./eval-notify";
+import { buildEvalPush, buildCorrectedPush } from "./eval-notify";
 
 const CONCURRENCY = 2;
 const DEADLINE_MS = 30_000;
@@ -34,7 +34,7 @@ async function fetchScaleTeams(
   fortyTwoToken: string,
   page: number,
 ): Promise<{ data: any[]; rateLimited: boolean }> {
-  const url = `https://api.intra.42.fr/v2/me/scale_teams/as_corrector?page[size]=100&page[number]=${page}`;
+  const url = `https://api.intra.42.fr/v2/me/scale_teams?page[size]=100&page[number]=${page}`;
 
   const apiRes = await intraFetch(env, fortyTwoToken, url);
 
@@ -54,6 +54,37 @@ async function fetchScaleTeams(
     `[cron] scale_teams page=${page} status=${apiRes.status} items=${data.length}`,
   );
   return { data, rateLimited: false };
+}
+
+/**
+ * The current user's 42 login, cached in KV. Needed to tell a scale_team where
+ * the user is the corrector from one where they are being corrected (the
+ * payload alone is ambiguous once both sides are revealed). Fetched once.
+ */
+async function getLogin(
+  env: Env,
+  hash: string,
+  fortyTwoToken: string,
+): Promise<string | null> {
+  const key = `LOGIN_${hash}`;
+  const cached = await env.BETTER_INTRA_KV.get(key);
+  if (cached) return cached;
+  try {
+    const res = await intraFetch(
+      env,
+      fortyTwoToken,
+      "https://api.intra.42.fr/v2/me",
+    );
+    if (!res.ok) return null;
+    const me = (await res.json()) as { login?: string };
+    if (me?.login) {
+      await env.BETTER_INTRA_KV.put(key, me.login);
+      return me.login;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
 }
 
 async function pushTransition(
@@ -94,7 +125,7 @@ async function pushTransition(
   }
 }
 
-async function processItem(
+async function processEvaluatorItem(
   env: Env,
   ctx: ExecutionContext,
   item: any,
@@ -102,6 +133,7 @@ async function processItem(
   projectMap: Record<string, { name: string; slug: string }>,
   discordId: string | undefined,
   pushSubs: PushSubscription[],
+  settings: Record<string, unknown> | undefined,
 ) {
   const id = item.id;
   const beginAt: string = item.begin_at;
@@ -213,18 +245,20 @@ async function processItem(
         );
       }
 
-      ctx.waitUntil(
-        pushTransition(env, hash, pushSubs, {
-          ...buildEvalPush({
-            kind: "revealed",
-            project: projectName,
-            beginAt,
-            correcteds: correctedsLogins,
+      if (settings?.EVAL_NOTIFY_EVALUATOR_REVEALED !== false) {
+        ctx.waitUntil(
+          pushTransition(env, hash, pushSubs, {
+            ...buildEvalPush({
+              kind: "revealed",
+              project: projectName,
+              beginAt,
+              correcteds: correctedsLogins,
+            }),
+            url: "https://mobile.betterintra.com/",
+            tag: `eval-${id}-revealed`,
           }),
-          url: "https://mobile.betterintra.com/",
-          tag: `eval-${id}-revealed`,
-        }),
-      );
+        );
+      }
     } else if (
       correctedsVisible &&
       currentState === "revealed" &&
@@ -296,16 +330,127 @@ async function processItem(
         );
       }
 
-      ctx.waitUntil(
-        pushTransition(env, hash, pushSubs, {
-          ...buildEvalPush({
-            kind: "booked",
-            project: projectName,
-            beginAt,
+      if (settings?.EVAL_NOTIFY_EVALUATOR_BOOKED !== false) {
+        ctx.waitUntil(
+          pushTransition(env, hash, pushSubs, {
+            ...buildEvalPush({
+              kind: "booked",
+              project: projectName,
+              beginAt,
+            }),
+            url: "https://mobile.betterintra.com/",
+            tag: `eval-${id}-booked`,
           }),
-          url: "https://mobile.betterintra.com/",
-          tag: `eval-${id}-booked`,
-        }),
+        );
+      }
+    }
+  }
+}
+
+/** Handles a scale_team where the user is being corrected (someone evaluates
+ *  them). The project is known even while booked; the corrector only appears at
+ *  reveal (15 min before), which is when we push. */
+async function processCorrectedItem(
+  env: Env,
+  ctx: ExecutionContext,
+  item: any,
+  hash: string,
+  projectMap: Record<string, { name: string; slug: string }>,
+  pushSubs: PushSubscription[],
+  settings: Record<string, unknown> | undefined,
+) {
+  const id = item.id;
+  const beginAt: string = item.begin_at;
+  const projectId = item.team?.project_id ?? null;
+  const project = projectId ? (projectMap[String(projectId)] ?? null) : null;
+  const projectName = project?.name ?? null;
+
+  const correctorInvisible = typeof item.corrector === "string";
+  const correctorLogin =
+    !correctorInvisible && item.corrector?.login
+      ? String(item.corrector.login)
+      : null;
+  const state = correctorInvisible ? "booked" : "revealed";
+  const shortHash = hash.slice(0, 6);
+
+  let row: { state: string } | null = null;
+  try {
+    row = await env.better_intra_d1
+      .prepare(
+        "SELECT state FROM eval_corrected WHERE hash = ? AND eval_id = ?",
+      )
+      .bind(hash, id)
+      .first<{ state: string }>();
+  } catch (e) {
+    console.warn(
+      `[cron] D1 SELECT eval_corrected failed ${shortHash} eval=${id}: ${e}`,
+    );
+    return;
+  }
+  const currentState = row?.state ?? null;
+
+  if (state === "revealed") {
+    try {
+      if (currentState === "booked") {
+        await env.better_intra_d1
+          .prepare(
+            "UPDATE eval_corrected SET state = 'revealed', project_id = ?, corrector = ?, updated_at = unixepoch() WHERE hash = ? AND eval_id = ?",
+          )
+          .bind(projectId, correctorLogin, hash, id)
+          .run();
+      } else if (currentState === null) {
+        await env.better_intra_d1
+          .prepare(
+            "INSERT OR REPLACE INTO eval_corrected (hash, eval_id, state, project_id, corrector, begin_at) VALUES (?, ?, 'revealed', ?, ?, ?)",
+          )
+          .bind(hash, id, projectId, correctorLogin, beginAt)
+          .run();
+      } else {
+        await env.better_intra_d1
+          .prepare(
+            "UPDATE eval_corrected SET corrector = COALESCE(corrector, ?), project_id = COALESCE(project_id, ?) WHERE hash = ? AND eval_id = ?",
+          )
+          .bind(correctorLogin, projectId, hash, id)
+          .run();
+      }
+    } catch (e) {
+      console.warn(
+        `[cron] D1 WRITE eval_corrected failed ${shortHash} eval=${id}: ${e}`,
+      );
+      return;
+    }
+
+    if (currentState !== "revealed" && correctorLogin) {
+      console.log(
+        `[cron] ${shortHash} eval=${id} ${currentState ?? "null"}→revealed (corrected) project=${projectName ?? "?"} corrector=${correctorLogin}`,
+      );
+      if (settings?.EVAL_NOTIFY_CORRECTED_REVEALED !== false) {
+        ctx.waitUntil(
+          pushTransition(env, hash, pushSubs, {
+            ...buildCorrectedPush({
+              beginAt,
+              corrector: correctorLogin,
+            }),
+            url: "https://mobile.betterintra.com/",
+            tag: `eval-corrected-${id}-revealed`,
+          }),
+        );
+      }
+    }
+  } else if (currentState === null) {
+    try {
+      await env.better_intra_d1
+        .prepare(
+          "INSERT OR IGNORE INTO eval_corrected (hash, eval_id, state, project_id, begin_at) VALUES (?, ?, 'booked', ?, ?)",
+        )
+        .bind(hash, id, projectId, beginAt)
+        .run();
+      console.log(
+        `[cron] ${shortHash} eval=${id} null→booked (corrected) project=${projectName ?? "?"}`,
+      );
+    } catch (e) {
+      console.warn(
+        `[cron] D1 WRITE eval_corrected failed ${shortHash} eval=${id}: ${e}`,
       );
     }
   }
@@ -389,8 +534,61 @@ async function processCronUser(
     return;
   }
 
+  const me = await getLogin(env, hash, fortyTwoToken);
+  const settings = userData.settings;
+
   for (const item of rawData) {
-    await processItem(env, ctx, item, hash, projectMap, discordId, pushSubs);
+    const correcteds = item.correcteds;
+    const corrector = item.corrector;
+    const correctedsInvisible = typeof correcteds === "string";
+    const correctorInvisible = typeof corrector === "string";
+
+    if (correctedsInvisible) {
+      await processEvaluatorItem(
+        env,
+        ctx,
+        item,
+        hash,
+        projectMap,
+        discordId,
+        pushSubs,
+        settings,
+      );
+    } else if (correctorInvisible) {
+      await processCorrectedItem(
+        env,
+        ctx,
+        item,
+        hash,
+        projectMap,
+        pushSubs,
+        settings,
+      );
+    } else if (me) {
+      // Both sides revealed → resolve by whether the user is the corrector.
+      if (corrector?.login === me) {
+        await processEvaluatorItem(
+          env,
+          ctx,
+          item,
+          hash,
+          projectMap,
+          discordId,
+          pushSubs,
+          settings,
+        );
+      } else {
+        await processCorrectedItem(
+          env,
+          ctx,
+          item,
+          hash,
+          projectMap,
+          pushSubs,
+          settings,
+        );
+      }
+    }
   }
 
   await env.better_intra_d1

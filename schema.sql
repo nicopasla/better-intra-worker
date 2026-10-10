@@ -29,6 +29,18 @@ CREATE TABLE IF NOT EXISTS eval_states (
   PRIMARY KEY (hash, eval_id, role)
 );
 
+CREATE TABLE IF NOT EXISTS eval_corrected (
+  hash TEXT NOT NULL,
+  eval_id INTEGER NOT NULL,
+  state TEXT NOT NULL CHECK(state IN ('booked', 'revealed')),
+  project_id INTEGER,
+  corrector TEXT,
+  notified_at INTEGER,
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  begin_at TEXT,
+  PRIMARY KEY (hash, eval_id)
+);
+
 CREATE TABLE IF NOT EXISTS projects (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,

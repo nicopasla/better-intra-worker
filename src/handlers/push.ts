@@ -16,10 +16,11 @@ export interface PushPayload {
   url?: string;
   tag?: string;
   /** Structured eval fields so the service worker can render local time. */
-  kind?: "booked" | "revealed";
+  kind?: "booked" | "revealed" | "corrected";
   beginAt?: string;
   project?: string | null;
   correcteds?: string[];
+  corrector?: string;
 }
 
 // ---------------------------------------------------------------------------
