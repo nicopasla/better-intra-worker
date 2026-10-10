@@ -26,6 +26,7 @@ import {
 import { handleCampusLocation } from "./handlers/campus";
 import { handleOutstanding } from "./handlers/outstanding";
 import { handleProfileStats } from "./handlers/profile-stats";
+import { handleUserLookup } from "./handlers/user";
 import {
   handleCalendarToken,
   handleCalendarUpdate,
@@ -343,6 +344,13 @@ export default {
       const target = url.searchParams.get("target");
       if (!target) return textRes("Missing target parameter", 400);
       return handleProfileStats(request, env, loginParam, existingData, target);
+    }
+
+    if (url.pathname === "/api/v1/private/user") {
+      if (request.method !== "GET") return textRes("Method not allowed", 405);
+      const target = url.searchParams.get("target");
+      if (!target) return textRes("Missing target parameter", 400);
+      return handleUserLookup(request, env, loginParam, existingData, target);
     }
 
     if (url.pathname === "/api/v1/private/calendar/token") {
