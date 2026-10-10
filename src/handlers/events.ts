@@ -7,6 +7,9 @@ interface ParsedEvent {
   beginAt: string;
   endAt: string;
   location: string | null;
+  description: string | null;
+  subscribers: number | null;
+  maxSubscribers: number | null;
   url: string | null;
 }
 
@@ -29,7 +32,9 @@ function icsDateToIso(value: string): string {
 function parseIcs(ics: string): ParsedEvent[] {
   const unfolded = ics.replace(/\r\n[ \t]/g, "").replace(/\n[ \t]/g, "");
   const events: ParsedEvent[] = [];
-  for (const block of unfolded.split("BEGIN:VEVENT").slice(1)) {
+  for (const rawBlock of unfolded.split("BEGIN:VEVENT").slice(1)) {
+    // Drop the VALARM sub-block so its DESCRIPTION doesn't shadow the event's.
+    const block = rawBlock.replace(/BEGIN:VALARM[\s\S]*?END:VALARM/g, "");
     const get = (key: string): string | null => {
       const m = block.match(
         new RegExp(`(?:^|\\r?\\n)${key}[^:\\r\\n]*:([^\\r\\n]*)`),
@@ -42,14 +47,22 @@ function parseIcs(ics: string): ParsedEvent[] {
     const dtend = get("DTEND");
     const uid = get("UID");
     const location = get("LOCATION");
+    const description = get("DESCRIPTION");
+    const subscribers = get("X-SUBSCRIBERS");
+    const maxSubscribers = get("X-MAX-SUBSCRIBERS");
     const url = get("URL");
     const idMatch = uid?.match(/^(\d+)@/);
+    const toNum = (v: string | null): number | null =>
+      v != null && v !== "" && !Number.isNaN(Number(v)) ? Number(v) : null;
     events.push({
       id: idMatch ? Number(idMatch[1]) : null,
       name: unescapeIcs(summary),
       beginAt: icsDateToIso(dtstart),
       endAt: dtend ? icsDateToIso(dtend) : icsDateToIso(dtstart),
       location: location ? unescapeIcs(location) : null,
+      description: description ? unescapeIcs(description) : null,
+      subscribers: toNum(subscribers),
+      maxSubscribers: toNum(maxSubscribers),
       url: url ?? null,
     });
   }
