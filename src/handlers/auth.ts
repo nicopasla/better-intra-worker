@@ -17,7 +17,6 @@ import {
   serializeUserData,
   MAX_SESSION_TOKENS,
   sessionDeviceKey,
-  getSessionActivity,
   writeSessionActivity,
 } from "../utils";
 import { AUTH_CODE_PREFIX } from "../constants";
@@ -241,16 +240,10 @@ export async function handleCallback(
       }),
     );
 
-    // Refresh the activity map, dropping entries for collapsed/evicted tokens.
-    const mergedActivity = { ...(await getSessionActivity(env, hashedLogin)) };
-    for (const token of activeTokens) {
-      if (token === sessionToken) mergedActivity[token] = now;
-      else mergedActivity[token] = mergedActivity[token] ?? now;
-    }
-    for (const token of Object.keys(mergedActivity)) {
-      if (!activeTokens.includes(token)) delete mergedActivity[token];
-    }
-    await writeSessionActivity(env, hashedLogin, mergedActivity);
+    // Record activity only for the session that just logged in. Other sessions
+    // keep their own timestamps (or fall back to createdAt) and refresh through
+    // touchSession on their next request — never fabricate a time here.
+    await writeSessionActivity(env, hashedLogin, { [sessionToken]: now });
 
     const country = request.cf?.country || null;
     await env.better_intra_d1
