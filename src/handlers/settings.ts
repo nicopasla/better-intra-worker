@@ -1,11 +1,14 @@
 import { Env, UserData } from "../types";
 import {
   getBearerToken,
+  getSessionActivity,
+  getSessionActivityKey,
   getTokens,
   jsonRes,
   serializeUserData,
   textRes,
   validateSession,
+  writeSessionActivity,
 } from "../utils";
 
 const MAX_LOOK_STRING = 64;
@@ -275,6 +278,7 @@ export async function handlePrivateSettings(
     const url = new URL(request.url);
     if (url.searchParams.get("all") === "true") {
       await env.BETTER_INTRA_KV.delete(loginParam);
+      await env.BETTER_INTRA_KV.delete(getSessionActivityKey(loginParam));
       return textRes("All cloud data deleted");
     }
     const sessionMeta = { ...(existingData.sessionMeta || {}) };
@@ -287,6 +291,11 @@ export async function handlePrivateSettings(
         sessionMeta,
       }),
     );
+    const activity = { ...(await getSessionActivity(env, loginParam)) };
+    if (authHeader in activity) {
+      delete activity[authHeader];
+      await writeSessionActivity(env, loginParam, activity);
+    }
     return textRes("Session removed");
   }
 

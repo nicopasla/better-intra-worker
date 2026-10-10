@@ -27,7 +27,11 @@ export interface SessionMeta {
   name?: string;
   country?: string;
   createdAt: number;
+  lastUsedAt?: number;
 }
+
+/** Per-session activity timestamps, stored under `sa:{hash}` to avoid rewriting the main UserData blob on every request. */
+export type SessionActivity = Record<string, number>;
 
 export type UserData = {
   sessionTokens?: string[];

@@ -1,13 +1,16 @@
 import { Env, UserData } from "../types";
 import {
   getBearerToken,
+  getSessionActivity,
   getTokens,
   jsonRes,
   MAX_SESSION_TOKENS,
   serializeUserData,
   sessionIdForToken,
+  sessionLastUsed,
   textRes,
   validateSession,
+  writeSessionActivity,
 } from "../utils";
 
 interface SessionView {
@@ -16,6 +19,7 @@ interface SessionView {
   name?: string;
   country?: string;
   createdAt: number;
+  lastUsedAt: number;
   current: boolean;
 }
 
@@ -47,6 +51,7 @@ export async function handleSessions(
   const tokens = getTokens(existingData);
 
   if (request.method === "GET") {
+    const activity = await getSessionActivity(env, loginParam);
     const sessions: SessionView[] = [];
     for (const token of tokens) {
       const meta = existingData.sessionMeta?.[token];
@@ -56,10 +61,11 @@ export async function handleSessions(
         name: meta?.name,
         country: meta?.country,
         createdAt: meta?.createdAt ?? 0,
+        lastUsedAt: sessionLastUsed(activity, token, meta),
         current: token === bearer,
       });
     }
-    sessions.sort((a, b) => b.createdAt - a.createdAt);
+    sessions.sort((a, b) => b.lastUsedAt - a.lastUsedAt);
     return jsonRes({ sessions, max: MAX_SESSION_TOKENS });
   }
 
@@ -86,6 +92,11 @@ export async function handleSessions(
         sessionMeta,
       }),
     );
+    const activity = { ...(await getSessionActivity(env, loginParam)) };
+    if (target in activity) {
+      delete activity[target];
+      await writeSessionActivity(env, loginParam, activity);
+    }
     return jsonRes({ ok: true, current: target === bearer });
   }
 

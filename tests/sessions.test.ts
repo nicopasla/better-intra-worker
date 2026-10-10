@@ -4,7 +4,9 @@ import {
   getTokens,
   sanitizeDeviceName,
   serializeUserData,
+  sessionDeviceKey,
   sessionIdForToken,
+  sessionLastUsed,
 } from "../src/utils";
 import type { UserData } from "../src/types";
 
@@ -44,6 +46,52 @@ describe("sanitizeDeviceName", () => {
     expect(sanitizeDeviceName("Blue3")).toBeUndefined();
     expect(sanitizeDeviceName("x".repeat(33))).toBeUndefined();
     expect(sanitizeDeviceName("   ")).toBeUndefined();
+  });
+});
+
+describe("sessionDeviceKey", () => {
+  it("prefers the device name and is case/space insensitive", () => {
+    expect(
+      sessionDeviceKey({
+        id: "1",
+        label: "Chrome 141 · Windows",
+        name: "  Blue   Fox ",
+        createdAt: 0,
+      }),
+    ).toBe("blue   fox");
+    expect(
+      sessionDeviceKey({
+        id: "1",
+        label: "Chrome 141 · Windows",
+        createdAt: 0,
+      }),
+    ).toBe("chrome 141 · windows");
+    expect(sessionDeviceKey(undefined)).toBe("");
+  });
+});
+
+describe("sessionLastUsed", () => {
+  it("prefers live activity, then meta.lastUsedAt, then createdAt", () => {
+    expect(
+      sessionLastUsed({ t: 999 }, "t", {
+        id: "1",
+        label: "x",
+        createdAt: 1,
+        lastUsedAt: 5,
+      }),
+    ).toBe(999);
+    expect(
+      sessionLastUsed({}, "t", {
+        id: "1",
+        label: "x",
+        createdAt: 1,
+        lastUsedAt: 5,
+      }),
+    ).toBe(5);
+    expect(
+      sessionLastUsed({}, "t", { id: "1", label: "x", createdAt: 1 }),
+    ).toBe(1);
+    expect(sessionLastUsed({}, "t", undefined)).toBe(0);
   });
 });
 

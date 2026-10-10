@@ -66,6 +66,8 @@ import {
   getAppToken,
   updateProjectMap,
   jsonRes,
+  getBearerToken,
+  touchSession,
 } from "./utils";
 
 export default {
@@ -206,6 +208,14 @@ export default {
       loginParam,
       { type: "json" },
     );
+
+    // Best-effort "last used" refresh for authenticated private routes.
+    if (url.pathname.startsWith("/api/v1/private/")) {
+      const bearer = getBearerToken(request);
+      if (bearer) {
+        ctx.waitUntil(touchSession(env, loginParam, existingData, bearer));
+      }
+    }
 
     if (url.pathname === "/api/v1/public/visuals") {
       return handlePublicVisuals(request, existingData);

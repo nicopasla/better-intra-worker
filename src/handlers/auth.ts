@@ -16,6 +16,9 @@ import {
   sanitizeDeviceName,
   serializeUserData,
   MAX_SESSION_TOKENS,
+  sessionDeviceKey,
+  getSessionActivity,
+  writeSessionActivity,
 } from "../utils";
 import { AUTH_CODE_PREFIX } from "../constants";
 import { fetchIntra } from "../rate";
@@ -120,9 +123,13 @@ export async function handleCallback(
         400,
       );
 
-    const userResponse = await fetchIntra(env, "https://api.intra.42.fr/v2/me", {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` },
-    });
+    const userResponse = await fetchIntra(
+      env,
+      "https://api.intra.42.fr/v2/me",
+      {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      },
+    );
     if (!userResponse.ok) {
       return textRes("Failed to fetch user info from 42", 502);
     }
@@ -159,27 +166,62 @@ export async function handleCallback(
       }
     }
 
-    const newSessionToken = crypto.randomUUID();
     const existing: UserData =
       (await env.BETTER_INTRA_KV.get(hashedLogin, {
         type: "json",
       })) || {};
 
+    const label = describeUserAgent(request.headers.get("User-Agent"));
+    const deviceKey = (deviceName || label).trim().toLowerCase();
+    const now = Date.now();
+
     const activeTokens = getTokens(existing);
-    activeTokens.push(newSessionToken);
     const sessionMeta: Record<string, SessionMeta> = {
       ...(existing.sessionMeta || {}),
     };
+
+    // Reuse the existing session for this device instead of appending a new
+    // one, collapsing any duplicates left behind by earlier logins.
+    let sessionToken: string | null = null;
+    for (const token of activeTokens) {
+      if (sessionDeviceKey(sessionMeta[token]) !== deviceKey) continue;
+      if (
+        !sessionToken ||
+        (sessionMeta[token]?.createdAt ?? 0) >
+          (sessionMeta[sessionToken]?.createdAt ?? 0)
+      ) {
+        sessionToken = token;
+      }
+    }
+
+    if (sessionToken) {
+      for (let i = activeTokens.length - 1; i >= 0; i--) {
+        const token = activeTokens[i];
+        if (
+          token !== sessionToken &&
+          sessionDeviceKey(sessionMeta[token]) === deviceKey
+        ) {
+          activeTokens.splice(i, 1);
+          delete sessionMeta[token];
+        }
+      }
+    } else {
+      sessionToken = crypto.randomUUID();
+      activeTokens.push(sessionToken);
+    }
+
     while (activeTokens.length > MAX_SESSION_TOKENS) {
       const evicted = activeTokens.shift();
       if (evicted) delete sessionMeta[evicted];
     }
-    sessionMeta[newSessionToken] = {
-      id: crypto.randomUUID(),
-      label: describeUserAgent(request.headers.get("User-Agent")),
+
+    sessionMeta[sessionToken] = {
+      id: sessionMeta[sessionToken]?.id ?? crypto.randomUUID(),
+      label,
       ...(deviceName ? { name: deviceName } : {}),
       country: (request.cf?.country as string | undefined) ?? undefined,
-      createdAt: Date.now(),
+      createdAt: sessionMeta[sessionToken]?.createdAt ?? now,
+      lastUsedAt: now,
     };
 
     const encryptedTokens = await encryptTokenData(env, {
@@ -198,6 +240,17 @@ export async function handleCallback(
         tokenFailures: 0,
       }),
     );
+
+    // Refresh the activity map, dropping entries for collapsed/evicted tokens.
+    const mergedActivity = { ...(await getSessionActivity(env, hashedLogin)) };
+    for (const token of activeTokens) {
+      if (token === sessionToken) mergedActivity[token] = now;
+      else mergedActivity[token] = mergedActivity[token] ?? now;
+    }
+    for (const token of Object.keys(mergedActivity)) {
+      if (!activeTokens.includes(token)) delete mergedActivity[token];
+    }
+    await writeSessionActivity(env, hashedLogin, mergedActivity);
 
     const country = request.cf?.country || null;
     await env.better_intra_d1
@@ -226,7 +279,7 @@ export async function handleCallback(
       await env.BETTER_INTRA_KV.put(
         `${AUTH_CODE_PREFIX}${code}`,
         JSON.stringify({
-          token: newSessionToken,
+          token: sessionToken,
           login: rawLogin,
           hash: hashedLogin,
         }),
@@ -240,7 +293,7 @@ export async function handleCallback(
 
     if (cbIsExtension) {
       return Response.redirect(
-        `https://profile-v3.intra.42.fr/?token=${encodeURIComponent(newSessionToken)}&login=${encodeURIComponent(rawLogin)}`,
+        `https://profile-v3.intra.42.fr/?token=${encodeURIComponent(sessionToken)}&login=${encodeURIComponent(rawLogin)}`,
         302,
       );
     }
@@ -250,7 +303,7 @@ export async function handleCallback(
       <!DOCTYPE html>
       <html lang="en"><head><meta charset="UTF-8"><title>Successful Authentication</title><style>body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f5f5f7; }</style></head>
       <body><div style="text-align: center; padding: 30px; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);"><h2>Login Successful!</h2><p>Transferring credentials...</p></div>
-      <script>if (window.opener) { window.opener.postMessage({ type: "42_AUTH_SUCCESS", token: "${newSessionToken}", login: "${rawLogin}" }, "${redirectTarget.origin}"); }</script></body></html>
+      <script>if (window.opener) { window.opener.postMessage({ type: "42_AUTH_SUCCESS", token: "${sessionToken}", login: "${rawLogin}" }, "${redirectTarget.origin}"); }</script></body></html>
     `,
       200,
       "text/html; charset=utf-8",

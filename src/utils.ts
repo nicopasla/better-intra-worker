@@ -5,11 +5,17 @@ import {
   TokenResponse,
   ProjectResponse,
   SessionMeta,
+  SessionActivity,
 } from "./types";
-import { APP_TOKEN_CACHE } from "./constants";
+import { APP_TOKEN_CACHE, SESSION_ACTIVITY_PREFIX } from "./constants";
 import { fetchIntra } from "./rate";
 
 export const MAX_SESSION_TOKENS = 20;
+
+/** Minimum interval between activity writes for a session (5 minutes). */
+export const SESSION_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
+
+const SESSION_ACTIVITY_TTL = 90 * 24 * 60 * 60;
 
 /** Consecutive token failures tolerated before a user is marked broken. */
 export const MAX_TOKEN_FAILURES = 5;
@@ -31,6 +37,74 @@ export function sanitizeDeviceName(
   if (!value || !/^[A-Za-z ]{1,32}$/.test(value)) return undefined;
   const cleaned = value.replace(/\s+/g, " ").trim();
   return cleaned || undefined;
+}
+
+/**
+ * Stable per-device identity for grouping/reusing sessions. Prefers the
+ * user-chosen device name, falling back to the parsed User-Agent label so
+ * entries created before device names existed still collapse together.
+ */
+export function sessionDeviceKey(meta: SessionMeta | undefined): string {
+  if (!meta) return "";
+  return (meta.name || meta.label || "").trim().toLowerCase();
+}
+
+export function getSessionActivityKey(hash: string): string {
+  return `${SESSION_ACTIVITY_PREFIX}${hash}`;
+}
+
+export async function getSessionActivity(
+  env: Env,
+  hash: string,
+): Promise<SessionActivity> {
+  return (
+    (await env.BETTER_INTRA_KV.get<SessionActivity>(
+      getSessionActivityKey(hash),
+      { type: "json" },
+    )) || {}
+  );
+}
+
+export function sessionLastUsed(
+  activity: SessionActivity,
+  token: string,
+  meta: SessionMeta | undefined,
+): number {
+  return activity[token] ?? meta?.lastUsedAt ?? meta?.createdAt ?? 0;
+}
+
+export async function writeSessionActivity(
+  env: Env,
+  hash: string,
+  activity: SessionActivity,
+): Promise<void> {
+  await env.BETTER_INTRA_KV.put(
+    getSessionActivityKey(hash),
+    JSON.stringify(activity),
+    { expirationTtl: SESSION_ACTIVITY_TTL },
+  );
+}
+
+/**
+ * Best-effort refresh of a session's last-used timestamp. Throttled so we do
+ * not write to KV on every request, and stored under its own key so it never
+ * races a concurrent settings write on the main UserData blob.
+ */
+export async function touchSession(
+  env: Env,
+  hash: string,
+  data: UserData | null,
+  bearer: string,
+): Promise<void> {
+  if (!data || !bearer) return;
+  if (!getTokens(data).includes(bearer)) return;
+  const activity = await getSessionActivity(env, hash);
+  const now = Date.now();
+  if (activity[bearer] && now - activity[bearer] < SESSION_TOUCH_INTERVAL_MS) {
+    return;
+  }
+  activity[bearer] = now;
+  await writeSessionActivity(env, hash, activity);
 }
 
 export async function sessionIdForToken(token: string): Promise<string> {
