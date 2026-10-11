@@ -139,3 +139,9 @@ CREATE TABLE IF NOT EXISTS campus_locations (
   not_found INTEGER NOT NULL DEFAULT 0,
   cached_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
+
+CREATE TABLE IF NOT EXISTS cluster_occupancy_cache (
+  campus TEXT PRIMARY KEY,
+  response_body BLOB NOT NULL,
+  cached_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
