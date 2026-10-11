@@ -20,6 +20,7 @@ const MAX_PAGES = 20;
 export interface OccupancyEntry {
   host: string;
   login: string;
+  name: string;
   cdn_uri: string;
   begin_at: string;
   end_at: string | null;
@@ -29,7 +30,17 @@ interface RawLocation {
   host?: string | null;
   begin_at?: string | null;
   end_at?: string | null;
-  user?: { login?: string | null } | null;
+  user?: {
+    login?: string | null;
+    displayname?: string | null;
+    usual_full_name?: string | null;
+    first_name?: string | null;
+    last_name?: string | null;
+    image?: {
+      link?: string | null;
+      versions?: { large?: string | null; medium?: string | null } | null;
+    } | null;
+  } | null;
 }
 
 /**
@@ -99,10 +110,23 @@ export async function handleClusterOccupancy(
         const host = loc.host ?? "";
         const login = loc.user?.login ?? "";
         if (!host || !login) continue;
+        const image = loc.user?.image;
+        const name =
+          loc.user?.usual_full_name ||
+          loc.user?.displayname ||
+          [loc.user?.first_name, loc.user?.last_name]
+            .filter(Boolean)
+            .join(" ") ||
+          login;
         entries.push({
           host,
           login,
-          cdn_uri: `${CDN_BASE}/${login}.jpg`,
+          name,
+          cdn_uri:
+            image?.versions?.medium ||
+            image?.versions?.large ||
+            image?.link ||
+            `${CDN_BASE}/${login}.jpg`,
           begin_at: loc.begin_at ?? "",
           end_at: loc.end_at ?? null,
         });
