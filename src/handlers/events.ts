@@ -184,8 +184,7 @@ export async function handleEventSubscribers(
         login: u.login,
         displayName: u.usual_full_name ?? u.displayname ?? u.login,
         avatar:
-          u.image?.versions?.small ??
-          u.image?.link ??
+          u.image?.versions?.small ||
           `https://cdn.intra.42.fr/users/${u.login}.jpg`,
         location: u.location ?? null,
       });
