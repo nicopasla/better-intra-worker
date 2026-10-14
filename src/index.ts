@@ -15,7 +15,7 @@ import { handleProxy } from "./handlers/proxy";
 import { handleGhProxy } from "./handlers/gh-proxy";
 import { handleEvaluations } from "./handlers/evaluations";
 import { handleMe } from "./handlers/me";
-import { handleEvents } from "./handlers/events";
+import { handleEvents, handleEventSubscribers } from "./handlers/events";
 import { handleSubjectsReport, handleSubjectsState } from "./handlers/subjects";
 import {
   handleHideTheme,
@@ -289,6 +289,10 @@ export default {
 
     if (url.pathname === "/api/v1/private/events") {
       return handleEvents(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/event-subscribers") {
+      return handleEventSubscribers(request, env, loginParam, existingData);
     }
 
     if (url.pathname === "/api/v1/private/push/subscribe") {
