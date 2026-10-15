@@ -391,4 +391,63 @@ describe("handleSubjectsState", () => {
       lastChangedAt: 999,
     });
   });
+
+  it("backfills missing dates from the api for tracked slugs", async () => {
+    d1.subjects.set("libft", {
+      url: URL_A,
+      createdAt: null,
+      modifiedAt: null,
+      lastChangedAt: 999,
+    });
+    mockIntraApi(projectResponse(OLD_DATE, NEW_DATE));
+    const res = await handleSubjectsState(
+      get("https://x/state?slugs=libft"),
+      env,
+      "hash-a",
+      sessionData(),
+    );
+    const body = (await res.json()) as { subjects: any[] };
+    expect(body.subjects[0]).toEqual({
+      slug: "libft",
+      tracked: true,
+      name: null,
+      url: URL_A,
+      createdAt: OLD_DATE,
+      modifiedAt: NEW_DATE,
+      lastChangedAt: 999,
+    });
+    expect(d1.subjects.get("libft")).toEqual({
+      url: URL_A,
+      createdAt: OLD_DATE,
+      modifiedAt: NEW_DATE,
+      lastChangedAt: 999,
+    });
+  });
+
+  it("keeps dates empty when the api is unavailable", async () => {
+    d1.subjects.set("libft", {
+      url: URL_A,
+      createdAt: null,
+      modifiedAt: null,
+      lastChangedAt: null,
+    });
+    mockIntraApi(new Response("boom", { status: 500 }));
+    const res = await handleSubjectsState(
+      get("https://x/state?slugs=libft"),
+      env,
+      "hash-a",
+      sessionData(),
+    );
+    const body = (await res.json()) as { subjects: any[] };
+    expect(body.subjects[0]).toMatchObject({
+      createdAt: null,
+      modifiedAt: null,
+    });
+    expect(d1.subjects.get("libft")).toEqual({
+      url: URL_A,
+      createdAt: null,
+      modifiedAt: null,
+      lastChangedAt: null,
+    });
+  });
 });

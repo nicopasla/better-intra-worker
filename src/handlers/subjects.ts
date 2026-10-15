@@ -103,6 +103,30 @@ async function updateSubject(
     .run();
 }
 
+/**
+ * Rows seeded before the projects-API lookup exist without any dates. Fill them
+ * in lazily on the next read, without touching `last_changed_at` (a backfill is
+ * not a detected change).
+ */
+async function backfillDates(
+  env: Env,
+  slug: string,
+  row: SubjectRow,
+): Promise<SubjectRow> {
+  if (row.created_at != null || row.modified_at != null) return row;
+  const dates = await fetchProjectDates(env, slug);
+  if (!dates) return row;
+  await updateSubject(
+    env,
+    slug,
+    row.url,
+    dates.createdAt,
+    dates.modifiedAt,
+    row.last_changed_at,
+  );
+  return { ...row, created_at: dates.createdAt, modified_at: dates.modifiedAt };
+}
+
 export async function handleSubjectsReport(
   request: Request,
   env: Env,
@@ -244,7 +268,8 @@ export async function handleSubjectsState(
 
   const results: any[] = [];
   for (const slug of slugs) {
-    const row = await loadSubject(env, slug);
+    let row = await loadSubject(env, slug);
+    if (row) row = await backfillDates(env, slug, row);
     const name = await loadProjectName(env, slug);
     results.push({
       slug,
