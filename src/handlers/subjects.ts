@@ -1,15 +1,68 @@
 import { Env, UserData } from "../types";
-import { getBearerToken, jsonRes, textRes, validateSession } from "../utils";
+import {
+  getAppToken,
+  getBearerToken,
+  jsonRes,
+  textRes,
+  validateSession,
+} from "../utils";
+import { intraFetch } from "../rate";
+
+const API_BASE = "https://api.intra.42.fr";
 
 interface SubjectRow {
   url: string;
+  created_at: number | null;
+  modified_at: number | null;
   last_changed_at: number | null;
+}
+
+interface ProjectDates {
+  createdAt: number | null;
+  modifiedAt: number | null;
+}
+
+function toEpochMs(value: unknown): number | null {
+  if (typeof value !== "string") return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * Reads a project's timestamps from the 42 API. The PDF itself lives behind an
+ * authenticated CDN, so the shared registry uses the project record instead.
+ */
+async function fetchProjectDates(
+  env: Env,
+  slug: string,
+): Promise<ProjectDates | null> {
+  try {
+    const token = await getAppToken(env);
+    const res = await intraFetch(
+      env,
+      token,
+      `${API_BASE}/v2/projects/${encodeURIComponent(slug)}`,
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      created_at?: unknown;
+      updated_at?: unknown;
+    };
+    return {
+      createdAt: toEpochMs(data?.created_at),
+      modifiedAt: toEpochMs(data?.updated_at),
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function loadSubject(env: Env, slug: string): Promise<SubjectRow | null> {
   return (
     (await env.better_intra_d1
-      .prepare("SELECT url, last_changed_at FROM subjects WHERE slug = ?")
+      .prepare(
+        "SELECT url, created_at, modified_at, last_changed_at FROM subjects WHERE slug = ?",
+      )
       .bind(slug)
       .first<SubjectRow>()) ?? null
   );
@@ -29,9 +82,7 @@ async function insertSubject(
   url: string,
 ): Promise<void> {
   await env.better_intra_d1
-    .prepare(
-      "INSERT INTO subjects (slug, url, last_changed_at) VALUES (?, ?, NULL)",
-    )
+    .prepare("INSERT INTO subjects (slug, url) VALUES (?, ?)")
     .bind(slug, url)
     .run();
 }
@@ -40,11 +91,15 @@ async function updateSubject(
   env: Env,
   slug: string,
   url: string,
-  at: number,
+  createdAt: number | null,
+  modifiedAt: number | null,
+  lastChangedAt: number | null,
 ): Promise<void> {
   await env.better_intra_d1
-    .prepare("UPDATE subjects SET url = ?, last_changed_at = ? WHERE slug = ?")
-    .bind(url, at, slug)
+    .prepare(
+      "UPDATE subjects SET url = ?, created_at = ?, modified_at = ?, last_changed_at = ? WHERE slug = ?",
+    )
+    .bind(url, createdAt, modifiedAt, lastChangedAt, slug)
     .run();
 }
 
@@ -88,24 +143,79 @@ export async function handleSubjectsReport(
     if (!current) {
       // First time this subject is seen → register the link, no badge yet.
       await insertSubject(env, slug, url);
-      results.push({ slug, status: "first", name, lastChangedAt: null });
+      results.push({
+        slug,
+        status: "first",
+        name,
+        createdAt: null,
+        modifiedAt: null,
+        lastChangedAt: null,
+      });
       continue;
     }
 
     if (current.url === url) {
-      // Same link → nothing changed, return the recorded change date.
+      // Same link → nothing changed, return the recorded state.
       results.push({
         slug,
         status: "known",
         name,
+        createdAt: current.created_at,
+        modifiedAt: current.modified_at,
         lastChangedAt: current.last_changed_at,
       });
       continue;
     }
 
-    // Different link → record when it changed.
-    await updateSubject(env, slug, url, now);
-    results.push({ slug, status: "changed", name, lastChangedAt: now });
+    const dates = await fetchProjectDates(env, slug);
+    const newer =
+      dates?.modifiedAt != null &&
+      (current.modified_at == null || dates.modifiedAt > current.modified_at);
+
+    if (dates && newer) {
+      // The project itself was updated → record the change and its date.
+      await updateSubject(
+        env,
+        slug,
+        url,
+        dates.createdAt,
+        dates.modifiedAt,
+        now,
+      );
+      results.push({
+        slug,
+        status: "changed",
+        name,
+        createdAt: dates.createdAt,
+        modifiedAt: dates.modifiedAt,
+        lastChangedAt: now,
+      });
+      continue;
+    }
+
+    if (dates) {
+      // URL differs but the project wasn't updated (e.g. a language variant)
+      // → adopt the link quietly, keeping the recorded dates.
+      await updateSubject(
+        env,
+        slug,
+        url,
+        current.created_at,
+        current.modified_at,
+        current.last_changed_at,
+      );
+    }
+
+    // API unavailable (or dates not newer) → keep the stored state; a later
+    // visit retries the lookup without showing a badge.
+    results.push({
+      slug,
+      status: "known",
+      name,
+      createdAt: current.created_at,
+      modifiedAt: current.modified_at,
+      lastChangedAt: current.last_changed_at,
+    });
   }
 
   return jsonRes({ subjects: results });
@@ -141,6 +251,8 @@ export async function handleSubjectsState(
       tracked: !!row,
       name,
       url: row?.url ?? null,
+      createdAt: row?.created_at ?? null,
+      modifiedAt: row?.modified_at ?? null,
       lastChangedAt: row?.last_changed_at ?? null,
     });
   }
