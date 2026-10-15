@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   handleSubjectsReport,
   handleSubjectsState,
@@ -6,14 +6,9 @@ import {
 import { Env, UserData } from "../src/types";
 
 const TOKEN = "test-session-token";
-const SEED_DATE = Date.UTC(2026, 7, 11, 14, 19, 24);
-const NEW_DATE = Date.UTC(2026, 8, 1, 8, 9, 0);
 
 interface SubjectRecord {
   url: string;
-  subjectId: string | null;
-  createdAt: number | null;
-  modifiedAt: number | null;
   lastChangedAt: number | null;
 }
 
@@ -38,15 +33,7 @@ class MockD1 {
     const sql = this.sql;
     if (sql.includes("FROM subjects WHERE slug")) {
       const r = this.subjects.get(this.bindArgs[0]);
-      return r
-        ? {
-            url: r.url,
-            subject_id: r.subjectId,
-            created_at: r.createdAt,
-            modified_at: r.modifiedAt,
-            last_changed_at: r.lastChangedAt,
-          }
-        : null;
+      return r ? { url: r.url, last_changed_at: r.lastChangedAt } : null;
     }
     if (sql.includes("FROM projects WHERE slug")) {
       const name = this.projectNames.get(this.bindArgs[0]);
@@ -58,25 +45,13 @@ class MockD1 {
   async run(): Promise<any> {
     const sql = this.sql;
     if (sql.startsWith("INSERT INTO subjects")) {
-      const [slug, url, subjectId, createdAt, modifiedAt] = this.bindArgs;
-      this.subjects.set(slug, {
-        url,
-        subjectId,
-        createdAt,
-        modifiedAt,
-        lastChangedAt: null,
-      });
+      const [slug, url] = this.bindArgs;
+      this.subjects.set(slug, { url, lastChangedAt: null });
       return {};
     }
     if (sql.startsWith("UPDATE subjects")) {
-      const [url, subjectId, createdAt, modifiedAt, at, slug] = this.bindArgs;
-      this.subjects.set(slug, {
-        url,
-        subjectId,
-        createdAt,
-        modifiedAt,
-        lastChangedAt: at,
-      });
+      const [url, at, slug] = this.bindArgs;
+      this.subjects.set(slug, { url, lastChangedAt: at });
       return {};
     }
     return {};
@@ -109,21 +84,6 @@ function get(url: string): Request {
 const URL_A = "https://cdn.example.com/pdf/pdf/900001/en.subject.example.pdf";
 const URL_B = "https://cdn.example.com/pdf/pdf/900002/en.subject.example.pdf";
 
-function pdfResponse(modDate: string): Response {
-  const text = `<< /CreationDate (${modDate}) /ModDate (${modDate}) /Producer (pdfTeX-1.40.28) >>`;
-  const bytes = new Uint8Array([...text].map((c) => c.charCodeAt(0)));
-  return new Response(bytes, { status: 200 });
-}
-
-function mockPdfFetch(dates: string[]) {
-  const calls: string[] = [];
-  (globalThis as any).fetch = vi.fn(async (url: string) => {
-    calls.push(url);
-    return pdfResponse(dates.shift() ?? dates[dates.length - 1]);
-  });
-  return calls;
-}
-
 describe("handleSubjectsReport", () => {
   let d1: MockD1;
   let env: Env;
@@ -132,7 +92,6 @@ describe("handleSubjectsReport", () => {
     d1 = new MockD1();
     d1.projectNames.set("python-module-10", "Python Module 10");
     env = makeEnv(d1);
-    vi.restoreAllMocks();
   });
 
   it("rejects non-POST", async () => {
@@ -155,8 +114,7 @@ describe("handleSubjectsReport", () => {
     expect(res.status).toBe(401);
   });
 
-  it("seeds a new slug by reading the pdf metadata", async () => {
-    const calls = mockPdfFetch(["D:20260811161924+02'00'"]);
+  it("registers a new slug without a change date", async () => {
     const res = await handleSubjectsReport(
       post("https://x/report", {
         items: [{ slug: "python-module-10", url: URL_A }],
@@ -170,74 +128,35 @@ describe("handleSubjectsReport", () => {
       slug: "python-module-10",
       status: "first",
       name: "Python Module 10",
-      createdAt: SEED_DATE,
-      modifiedAt: SEED_DATE,
       lastChangedAt: null,
-      subjectId: "900001",
     });
-    expect(calls).toHaveLength(1);
     expect(d1.subjects.get("python-module-10")).toEqual({
       url: URL_A,
-      subjectId: "900001",
-      createdAt: SEED_DATE,
-      modifiedAt: SEED_DATE,
       lastChangedAt: null,
     });
   });
 
-  it("seeds with null dates when the pdf cannot be fetched", async () => {
-    (globalThis as any).fetch = vi.fn(async () => {
-      throw new Error("network down");
-    });
-    const res = await handleSubjectsReport(
-      post("https://x/report", {
-        items: [{ slug: "python-module-10", url: URL_A }],
-      }),
-      env,
-      "hash-a",
-      sessionData(),
-    );
-    const body = (await res.json()) as { subjects: any[] };
-    expect(body.subjects[0].status).toBe("first");
-    expect(body.subjects[0].createdAt).toBeNull();
-    expect(body.subjects[0].modifiedAt).toBeNull();
-  });
-
-  it("is known for an unchanged url without re-fetching the pdf", async () => {
-    const calls = mockPdfFetch(["D:20260811161924+02'00'"]);
-    await handleSubjectsReport(
-      post("https://x/report", { items: [{ slug: "libft", url: URL_A }] }),
-      env,
-      "hash-a",
-      sessionData(),
-    );
+  it("is known for an unchanged url and keeps the recorded change date", async () => {
+    d1.subjects.set("libft", { url: URL_A, lastChangedAt: 1234 });
     const res = await handleSubjectsReport(
       post("https://x/report", { items: [{ slug: "libft", url: URL_A }] }),
       env,
-      "hash-b",
+      "hash-a",
       sessionData(),
     );
     const body = (await res.json()) as { subjects: any[] };
     expect(body.subjects[0]).toMatchObject({
       status: "known",
-      createdAt: SEED_DATE,
-      modifiedAt: SEED_DATE,
+      lastChangedAt: 1234,
     });
-    expect(calls).toHaveLength(1);
+    expect(d1.subjects.get("libft")).toEqual({
+      url: URL_A,
+      lastChangedAt: 1234,
+    });
   });
 
-  it("detects a changed url, reads the new metadata and records the change", async () => {
-    const calls = mockPdfFetch([
-      "D:20260811161924+02'00'",
-      "D:20260901100900+02'00'",
-    ]);
-    await handleSubjectsReport(
-      post("https://x/report", { items: [{ slug: "minishell", url: URL_A }] }),
-      env,
-      "hash-a",
-      sessionData(),
-    );
-
+  it("detects a changed url and records when it changed", async () => {
+    d1.subjects.set("minishell", { url: URL_A, lastChangedAt: 111 });
     const res = await handleSubjectsReport(
       post("https://x/report", { items: [{ slug: "minishell", url: URL_B }] }),
       env,
@@ -247,23 +166,11 @@ describe("handleSubjectsReport", () => {
     const body = (await res.json()) as { subjects: any[] };
     const entry = body.subjects[0];
     expect(entry.status).toBe("changed");
-    expect(entry.modifiedAt).toBe(NEW_DATE);
     expect(entry.lastChangedAt).toBeTruthy();
-    expect(entry.from).toEqual({
-      subjectId: "900001",
-      modifiedAt: SEED_DATE,
-    });
-    expect(entry.to).toEqual({
-      subjectId: "900002",
-      modifiedAt: NEW_DATE,
-    });
-    expect(calls).toHaveLength(2);
+    expect(entry.lastChangedAt).toBeGreaterThan(111);
 
     expect(d1.subjects.get("minishell")).toEqual({
       url: URL_B,
-      subjectId: "900002",
-      createdAt: NEW_DATE,
-      modifiedAt: NEW_DATE,
       lastChangedAt: entry.lastChangedAt,
     });
   });
@@ -315,22 +222,14 @@ describe("handleSubjectsState", () => {
         slug: "libft",
         tracked: false,
         name: null,
-        subjectId: null,
-        createdAt: null,
-        modifiedAt: null,
+        url: null,
         lastChangedAt: null,
       },
     ]);
   });
 
-  it("returns the saved url and dates for tracked slugs", async () => {
-    d1.subjects.set("libft", {
-      url: URL_A,
-      subjectId: "900001",
-      createdAt: SEED_DATE,
-      modifiedAt: SEED_DATE,
-      lastChangedAt: 999,
-    });
+  it("returns the recorded url and change date for tracked slugs", async () => {
+    d1.subjects.set("libft", { url: URL_A, lastChangedAt: 999 });
     const res = await handleSubjectsState(
       get("https://x/state?slugs=libft"),
       env,
@@ -342,9 +241,7 @@ describe("handleSubjectsState", () => {
       slug: "libft",
       tracked: true,
       name: null,
-      subjectId: "900001",
-      createdAt: SEED_DATE,
-      modifiedAt: SEED_DATE,
+      url: URL_A,
       lastChangedAt: 999,
     });
   });
