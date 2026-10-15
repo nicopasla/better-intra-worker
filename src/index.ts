@@ -16,7 +16,6 @@ import { handleGhProxy } from "./handlers/gh-proxy";
 import { handleEvaluations } from "./handlers/evaluations";
 import { handleMe } from "./handlers/me";
 import { handleEvents, handleEventSubscribers } from "./handlers/events";
-import { handleSubjectsReport, handleSubjectsState } from "./handlers/subjects";
 import {
   handleHideTheme,
   handleLikeTheme,
@@ -313,14 +312,6 @@ export default {
 
     if (url.pathname === "/api/v1/private/push/test") {
       return handlePushTest(request, env, loginParam, existingData);
-    }
-
-    if (url.pathname === "/api/v1/private/subjects/report") {
-      return handleSubjectsReport(request, env, loginParam, existingData);
-    }
-
-    if (url.pathname === "/api/v1/private/subjects/state") {
-      return handleSubjectsState(request, env, loginParam, existingData);
     }
 
     if (url.pathname === "/api/v1/themes") {
