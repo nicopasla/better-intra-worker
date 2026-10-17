@@ -101,6 +101,18 @@ export async function handleEvaluations(
     return jsonRes({ tracked: false });
   }
 
+  if (action === "status") {
+    const row = await env.better_intra_d1
+      .prepare("SELECT evals_enabled FROM users WHERE hash = ?")
+      .bind(loginParam)
+      .first<{ evals_enabled: number }>();
+    return jsonRes({
+      tracked: row?.evals_enabled === 1,
+      pushTestedAt: existingData.pushTestedAt ?? null,
+      subscriptions: existingData.pushSubscriptions?.length ?? 0,
+    });
+  }
+
   if (action === "ping") {
     return jsonRes({ ok: true });
   }
