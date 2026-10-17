@@ -175,6 +175,18 @@ export async function handlePublicVisuals(
     avatarScale: Number(settings.PROFILE_AVATAR_SCALE ?? 100),
     badgeBg: settings.PROFILE_BADGE_BG || "",
 
+    // Badge wrapped around the profile username/login line
+    usernameBadge: {
+      bg: settings.PROFILE_USERNAME_BADGE_BG || "",
+      text: settings.PROFILE_USERNAME_BADGE_TEXT || "",
+      border: settings.PROFILE_USERNAME_BADGE_BORDER || "",
+      borderWidth: Number(settings.PROFILE_USERNAME_BADGE_BORDER_WIDTH ?? 1),
+      shape: settings.PROFILE_USERNAME_BADGE_SHAPE || "rounded",
+      titleNewline: settings.PROFILE_USERNAME_BADGE_TITLE_NEWLINE === true,
+      animation: settings.PROFILE_USERNAME_BADGE_ANIMATION || "none",
+      padding: Number(settings.PROFILE_USERNAME_BADGE_PADDING ?? 4),
+    },
+
     // Theme settings (for profile card)
     theme: {
       profileColor: settings.LOGTIME_CALENDAR_COLOR,
