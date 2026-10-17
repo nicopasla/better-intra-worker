@@ -324,15 +324,6 @@ export async function handlePushSubscribe(
     serializeUserData({ ...existingData!, pushSubscriptions: updated }),
   );
 
-  // Track this user in the eval cron (populates eval_states so both the
-  // upcoming list and their push notifications work) even without Discord.
-  await env.better_intra_d1
-    .prepare(
-      "INSERT INTO users (hash, evals_enabled) VALUES (?, 1) ON CONFLICT(hash) DO UPDATE SET evals_enabled = 1",
-    )
-    .bind(loginParam)
-    .run();
-
   return jsonRes({ ok: true, count: updated.length });
 }
 
@@ -435,6 +426,20 @@ export async function handlePushTest(
   const result = await sendWebPush(env, target, payload);
 
   const ok = result.status >= 200 && result.status < 300;
+  if (ok) {
+    // A delivered test is the prerequisite for enabling eval tracking, and it
+    // enables it right away in D1 (strongly consistent, unlike KV).
+    await env.BETTER_INTRA_KV.put(
+      loginParam,
+      serializeUserData({ ...existingData!, pushTestedAt: Date.now() }),
+    );
+    await env.better_intra_d1
+      .prepare(
+        "INSERT INTO users (hash, evals_enabled) VALUES (?, 1) ON CONFLICT(hash) DO UPDATE SET evals_enabled = 1",
+      )
+      .bind(loginParam)
+      .run();
+  }
   if (result.status === 0) return textRes("Failed to reach push service", 502);
   return jsonRes({ ok, ...result, status: result.status }, ok ? 200 : 502);
 }

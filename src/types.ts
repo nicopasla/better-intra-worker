@@ -55,6 +55,7 @@ export type UserData = {
   tokenBroken?: boolean;
   tokenFailures?: number;
   discordTestedAt?: number;
+  pushTestedAt?: number;
   pushSubscriptions?: PushSubscription[];
 };
 

@@ -58,6 +58,49 @@ export async function handleEvaluations(
     return jsonRes({ unregistered: true });
   }
 
+  if (action === "sync") {
+    let body: { enabled?: unknown } = {};
+    try {
+      body = await request.json();
+    } catch {
+      /* body required for sync */
+    }
+    const enabled = body?.enabled === true;
+
+    const evalRow = await env.better_intra_d1
+      .prepare("SELECT evals_enabled FROM users WHERE hash = ?")
+      .bind(loginParam)
+      .first<{ evals_enabled: number }>();
+    const currentlyTracked = evalRow?.evals_enabled === 1;
+
+    if (enabled) {
+      if (currentlyTracked) return jsonRes({ tracked: true });
+      // A stored subscription is enough: the PWA rolls it back when the test
+      // push fails, so existing subscribers (grandfathered) recover too.
+      const hasSubscription = (existingData.pushSubscriptions?.length ?? 0) > 0;
+      if (!existingData.pushTestedAt && !hasSubscription) {
+        return jsonRes({ tracked: false, reason: "push_not_tested" });
+      }
+      await env.better_intra_d1
+        .prepare(
+          "INSERT INTO users (hash, evals_enabled) VALUES (?, 1) ON CONFLICT(hash) DO UPDATE SET evals_enabled = 1",
+        )
+        .bind(loginParam)
+        .run();
+      return jsonRes({ tracked: true });
+    }
+
+    // Disabling PWA notifications only clears tracking when no Discord is
+    // linked, so Discord-only users keep receiving eval DMs.
+    if (existingData.discordId) return jsonRes({ tracked: currentlyTracked });
+
+    await env.better_intra_d1
+      .prepare("UPDATE users SET evals_enabled = 0 WHERE hash = ?")
+      .bind(loginParam)
+      .run();
+    return jsonRes({ tracked: false });
+  }
+
   if (action === "ping") {
     return jsonRes({ ok: true });
   }
