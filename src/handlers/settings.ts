@@ -182,7 +182,7 @@ export async function handlePublicVisuals(
       border: settings.PROFILE_USERNAME_BADGE_BORDER || "",
       borderWidth: Number(settings.PROFILE_USERNAME_BADGE_BORDER_WIDTH ?? 1),
       shape: settings.PROFILE_USERNAME_BADGE_SHAPE || "rounded",
-      titleNewline: settings.PROFILE_USERNAME_BADGE_TITLE_NEWLINE === true,
+      titleNewline: settings.PROFILE_USERNAME_BADGE_TITLE_NEWLINE !== false,
       animation: settings.PROFILE_USERNAME_BADGE_ANIMATION || "none",
       padding: Number(settings.PROFILE_USERNAME_BADGE_PADDING ?? 4),
     },
