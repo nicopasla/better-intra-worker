@@ -174,6 +174,7 @@ export async function handlePublicVisuals(
     avatarPosY: Number(settings.PROFILE_AVATAR_POSITION_Y ?? 50),
     avatarScale: Number(settings.PROFILE_AVATAR_SCALE ?? 100),
     badgeBg: settings.PROFILE_BADGE_BG || "",
+    nameAlign: settings.PROFILE_NAME_ALIGN || "left",
 
     // Badge wrapped around the profile username/login line
     usernameBadge: {
@@ -185,6 +186,7 @@ export async function handlePublicVisuals(
       titleNewline: settings.PROFILE_USERNAME_BADGE_TITLE_NEWLINE !== false,
       animation: settings.PROFILE_USERNAME_BADGE_ANIMATION || "none",
       padding: Number(settings.PROFILE_USERNAME_BADGE_PADDING ?? 4),
+      align: settings.PROFILE_USERNAME_BADGE_ALIGN || "left",
     },
 
     // Theme settings (for profile card)
