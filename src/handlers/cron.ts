@@ -4,9 +4,22 @@ import { intraFetch } from "../rate";
 import { sendDiscordDm, DiscordEmbed } from "./discord";
 import { sendWebPush, PushPayload } from "./push";
 import { buildEvalPush, buildCorrectedPush } from "./eval-notify";
+import { normalizeIsoUtc } from "../time";
 
 const CONCURRENCY = 2;
 const DEADLINE_MS = 30_000;
+
+/**
+ * D1 is the source of truth for the Upcoming card, so notifications must use the
+ * same instant. The live API value can drift (reschedules / timezone
+ * representation) and must not leak into pushes.
+ */
+export function pickNotifyBeginAt(
+  stored: string | null | undefined,
+  api: string | null | undefined,
+): string {
+  return normalizeIsoUtc(stored || api);
+}
 
 function isInQuietHours(userData: UserData): boolean {
   if (!userData?.discordQuietEnabled) return false;
@@ -136,7 +149,7 @@ async function processEvaluatorItem(
   settings: Record<string, unknown> | undefined,
 ) {
   const id = item.id;
-  const beginAt: string = item.begin_at;
+  const beginAt = normalizeIsoUtc(item.begin_at);
   const team = item.team ?? null;
   const projectId = team?.project_id ?? null;
   const project = projectId ? (projectMap[String(projectId)] ?? null) : null;
@@ -151,14 +164,22 @@ async function processEvaluatorItem(
     const correctedsVisible =
       Array.isArray(item.correcteds) && item.correcteds.length > 0;
 
-    let row: { state: string; correcteds: string | null } | null = null;
+    let row: {
+      state: string;
+      correcteds: string | null;
+      begin_at: string | null;
+    } | null = null;
     try {
       row = await env.better_intra_d1
         .prepare(
-          "SELECT state, correcteds FROM eval_states WHERE hash = ? AND eval_id = ? AND role = ?",
+          "SELECT state, correcteds, begin_at FROM eval_states WHERE hash = ? AND eval_id = ? AND role = ?",
         )
         .bind(hash, id, role)
-        .first<{ state: string; correcteds: string | null }>();
+        .first<{
+          state: string;
+          correcteds: string | null;
+          begin_at: string | null;
+        }>();
     } catch (e) {
       console.warn(
         `[cron] D1 SELECT eval_states failed ${shortHash} eval=${id}: ${e}`,
@@ -167,6 +188,15 @@ async function processEvaluatorItem(
     }
 
     const currentState = row?.state ?? null;
+    // D1 is the source of truth for the Upcoming card, so notify with the same
+    // instant. The live API value can drift (reschedules / timezone
+    // representation) and must not leak into notifications.
+    const notifyBeginAt = pickNotifyBeginAt(row?.begin_at, beginAt);
+    if (row?.begin_at && row.begin_at !== beginAt) {
+      console.log(
+        `[cron] ${shortHash} eval=${id} begin_at mismatch d1=${row.begin_at} api=${beginAt} using=d1`,
+      );
+    }
 
     const correctedsLogins: string[] = correctedsVisible
       ? item.correcteds.map((c: any) => String(c.login))
@@ -223,10 +253,10 @@ async function processEvaluatorItem(
                   },
                 ]
               : []),
-            { name: "Time", value: formatTime(beginAt), inline: true },
+            { name: "Time", value: formatTime(notifyBeginAt), inline: true },
             { name: "Correcting", value: logins },
           ],
-          timestamp: beginAt,
+          timestamp: notifyBeginAt,
         };
         env.better_intra_d1
           .prepare(
@@ -251,7 +281,7 @@ async function processEvaluatorItem(
             ...buildEvalPush({
               kind: "revealed",
               project: projectName,
-              beginAt,
+              beginAt: notifyBeginAt,
               correcteds: correctedsLogins,
             }),
             url: "https://mobile.betterintra.com/",
@@ -311,9 +341,9 @@ async function processEvaluatorItem(
                   },
                 ]
               : []),
-            { name: "Time", value: formatTime(beginAt), inline: true },
+            { name: "Time", value: formatTime(notifyBeginAt), inline: true },
           ],
-          timestamp: beginAt,
+          timestamp: notifyBeginAt,
         };
         env.better_intra_d1
           .prepare(
@@ -336,7 +366,7 @@ async function processEvaluatorItem(
             ...buildEvalPush({
               kind: "booked",
               project: projectName,
-              beginAt,
+              beginAt: notifyBeginAt,
             }),
             url: "https://mobile.betterintra.com/",
             tag: `eval-${id}-booked`,
@@ -360,7 +390,7 @@ async function processCorrectedItem(
   settings: Record<string, unknown> | undefined,
 ) {
   const id = item.id;
-  const beginAt: string = item.begin_at;
+  const beginAt = normalizeIsoUtc(item.begin_at);
   const projectId = item.team?.project_id ?? null;
   const project = projectId ? (projectMap[String(projectId)] ?? null) : null;
   const projectName = project?.name ?? null;
@@ -373,14 +403,14 @@ async function processCorrectedItem(
   const state = correctorInvisible ? "booked" : "revealed";
   const shortHash = hash.slice(0, 6);
 
-  let row: { state: string } | null = null;
+  let row: { state: string; begin_at: string | null } | null = null;
   try {
     row = await env.better_intra_d1
       .prepare(
-        "SELECT state FROM eval_corrected WHERE hash = ? AND eval_id = ?",
+        "SELECT state, begin_at FROM eval_corrected WHERE hash = ? AND eval_id = ?",
       )
       .bind(hash, id)
-      .first<{ state: string }>();
+      .first<{ state: string; begin_at: string | null }>();
   } catch (e) {
     console.warn(
       `[cron] D1 SELECT eval_corrected failed ${shortHash} eval=${id}: ${e}`,
@@ -388,6 +418,13 @@ async function processCorrectedItem(
     return;
   }
   const currentState = row?.state ?? null;
+  // Match the Upcoming card (D1) rather than a potentially drifted API value.
+  const notifyBeginAt = pickNotifyBeginAt(row?.begin_at, beginAt);
+  if (row?.begin_at && row.begin_at !== beginAt) {
+    console.log(
+      `[cron] ${shortHash} eval=${id} begin_at mismatch (corrected) d1=${row.begin_at} api=${beginAt} using=d1`,
+    );
+  }
 
   if (state === "revealed") {
     try {
@@ -428,7 +465,7 @@ async function processCorrectedItem(
         ctx.waitUntil(
           pushTransition(env, hash, pushSubs, {
             ...buildCorrectedPush({
-              beginAt,
+              beginAt: notifyBeginAt,
               corrector: correctorLogin,
             }),
             url: "https://mobile.betterintra.com/",

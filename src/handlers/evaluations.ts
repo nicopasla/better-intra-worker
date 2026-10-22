@@ -1,5 +1,6 @@
 import { Env, UserData } from "../types";
 import { getBearerToken, jsonRes, textRes, validateSession } from "../utils";
+import { normalizeIsoUtc } from "../time";
 
 export async function handleEvaluations(
   request: Request,
@@ -125,13 +126,13 @@ export async function handleEvaluations(
                 p.name AS project, p.slug, 'evaluator' AS role, NULL AS corrector
          FROM eval_states es
          LEFT JOIN projects p ON es.project_id = p.id
-         WHERE es.hash = ? AND es.begin_at >= ? AND es.state IN ('booked', 'revealed')
+         WHERE es.hash = ? AND datetime(es.begin_at) >= datetime(?) AND es.state IN ('booked', 'revealed')
          UNION ALL
          SELECT ec.eval_id AS id, ec.begin_at AS begin_at, ec.state, NULL AS correcteds,
                 p.name AS project, p.slug, 'corrected' AS role, ec.corrector AS corrector
          FROM eval_corrected ec
          LEFT JOIN projects p ON ec.project_id = p.id
-         WHERE ec.hash = ? AND ec.begin_at >= ? AND ec.state IN ('booked', 'revealed')
+         WHERE ec.hash = ? AND datetime(ec.begin_at) >= datetime(?) AND ec.state IN ('booked', 'revealed')
          ORDER BY begin_at ASC`,
       )
       .bind(loginParam, nowIso, loginParam, nowIso)
@@ -154,7 +155,7 @@ export async function handleEvaluations(
     return jsonRes({
       items: (results || []).map((r) => ({
         id: r.id,
-        beginAt: r.begin_at,
+        beginAt: normalizeIsoUtc(r.begin_at),
         state: r.state,
         project: r.project ?? null,
         slug: r.slug ?? null,

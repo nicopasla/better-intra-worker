@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { pickNotifyBeginAt } from "../src/handlers/cron";
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
@@ -23,5 +24,26 @@ describe("formatTime", () => {
   it("handles midnight", () => {
     const result = formatTime("2024-01-01T00:00:00Z");
     expect(result).toMatch(/^\d{2}:\d{2}$/);
+  });
+});
+
+describe("pickNotifyBeginAt", () => {
+  it("prefers the persisted D1 value over the live API value", () => {
+    expect(
+      pickNotifyBeginAt("2026-10-22T09:00:00.000Z", "2026-10-22T11:00:00.000Z"),
+    ).toBe("2026-10-22T09:00:00.000Z");
+  });
+
+  it("falls back to the API value when D1 has none", () => {
+    expect(pickNotifyBeginAt(null, "2026-10-22T09:00:00.000Z")).toBe(
+      "2026-10-22T09:00:00.000Z",
+    );
+    expect(pickNotifyBeginAt(undefined, "2026-10-22T09:00:00.000Z")).toBe(
+      "2026-10-22T09:00:00.000Z",
+    );
+  });
+
+  it("returns an empty string when neither value exists", () => {
+    expect(pickNotifyBeginAt(null, undefined)).toBe("");
   });
 });
