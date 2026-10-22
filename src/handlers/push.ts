@@ -354,6 +354,15 @@ export async function handlePushUnsubscribe(
     loginParam,
     serializeUserData({ ...existingData!, pushSubscriptions: updated }),
   );
+
+  // No device left to receive pushes, so stop the eval cron for this user.
+  if (updated.length === 0) {
+    await env.better_intra_d1
+      .prepare("UPDATE users SET evals_enabled = 0 WHERE hash = ?")
+      .bind(loginParam)
+      .run();
+  }
+
   return jsonRes({ ok: true, count: updated.length });
 }
 

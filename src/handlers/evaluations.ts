@@ -20,45 +20,6 @@ export async function handleEvaluations(
   const url = new URL(request.url);
   const action = url.searchParams.get("action") || "";
 
-  if (action === "register") {
-    if (!existingData.discordId) {
-      return jsonRes({ registered: false, reason: "discord_not_linked" });
-    }
-
-    const evalRow = await env.better_intra_d1
-      .prepare("SELECT evals_enabled FROM users WHERE hash = ?")
-      .bind(loginParam)
-      .first<{ evals_enabled: number }>();
-    const alreadyEnabled = evalRow?.evals_enabled === 1;
-
-    if (!alreadyEnabled && !existingData.discordTestedAt) {
-      return jsonRes({ registered: false, reason: "discord_not_tested" });
-    }
-
-    const tokenRow = await env.better_intra_d1
-      .prepare("SELECT forty_two_token FROM users WHERE hash = ?")
-      .bind(loginParam)
-      .first<{ forty_two_token: string | null }>();
-    if (!tokenRow?.forty_two_token) {
-      return jsonRes({ registered: false, reason: "missing_42_token" });
-    }
-    await env.better_intra_d1
-      .prepare(
-        "INSERT INTO users (hash, evals_enabled) VALUES (?, 1) ON CONFLICT(hash) DO UPDATE SET evals_enabled = 1",
-      )
-      .bind(loginParam)
-      .run();
-    return jsonRes({ registered: true });
-  }
-
-  if (action === "unregister") {
-    await env.better_intra_d1
-      .prepare("UPDATE users SET evals_enabled = 0 WHERE hash = ?")
-      .bind(loginParam)
-      .run();
-    return jsonRes({ unregistered: true });
-  }
-
   if (action === "sync") {
     let body: { enabled?: unknown } = {};
     try {
@@ -91,9 +52,12 @@ export async function handleEvaluations(
       return jsonRes({ tracked: true });
     }
 
-    // Disabling PWA notifications only clears tracking when no Discord is
-    // linked, so Discord-only users keep receiving eval DMs.
-    if (existingData.discordId) return jsonRes({ tracked: currentlyTracked });
+    // Disabling notifications on one device must not kill tracking while
+    // another device still has a subscription. The push unsubscribe handler
+    // clears tracking when the last subscription is removed.
+    if ((existingData.pushSubscriptions?.length ?? 0) > 0) {
+      return jsonRes({ tracked: currentlyTracked });
+    }
 
     await env.better_intra_d1
       .prepare("UPDATE users SET evals_enabled = 0 WHERE hash = ?")

@@ -228,8 +228,6 @@ export async function handlePrivateSettings(
       settings: existingData.settings || {},
       revision: existingData.settingsRevision ?? null,
       activeSessions: tokensList.length,
-      discordId: existingData.discordId,
-      discordUsername: existingData.discordUsername,
     });
   }
 

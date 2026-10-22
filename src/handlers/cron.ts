@@ -1,7 +1,6 @@
 import { Env, UserData, PushSubscription } from "../types";
 import { serializeUserData, resolveUserToken } from "../utils";
 import { intraFetch } from "../rate";
-import { sendDiscordDm, DiscordEmbed } from "./discord";
 import { sendWebPush, PushPayload } from "./push";
 import { buildEvalPush, buildCorrectedPush } from "./eval-notify";
 import { normalizeIsoUtc } from "../time";
@@ -19,27 +18,6 @@ export function pickNotifyBeginAt(
   api: string | null | undefined,
 ): string {
   return normalizeIsoUtc(stored || api);
-}
-
-function isInQuietHours(userData: UserData): boolean {
-  if (!userData?.discordQuietEnabled) return false;
-  const now = new Date();
-  const offset = userData.discordQuietTimezone ?? 0;
-  const currentMinutes =
-    (now.getUTCHours() * 60 + now.getUTCMinutes() - offset + 1440) % 1440;
-  const [startH, startM] = (userData.discordQuietStart || "22:00")
-    .split(":")
-    .map(Number);
-  const [endH, endM] = (userData.discordQuietEnd || "08:00")
-    .split(":")
-    .map(Number);
-  const start = startH * 60 + startM;
-  const end = endH * 60 + endM;
-
-  if (start < end) {
-    return currentMinutes >= start && currentMinutes < end;
-  }
-  return currentMinutes >= start || currentMinutes < end;
 }
 
 async function fetchScaleTeams(
@@ -144,7 +122,6 @@ async function processEvaluatorItem(
   item: any,
   hash: string,
   projectMap: Record<string, { name: string; slug: string }>,
-  discordId: string | undefined,
   pushSubs: PushSubscription[],
   settings: Record<string, unknown> | undefined,
 ) {
@@ -154,7 +131,6 @@ async function processEvaluatorItem(
   const projectId = team?.project_id ?? null;
   const project = projectId ? (projectMap[String(projectId)] ?? null) : null;
   const projectName = project?.name ?? null;
-  const projectSlug = project?.slug ?? null;
 
   const shortHash = hash.slice(0, 6);
   const isInvisible = (v: any) => typeof v === "string" && v === "invisible";
@@ -209,12 +185,6 @@ async function processEvaluatorItem(
       console.log(
         `[cron] ${shortHash} eval=${id} ${transition} project=${projectName ?? "?"}`,
       );
-      const logins = item.correcteds
-        .map(
-          (c: any) =>
-            `[${c.login}](https://profile-v3.intra.42.fr/users/${c.login})`,
-        )
-        .join(", ");
 
       try {
         if (currentState === "booked") {
@@ -237,42 +207,6 @@ async function processEvaluatorItem(
           `[cron] D1 WRITE eval_states failed ${shortHash} eval=${id}: ${e}`,
         );
         return;
-      }
-
-      if (env.DISCORD_ENABLED === "true" && discordId) {
-        const embed: DiscordEmbed = {
-          title: "Evaluation in 15 min",
-          color: 0x57f287,
-          fields: [
-            ...(projectName
-              ? [
-                  {
-                    name: "Project",
-                    value: `[${projectName}](https://projects.intra.42.fr/projects/${projectSlug})`,
-                    inline: true,
-                  },
-                ]
-              : []),
-            { name: "Time", value: formatTime(notifyBeginAt), inline: true },
-            { name: "Correcting", value: logins },
-          ],
-          timestamp: notifyBeginAt,
-        };
-        env.better_intra_d1
-          .prepare(
-            "UPDATE eval_states SET notified_at = unixepoch() WHERE hash = ? AND eval_id = ? AND role = ?",
-          )
-          .bind(hash, id, role)
-          .run()
-          .catch(() => {});
-        ctx.waitUntil(sendDiscordDm(discordId, [embed], env));
-        console.log(
-          `[discord] ${shortHash} DM queued type=revealed eval=${id}`,
-        );
-      } else {
-        console.log(
-          `[discord] ${shortHash} DM skipped type=revealed eval=${id} reason=${env.DISCORD_ENABLED !== "true" ? "global_disabled" : "no_discord_id"}`,
-        );
       }
 
       if (settings?.EVAL_NOTIFY_EVALUATOR_REVEALED !== false) {
@@ -325,39 +259,6 @@ async function processEvaluatorItem(
           `[cron] D1 WRITE eval_states failed ${shortHash} eval=${id}: ${e}`,
         );
         return;
-      }
-
-      if (env.DISCORD_ENABLED === "true" && discordId) {
-        const embed: DiscordEmbed = {
-          title: "Evaluation Booked",
-          color: 0x5865f2,
-          fields: [
-            ...(projectName
-              ? [
-                  {
-                    name: "Project",
-                    value: `[${projectName}](https://projects.intra.42.fr/projects/${projectSlug})`,
-                    inline: true,
-                  },
-                ]
-              : []),
-            { name: "Time", value: formatTime(notifyBeginAt), inline: true },
-          ],
-          timestamp: notifyBeginAt,
-        };
-        env.better_intra_d1
-          .prepare(
-            "UPDATE eval_states SET notified_at = unixepoch() WHERE hash = ? AND eval_id = ? AND role = ?",
-          )
-          .bind(hash, id, role)
-          .run()
-          .catch(() => {});
-        ctx.waitUntil(sendDiscordDm(discordId, [embed], env));
-        console.log(`[discord] ${shortHash} DM queued type=booked eval=${id}`);
-      } else {
-        console.log(
-          `[discord] ${shortHash} DM skipped type=booked eval=${id} reason=${env.DISCORD_ENABLED !== "true" ? "global_disabled" : "no_discord_id"}`,
-        );
       }
 
       if (settings?.EVAL_NOTIFY_EVALUATOR_BOOKED !== false) {
@@ -530,11 +431,6 @@ async function processCronUser(
     }
   }
 
-  if (isInQuietHours(userData)) {
-    console.log(`[${prefix}] ${shortHash} skip: quiet hours`);
-    return;
-  }
-
   // Use a cached token only. Token refreshes are spread across the every-minute
   // sweep so the eval cron never clusters refresh requests.
   const tokenResult = await resolveUserToken(env, userData, hash, null, {
@@ -547,14 +443,6 @@ async function processCronUser(
     return;
   }
   const fortyTwoToken = tokenResult.token;
-
-  const discordId: string | undefined =
-    userData.settings?.DISCORD_ENABLED !== false
-      ? userData.discordId
-      : undefined;
-  if (userData.settings?.DISCORD_ENABLED === false && userData.discordId) {
-    console.log(`[${prefix}] ${shortHash} discord disabled in settings`);
-  }
 
   const pushSubs: PushSubscription[] =
     userData.settings?.PUSH_ENABLED !== false
@@ -587,7 +475,6 @@ async function processCronUser(
         item,
         hash,
         projectMap,
-        discordId,
         pushSubs,
         settings,
       );
@@ -610,7 +497,6 @@ async function processCronUser(
           item,
           hash,
           projectMap,
-          discordId,
           pushSubs,
           settings,
         );
@@ -728,11 +614,6 @@ export async function handleRevealCatchup(
     );
   }
   console.log(`[reveal-catchup] done`);
-}
-
-function formatTime(iso: string): string {
-  const unix = Math.floor(new Date(iso).getTime() / 1000);
-  return `<t:${unix}:t>`;
 }
 
 const SWEEP_CURSOR_KEY = "TOKEN_SWEEP_CURSOR";

@@ -40,14 +40,6 @@ import {
   handleFutureStudentsList,
   handleFutureStudentsRefresh,
 } from "./handlers/students";
-import {
-  handleDiscordLink,
-  handleDiscordUnlink,
-  handleDiscordQuiet,
-  handleDiscordTest,
-  handleDiscordAuth,
-  handleDiscordCallback,
-} from "./handlers/discord";
 import { handleCronTrigger } from "./handlers/cron-trigger";
 import {
   handlePushPublicKey,
@@ -110,10 +102,6 @@ export default {
       return handleGhProxy(request);
     }
 
-    if (url.pathname === "/api/v1/private/discord/test") {
-      return handleDiscordTest(request, env);
-    }
-
     if (url.pathname === "/api/v1/private/projects/refresh") {
       if (request.method !== "POST") return textRes("Method not allowed", 405);
       let body: any;
@@ -143,14 +131,6 @@ export default {
 
     if (url.pathname === "/api/v1/future-students/refresh") {
       return handleFutureStudentsRefresh(request, env);
-    }
-
-    if (url.pathname === "/discord/auth") {
-      return handleDiscordAuth(request, env);
-    }
-
-    if (url.pathname === "/discord/callback") {
-      return handleDiscordCallback(request, env);
     }
 
     const calMatch = url.pathname.match(/^\/calendar\/([^\/]+)\.ics$/);
@@ -333,18 +313,6 @@ export default {
 
     if (url.pathname === "/api/v1/private/outstanding") {
       return handleOutstanding(request, env, loginParam, existingData);
-    }
-
-    if (url.pathname === "/api/v1/private/discord/link") {
-      return handleDiscordLink(request, env, loginParam, existingData);
-    }
-
-    if (url.pathname === "/api/v1/private/discord/unlink") {
-      return handleDiscordUnlink(request, env, loginParam, existingData);
-    }
-
-    if (url.pathname === "/api/v1/private/discord/quiet") {
-      return handleDiscordQuiet(request, env, loginParam, existingData);
     }
 
     if (url.pathname === "/api/v1/private/profile-stats") {
