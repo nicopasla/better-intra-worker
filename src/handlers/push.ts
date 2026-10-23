@@ -6,7 +6,7 @@ import {
   textRes,
   validateSession,
 } from "../utils";
-import { buildEvalPush } from "./eval-notify";
+import { buildEvalPush, isValidTimeZone } from "./eval-notify";
 
 const MAX_SUBSCRIPTIONS_PER_USER = 10;
 
@@ -15,9 +15,10 @@ export interface PushPayload {
   body: string;
   url?: string;
   tag?: string;
-  /** Structured eval fields so the service worker can render local time. */
+  /** Eval details for clients that want to open a specific view. The time is
+   *  already rendered in `body`: formatting it in the service worker is not
+   *  reliable because a background worker's timezone is UTC on Android. */
   kind?: "booked" | "revealed" | "corrected";
-  beginAt?: string;
   project?: string | null;
   correcteds?: string[];
   corrector?: string;
@@ -296,6 +297,7 @@ export async function handlePushSubscribe(
   let body: {
     endpoint?: unknown;
     keys?: { p256dh?: unknown; auth?: unknown };
+    timeZone?: unknown;
   };
   try {
     body = await request.json();
@@ -310,13 +312,16 @@ export async function handlePushSubscribe(
     return textRes("Invalid subscription", 400);
   }
 
+  // The device's IANA timezone lets pushes render the eval time correctly even
+  // when the installed service worker cannot (Android reports UTC in SWs).
+  const timeZone = isValidTimeZone(body?.timeZone) ? body.timeZone : undefined;
   const ua = request.headers.get("User-Agent")?.slice(0, 120);
   const others = (existingData!.pushSubscriptions || []).filter(
     (s) => s.endpoint !== endpoint,
   );
   const updated: PushSubscription[] = [
     ...others,
-    { endpoint, p256dh, auth: authSecret, ua, addedAt: Date.now() },
+    { endpoint, p256dh, auth: authSecret, ua, timeZone, addedAt: Date.now() },
   ].slice(-MAX_SUBSCRIPTIONS_PER_USER);
 
   await env.BETTER_INTRA_KV.put(
@@ -380,6 +385,7 @@ export async function handlePushTest(
     endpoint?: unknown;
     keys?: { p256dh?: unknown; auth?: unknown };
     variant?: unknown;
+    timeZone?: unknown;
   } = {};
   try {
     body = await request.json();
@@ -395,12 +401,18 @@ export async function handlePushTest(
           endpoint: body.endpoint,
           p256dh: body.keys.p256dh,
           auth: body.keys.auth as string,
+          timeZone: isValidTimeZone(body?.timeZone)
+            ? body.timeZone
+            : undefined,
           addedAt: Date.now(),
         }
       : ((existingData!.pushSubscriptions || [])[0] ?? null);
 
   if (!target) return textRes("No push subscription", 404);
 
+  const timeZone = isValidTimeZone(body?.timeZone)
+    ? body.timeZone
+    : target.timeZone;
   const testBeginAt = new Date(Date.now() + 15 * 60000).toISOString();
   const variant = typeof body?.variant === "string" ? body.variant : "";
   const payload: PushPayload =
@@ -410,6 +422,7 @@ export async function handlePushTest(
             kind: "booked",
             project: null,
             beginAt: testBeginAt,
+            timeZone,
           }),
           url: "https://mobile.betterintra.com/",
           tag: "ft-test-booked",
@@ -421,6 +434,7 @@ export async function handlePushTest(
               project: "ft_transcendence",
               beginAt: testBeginAt,
               correcteds: ["elmo", "kermit"],
+              timeZone,
             }),
             url: "https://mobile.betterintra.com/",
             tag: "ft-test-revealed",

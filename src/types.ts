@@ -52,6 +52,8 @@ export interface PushSubscription {
   p256dh: string;
   auth: string;
   ua?: string;
+  /** IANA timezone of the device that registered this subscription. */
+  timeZone?: string;
   addedAt: number;
 }
 

@@ -2,7 +2,11 @@ import { Env, UserData, PushSubscription } from "../types";
 import { serializeUserData, resolveUserToken } from "../utils";
 import { intraFetch } from "../rate";
 import { sendWebPush, PushPayload } from "./push";
-import { buildEvalPush, buildCorrectedPush } from "./eval-notify";
+import {
+  buildEvalPush,
+  buildCorrectedPush,
+  isValidTimeZone,
+} from "./eval-notify";
 import { normalizeIsoUtc } from "../time";
 
 const CONCURRENCY = 2;
@@ -78,21 +82,48 @@ async function getLogin(
   return null;
 }
 
+type PushPayloadBuilder = (timeZone: string | undefined) => PushPayload;
+
+/** Sends one payload per subscription, grouping by device timezone so the eval
+ *  time is bumped into local time here rather than in the service worker (whose
+ *  own timezone is UTC on Android). */
 async function pushTransition(
   env: Env,
   hash: string,
   subs: PushSubscription[],
-  payload: PushPayload,
+  build: PushPayloadBuilder,
+  meta: { url: string; tag: string },
+  fallbackTimeZone?: string | null,
 ): Promise<void> {
   if (!subs || subs.length === 0) return;
   if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return;
 
-  const results = await Promise.allSettled(
-    subs.map(async (sub) => ({
-      endpoint: sub.endpoint,
-      status: (await sendWebPush(env, sub, payload)).status,
-    })),
-  );
+  const groups = new Map<string, PushSubscription[]>();
+  for (const sub of subs) {
+    const tz = sub.timeZone || fallbackTimeZone || "";
+    const group = groups.get(tz);
+    if (group) group.push(sub);
+    else groups.set(tz, [sub]);
+  }
+
+  const sends: Promise<{ endpoint: string; status: number }>[] = [];
+  for (const [tz, group] of groups) {
+    const payload: PushPayload = {
+      ...build(tz || undefined),
+      url: meta.url,
+      tag: meta.tag,
+    };
+    for (const sub of group) {
+      sends.push(
+        sendWebPush(env, sub, payload).then((res) => ({
+          endpoint: sub.endpoint,
+          status: res.status,
+        })),
+      );
+    }
+  }
+
+  const results = await Promise.allSettled(sends);
 
   const stale = new Set<string>();
   for (const r of results) {
@@ -116,6 +147,43 @@ async function pushTransition(
   }
 }
 
+/** Campus timezone of the user, used when a subscription has none yet (device
+ *  registered before timezones were stored). Cached per user. */
+async function getCampusTimeZone(
+  env: Env,
+  hash: string,
+  fortyTwoToken: string,
+): Promise<string | null> {
+  const key = `TZ_${hash}`;
+  const cached = await env.BETTER_INTRA_KV.get(key);
+  if (cached !== null) return isValidTimeZone(cached) ? cached : null;
+  try {
+    const res = await intraFetch(
+      env,
+      fortyTwoToken,
+      "https://api.intra.42.fr/v2/me",
+    );
+    if (!res.ok) throw new Error(`/v2/me ${res.status}`);
+    const me = (await res.json()) as {
+      campus?: Array<{ time_zone?: string }>;
+    };
+    const timeZone = (me.campus || [])
+      .map((campus) => campus.time_zone)
+      .find(isValidTimeZone);
+    if (!timeZone) throw new Error("no campus timezone");
+    await env.BETTER_INTRA_KV.put(key, timeZone);
+    return timeZone;
+  } catch {
+    // Back off for an hour so a challenged API doesn't add one request per run.
+    try {
+      await env.BETTER_INTRA_KV.put(key, "", { expirationTtl: 3600 });
+    } catch {
+      /* best effort */
+    }
+    return null;
+  }
+}
+
 async function processEvaluatorItem(
   env: Env,
   ctx: ExecutionContext,
@@ -124,6 +192,7 @@ async function processEvaluatorItem(
   projectMap: Record<string, { name: string; slug: string }>,
   pushSubs: PushSubscription[],
   settings: Record<string, unknown> | undefined,
+  fallbackTimeZone?: string | null,
 ) {
   const id = item.id;
   const beginAt = normalizeIsoUtc(item.begin_at);
@@ -211,16 +280,24 @@ async function processEvaluatorItem(
 
       if (settings?.EVAL_NOTIFY_EVALUATOR_REVEALED !== false) {
         ctx.waitUntil(
-          pushTransition(env, hash, pushSubs, {
-            ...buildEvalPush({
-              kind: "revealed",
-              project: projectName,
-              beginAt: notifyBeginAt,
-              correcteds: correctedsLogins,
-            }),
-            url: "https://mobile.betterintra.com/",
-            tag: `eval-${id}-revealed`,
-          }),
+          pushTransition(
+            env,
+            hash,
+            pushSubs,
+            (timeZone) =>
+              buildEvalPush({
+                kind: "revealed",
+                project: projectName,
+                beginAt: notifyBeginAt,
+                correcteds: correctedsLogins,
+                timeZone,
+              }),
+            {
+              url: "https://mobile.betterintra.com/",
+              tag: `eval-${id}-revealed`,
+            },
+            fallbackTimeZone,
+          ),
         );
       }
     } else if (
@@ -263,15 +340,23 @@ async function processEvaluatorItem(
 
       if (settings?.EVAL_NOTIFY_EVALUATOR_BOOKED !== false) {
         ctx.waitUntil(
-          pushTransition(env, hash, pushSubs, {
-            ...buildEvalPush({
-              kind: "booked",
-              project: projectName,
-              beginAt: notifyBeginAt,
-            }),
-            url: "https://mobile.betterintra.com/",
-            tag: `eval-${id}-booked`,
-          }),
+          pushTransition(
+            env,
+            hash,
+            pushSubs,
+            (timeZone) =>
+              buildEvalPush({
+                kind: "booked",
+                project: projectName,
+                beginAt: notifyBeginAt,
+                timeZone,
+              }),
+            {
+              url: "https://mobile.betterintra.com/",
+              tag: `eval-${id}-booked`,
+            },
+            fallbackTimeZone,
+          ),
         );
       }
     }
@@ -289,6 +374,7 @@ async function processCorrectedItem(
   projectMap: Record<string, { name: string; slug: string }>,
   pushSubs: PushSubscription[],
   settings: Record<string, unknown> | undefined,
+  fallbackTimeZone?: string | null,
 ) {
   const id = item.id;
   const beginAt = normalizeIsoUtc(item.begin_at);
@@ -364,14 +450,22 @@ async function processCorrectedItem(
       );
       if (settings?.EVAL_NOTIFY_CORRECTED_REVEALED !== false) {
         ctx.waitUntil(
-          pushTransition(env, hash, pushSubs, {
-            ...buildCorrectedPush({
-              beginAt: notifyBeginAt,
-              corrector: correctorLogin,
-            }),
-            url: "https://mobile.betterintra.com/",
-            tag: `eval-corrected-${id}-revealed`,
-          }),
+          pushTransition(
+            env,
+            hash,
+            pushSubs,
+            (timeZone) =>
+              buildCorrectedPush({
+                beginAt: notifyBeginAt,
+                corrector: correctorLogin,
+                timeZone,
+              }),
+            {
+              url: "https://mobile.betterintra.com/",
+              tag: `eval-corrected-${id}-revealed`,
+            },
+            fallbackTimeZone,
+          ),
         );
       }
     }
@@ -461,6 +555,11 @@ async function processCronUser(
 
   const me = await getLogin(env, hash, fortyTwoToken);
   const settings = userData.settings;
+  // Only needed while some device has no stored timezone (pre-migration subs).
+  const fallbackTimeZone =
+    pushSubs.length > 0 && pushSubs.some((sub) => !sub.timeZone)
+      ? await getCampusTimeZone(env, hash, fortyTwoToken)
+      : null;
 
   for (const item of rawData) {
     const correcteds = item.correcteds;
@@ -477,6 +576,7 @@ async function processCronUser(
         projectMap,
         pushSubs,
         settings,
+        fallbackTimeZone,
       );
     } else if (correctorInvisible) {
       await processCorrectedItem(
@@ -487,6 +587,7 @@ async function processCronUser(
         projectMap,
         pushSubs,
         settings,
+        fallbackTimeZone,
       );
     } else if (me) {
       // Both sides revealed → resolve by whether the user is the corrector.
@@ -499,6 +600,7 @@ async function processCronUser(
           projectMap,
           pushSubs,
           settings,
+          fallbackTimeZone,
         );
       } else {
         await processCorrectedItem(
@@ -509,6 +611,7 @@ async function processCronUser(
           projectMap,
           pushSubs,
           settings,
+          fallbackTimeZone,
         );
       }
     }
