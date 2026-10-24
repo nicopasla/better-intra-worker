@@ -189,6 +189,10 @@ export async function handleFriendsData(
           (userData?.settings?.PROFILE_IMAGE_URL as string) || null;
         friend.avatarBg =
           (userData?.settings?.PROFILE_AVATAR_BG as string) || "transparent";
+        friend.avatarShape =
+          userData?.settings?.PROFILE_AVATAR_SHAPE === "square"
+            ? "square"
+            : "round";
         friend.avatarPosX =
           (userData?.settings?.PROFILE_AVATAR_POSITION_X as number) ?? 50;
         friend.avatarPosY =
@@ -198,6 +202,7 @@ export async function handleFriendsData(
       } catch {
         friend.customAvatar = null;
         friend.avatarBg = "transparent";
+        friend.avatarShape = "round";
         friend.avatarPosX = 50;
         friend.avatarPosY = 50;
         friend.avatarScale = 100;

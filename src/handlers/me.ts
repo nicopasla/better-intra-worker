@@ -10,7 +10,7 @@ import {
   validateSession,
 } from "../utils";
 import { intraFetch } from "../rate";
-import { isWorkerImageUrl, setCustomAvatar } from "./custom-avatars";
+import { isAvatarUrl, setCustomAvatar } from "./custom-avatars";
 
 const API_BASE = "https://api.intra.42.fr";
 const ME_CACHE_TTL = 60;
@@ -72,10 +72,7 @@ export async function handleMe(
     );
     // Backfill the public custom-avatar lookup for pre-existing accounts.
     const avatar = existingData.settings?.PROFILE_IMAGE_URL;
-    if (
-      typeof avatar === "string" &&
-      isWorkerImageUrl(avatar, new URL(request.url).origin)
-    ) {
+    if (typeof avatar === "string" && isAvatarUrl(avatar)) {
       await setCustomAvatar(env, login, avatar);
     }
   }
@@ -194,6 +191,7 @@ export async function handleMe(
     achievementsCount: achievements.length,
     customAvatar: (s.PROFILE_IMAGE_URL as string) || null,
     avatarBg: (s.PROFILE_AVATAR_BG as string) || "transparent",
+    avatarShape: s.PROFILE_AVATAR_SHAPE === "square" ? "square" : "round",
     avatarPosX: Number(s.PROFILE_AVATAR_POSITION_X ?? 50),
     avatarPosY: Number(s.PROFILE_AVATAR_POSITION_Y ?? 50),
     avatarScale: Number(s.PROFILE_AVATAR_SCALE ?? 100),

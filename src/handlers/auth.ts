@@ -21,6 +21,7 @@ import {
 } from "../utils";
 import { AUTH_CODE_PREFIX } from "../constants";
 import { fetchIntra } from "../rate";
+import { isAvatarUrl, setCustomAvatar } from "./custom-avatars";
 
 const PWA_HOST = "mobile.betterintra.com";
 
@@ -240,6 +241,11 @@ export async function handleCallback(
         tokenFailures: 0,
       }),
     );
+
+    const customAvatar = existing?.settings?.PROFILE_IMAGE_URL;
+    if (typeof customAvatar === "string" && isAvatarUrl(customAvatar)) {
+      await setCustomAvatar(env, rawLogin, customAvatar);
+    }
 
     // Record activity only for the session that just logged in. Other sessions
     // keep their own timestamps (or fall back to createdAt) and refresh through

@@ -18,13 +18,10 @@ export function ensureCustomAvatarsTable(env: Env): Promise<void> {
   return tableReady;
 }
 
-export function isWorkerImageUrl(url: string, origin: string): boolean {
+export function isAvatarUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    return (
-      parsed.origin === origin &&
-      parsed.pathname.startsWith("/api/v1/public/images/")
-    );
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
   } catch {
     return false;
   }

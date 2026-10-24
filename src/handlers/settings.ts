@@ -12,7 +12,7 @@ import {
 } from "../utils";
 import {
   deleteCustomAvatar,
-  isWorkerImageUrl,
+  isAvatarUrl,
   setCustomAvatar,
 } from "./custom-avatars";
 
@@ -34,7 +34,6 @@ async function settingsLogin(
 
 /** Keeps the public custom-avatar lookup in sync with PROFILE_IMAGE_URL. */
 async function syncCustomAvatar(
-  request: Request,
   env: Env,
   loginParam: string,
   data: UserData | null,
@@ -51,8 +50,7 @@ async function syncCustomAvatar(
   if (next === previous) return;
   const login = await settingsLogin(env, loginParam, data);
   if (!login) return;
-  const origin = new URL(request.url).origin;
-  if (next && isWorkerImageUrl(next, origin)) {
+  if (next && isAvatarUrl(next)) {
     await setCustomAvatar(env, login, next);
   } else {
     await deleteCustomAvatar(env, login);
@@ -156,7 +154,7 @@ export async function handleSettingsRestore(
       settingsRevision: revision,
     }),
   );
-  await syncCustomAvatar(request, env, loginParam, existingData, settings);
+  await syncCustomAvatar(env, loginParam, existingData, settings);
   return jsonRes({ ok: true, revision, settings });
 }
 
@@ -215,6 +213,8 @@ export async function handlePublicVisuals(
     backgroundMode: settings.PROFILE_BACKGROUND_MODE || "fill",
     backgroundColor: settings.PROFILE_BACKGROUND_COLOR || "",
     avatarBg: settings.PROFILE_AVATAR_BG || "transparent",
+    avatarShape:
+      settings.PROFILE_AVATAR_SHAPE === "square" ? "square" : "round",
     decoration: settings.PROFILE_DECORATION || "none",
     avatarPosX: Number(settings.PROFILE_AVATAR_POSITION_X ?? 50),
     avatarPosY: Number(settings.PROFILE_AVATAR_POSITION_Y ?? 50),
@@ -329,13 +329,7 @@ export async function handlePrivateSettings(
         settingsRevision: revision,
       }),
     );
-    await syncCustomAvatar(
-      request,
-      env,
-      loginParam,
-      existingData,
-      settingsToSave,
-    );
+    await syncCustomAvatar(env, loginParam, existingData, settingsToSave);
     return jsonRes({ ok: true, revision });
   }
 

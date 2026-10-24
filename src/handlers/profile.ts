@@ -111,6 +111,7 @@ export interface ProfileVisuals {
   profileColor: string | null;
   customAvatar: string | null;
   avatarBg: string;
+  avatarShape: "round" | "square";
   avatarPosX: number;
   avatarPosY: number;
   avatarScale: number;
@@ -149,6 +150,7 @@ export function pickVisuals(
     profileColor: asColor(s.LOGTIME_CALENDAR_COLOR),
     customAvatar: asUrl(s.PROFILE_IMAGE_URL),
     avatarBg: asColor(s.PROFILE_AVATAR_BG) ?? "transparent",
+    avatarShape: s.PROFILE_AVATAR_SHAPE === "square" ? "square" : "round",
     avatarPosX: asNumber(s.PROFILE_AVATAR_POSITION_X, 0, 100, 50),
     avatarPosY: asNumber(s.PROFILE_AVATAR_POSITION_Y, 0, 100, 50),
     avatarScale: asNumber(s.PROFILE_AVATAR_SCALE, 10, 400, 100),

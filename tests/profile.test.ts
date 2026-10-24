@@ -139,6 +139,7 @@ describe("pickVisuals", () => {
       profileColor: "#00bcba",
       customAvatar: "https://api.betterintra.com/api/v1/public/images/abc",
       avatarBg: "#5b21b6",
+      avatarShape: "round",
       avatarPosX: 60,
       avatarPosY: 40,
       avatarScale: 130,
@@ -173,6 +174,15 @@ describe("pickVisuals", () => {
 
   it("handles a missing settings blob", () => {
     expect(pickVisuals().customAvatar).toBeNull();
+  });
+
+  it("only accepts round or square avatar shapes", () => {
+    expect(pickVisuals({ PROFILE_AVATAR_SHAPE: "square" }).avatarShape).toBe(
+      "square",
+    );
+    expect(pickVisuals({ PROFILE_AVATAR_SHAPE: "nope" }).avatarShape).toBe(
+      "round",
+    );
   });
 });
 
