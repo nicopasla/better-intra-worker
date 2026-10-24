@@ -41,6 +41,7 @@ export type UserData = {
   }[];
   fortyTwoToken?: string; // AES-GCM encrypted JSON: { access_token, refresh_token, expires_at }
   fortyTwoUserId?: number;
+  fortyTwoLogin?: string;
   tokenBroken?: boolean;
   tokenFailures?: number;
   pushTestedAt?: number;

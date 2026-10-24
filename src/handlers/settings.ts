@@ -10,9 +10,54 @@ import {
   validateSession,
   writeSessionActivity,
 } from "../utils";
+import {
+  deleteCustomAvatar,
+  isWorkerImageUrl,
+  setCustomAvatar,
+} from "./custom-avatars";
 
 const MAX_LOOK_STRING = 64;
 const SETTINGS_HISTORY_LIMIT = 5;
+
+async function settingsLogin(
+  env: Env,
+  loginParam: string,
+  data: UserData | null,
+): Promise<string | null> {
+  if (data?.fortyTwoLogin) return data.fortyTwoLogin;
+  const cached = await env.BETTER_INTRA_KV.get<{ login?: string }>(
+    `ME_CACHE_${loginParam}`,
+    { type: "json" },
+  );
+  return typeof cached?.login === "string" ? cached.login : null;
+}
+
+/** Keeps the public custom-avatar lookup in sync with PROFILE_IMAGE_URL. */
+async function syncCustomAvatar(
+  request: Request,
+  env: Env,
+  loginParam: string,
+  data: UserData | null,
+  settings: Record<string, unknown>,
+): Promise<void> {
+  const previous =
+    typeof data?.settings?.PROFILE_IMAGE_URL === "string"
+      ? data.settings.PROFILE_IMAGE_URL
+      : "";
+  const next =
+    typeof settings.PROFILE_IMAGE_URL === "string"
+      ? settings.PROFILE_IMAGE_URL
+      : "";
+  if (next === previous) return;
+  const login = await settingsLogin(env, loginParam, data);
+  if (!login) return;
+  const origin = new URL(request.url).origin;
+  if (next && isWorkerImageUrl(next, origin)) {
+    await setCustomAvatar(env, login, next);
+  } else {
+    await deleteCustomAvatar(env, login);
+  }
+}
 
 interface SettingsHistoryEntry {
   revision: string | null;
@@ -111,6 +156,7 @@ export async function handleSettingsRestore(
       settingsRevision: revision,
     }),
   );
+  await syncCustomAvatar(request, env, loginParam, existingData, settings);
   return jsonRes({ ok: true, revision, settings });
 }
 
@@ -283,12 +329,21 @@ export async function handlePrivateSettings(
         settingsRevision: revision,
       }),
     );
+    await syncCustomAvatar(
+      request,
+      env,
+      loginParam,
+      existingData,
+      settingsToSave,
+    );
     return jsonRes({ ok: true, revision });
   }
 
   if (request.method === "DELETE") {
     const url = new URL(request.url);
     if (url.searchParams.get("all") === "true") {
+      const login = await settingsLogin(env, loginParam, existingData);
+      if (login) await deleteCustomAvatar(env, login);
       await env.BETTER_INTRA_KV.delete(loginParam);
       await env.BETTER_INTRA_KV.delete(getSessionActivityKey(loginParam));
       return textRes("All cloud data deleted");

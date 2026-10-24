@@ -53,7 +53,6 @@ import { handleAnnouncement } from "./handlers/announcement";
 import { handleStats } from "./handlers/stats";
 import { handleImageUpload } from "./handlers/image-upload";
 import { handleImageServe } from "./handlers/image-serve";
-import { handleAvatarProxy } from "./handlers/avatar";
 import { Env, UserData } from "./types";
 import {
   isOriginAllowed,
@@ -144,13 +143,6 @@ export default {
     );
     if (imgMatch) {
       return handleImageServe(request, env, imgMatch[1]);
-    }
-
-    const avatarMatch = url.pathname.match(
-      /^\/api\/v1\/public\/avatar\/([^/]+)$/,
-    );
-    if (avatarMatch) {
-      return handleAvatarProxy(request, env, avatarMatch[1]);
     }
 
     if (url.pathname === "/api/v1/public/announcement") {

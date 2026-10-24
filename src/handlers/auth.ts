@@ -235,6 +235,7 @@ export async function handleCallback(
         ...existing,
         sessionTokens: activeTokens,
         sessionMeta,
+        fortyTwoLogin: rawLogin,
         tokenBroken: false,
         tokenFailures: 0,
       }),

@@ -145,3 +145,9 @@ CREATE TABLE IF NOT EXISTS cluster_occupancy_cache (
   response_body BLOB NOT NULL,
   cached_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
+
+CREATE TABLE IF NOT EXISTS custom_avatars (
+  login TEXT PRIMARY KEY,
+  url TEXT NOT NULL,
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);

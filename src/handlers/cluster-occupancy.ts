@@ -10,6 +10,7 @@ import {
   validateSession,
 } from "../utils";
 import { intraFetch } from "../rate";
+import { getCustomAvatarMap } from "./custom-avatars";
 
 const API_BASE = "https://api.intra.42.fr";
 const CDN_BASE = "https://cdn.intra.42.fr/users";
@@ -22,6 +23,7 @@ export interface OccupancyEntry {
   login: string;
   name: string;
   cdn_uri: string;
+  custom_avatar: string | null;
   begin_at: string;
   end_at: string | null;
 }
@@ -127,6 +129,7 @@ export async function handleClusterOccupancy(
             image?.versions?.large ||
             image?.link ||
             `${CDN_BASE}/${login}.jpg`,
+          custom_avatar: null,
           begin_at: loc.begin_at ?? "",
           end_at: loc.end_at ?? null,
         });
@@ -135,6 +138,11 @@ export async function handleClusterOccupancy(
     }
   } catch {
     return textRes("Failed to fetch occupancy", 502);
+  }
+
+  const customAvatars = await getCustomAvatarMap(env);
+  for (const entry of entries) {
+    entry.custom_avatar = customAvatars.get(entry.login.toLowerCase()) ?? null;
   }
 
   const body = { campus, entries, updatedAt: Date.now() };

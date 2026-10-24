@@ -4,11 +4,13 @@ import {
   getCursusMap,
   jsonRes,
   resolveUserToken,
+  serializeUserData,
   textRes,
   tokenFailureResponse,
   validateSession,
 } from "../utils";
 import { intraFetch } from "../rate";
+import { isWorkerImageUrl, setCustomAvatar } from "./custom-avatars";
 
 const API_BASE = "https://api.intra.42.fr";
 const ME_CACHE_TTL = 60;
@@ -63,6 +65,20 @@ export async function handleMe(
   const me = (await meRes.json()) as any;
 
   const login: string = me.login;
+  if (!existingData.fortyTwoLogin) {
+    await env.BETTER_INTRA_KV.put(
+      loginParam,
+      serializeUserData({ ...existingData, fortyTwoLogin: login }),
+    );
+    // Backfill the public custom-avatar lookup for pre-existing accounts.
+    const avatar = existingData.settings?.PROFILE_IMAGE_URL;
+    if (
+      typeof avatar === "string" &&
+      isWorkerImageUrl(avatar, new URL(request.url).origin)
+    ) {
+      await setCustomAvatar(env, login, avatar);
+    }
+  }
   const cursusRes = await intraFetch(
     env,
     token,

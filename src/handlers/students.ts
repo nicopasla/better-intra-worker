@@ -11,6 +11,7 @@ import {
   validateSession,
 } from "../utils";
 import { intraFetch } from "../rate";
+import { getCustomAvatarMap } from "./custom-avatars";
 
 const API_BASE = "https://api.intra.42.fr";
 const BELGIUM_CAMPUS_ID = 12;
@@ -57,6 +58,7 @@ export interface StudentEntry {
   login: string;
   displayname: string;
   image_url: string;
+  custom_avatar?: string | null;
   begin_at: string | null;
   blackholed_at: string | null;
   active: boolean;
@@ -487,13 +489,24 @@ export async function handleStudentsList(
   const paged = url.searchParams.has("limit");
   const pageOpts = paged ? parseStudentPageOptions(url) : null;
 
-  const respond = (row: CacheRow): Response => {
-    if (!paged || !pageOpts) return cacheResponse(origin, row);
+  const respond = async (row: CacheRow): Promise<Response> => {
+    const avatars = await getCustomAvatarMap(env);
+    if (!paged && avatars.size === 0) return cacheResponse(origin, row);
+
     let entries: StudentEntry[] = [];
     try {
       entries = JSON.parse(row.data) as StudentEntry[];
     } catch {
       entries = [];
+    }
+    if (avatars.size > 0) {
+      for (const entry of entries) {
+        entry.custom_avatar =
+          avatars.get(entry.login.toLowerCase()) ?? null;
+      }
+    }
+    if (!paged || !pageOpts) {
+      return jsonRes({ cached_at: row.cached_at, data: entries });
     }
     return jsonRes({
       cached_at: row.cached_at,
