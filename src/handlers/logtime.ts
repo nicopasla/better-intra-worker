@@ -11,6 +11,11 @@ import {
 } from "../utils";
 import { intraFetch } from "../rate";
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Keeps a single request under Workers' subrequest budget; later calls resume. */
+const MAX_SYNC_PAGES = 30;
+const PAGE_SIZE = 100;
+
 interface LocationEntry {
   id: number;
   begin_at: string;
@@ -22,14 +27,14 @@ async function fetchLocationsPage(
   token: string,
   targetLogin: string,
   page: number,
-  pageSize: number,
   rangeStart: string,
   rangeEnd: string,
+  sort: "begin_at" | "-begin_at",
 ): Promise<LocationEntry[]> {
   const qs =
     `?range%5Bbegin_at%5D=${encodeURIComponent(rangeStart)},${encodeURIComponent(rangeEnd)}` +
-    `&sort=begin_at` +
-    `&page%5Bsize%5D=${pageSize}&page%5Bnumber%5D=${page}`;
+    `&sort=${sort}` +
+    `&page%5Bsize%5D=${PAGE_SIZE}&page%5Bnumber%5D=${page}`;
 
   const res = await intraFetch(
     env,
@@ -39,6 +44,63 @@ async function fetchLocationsPage(
   if (!res.ok) return [];
   const data = (await res.json()) as LocationEntry[];
   return Array.isArray(data) ? data : [];
+}
+
+interface FetchedRange {
+  sessions: LocationEntry[];
+  pages: number;
+  /** The page budget ran out before the range was exhausted. */
+  capped: boolean;
+}
+
+async function fetchRange(
+  env: Env,
+  token: string,
+  targetLogin: string,
+  rangeStart: string,
+  rangeEnd: string,
+  sort: "begin_at" | "-begin_at",
+  maxPages: number,
+): Promise<FetchedRange> {
+  const sessions: LocationEntry[] = [];
+  let page = 1;
+  let pages = 0;
+
+  while (true) {
+    if (pages >= maxPages) return { sessions, pages, capped: true };
+
+    const data = await fetchLocationsPage(
+      env,
+      token,
+      targetLogin,
+      page,
+      rangeStart,
+      rangeEnd,
+      sort,
+    );
+    pages++;
+
+    if (data.length === 0) break;
+    sessions.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    page++;
+  }
+
+  return { sessions, pages, capped: false };
+}
+
+/** Adds sessions to a per-day seconds map (keyed by the UTC start date). */
+function accumulate(
+  days: Record<string, number>,
+  sessions: LocationEntry[],
+): void {
+  for (const session of sessions) {
+    const date = session.begin_at.slice(0, 10);
+    const begin = new Date(session.begin_at).getTime();
+    const end = new Date(session.end_at).getTime();
+    const seconds = Math.round((end - begin) / 1000);
+    if (seconds > 0) days[date] = (days[date] || 0) + seconds;
+  }
 }
 
 export async function handleLogtimeHistory(
@@ -61,6 +123,15 @@ export async function handleLogtimeHistory(
   if (!targetLogin) return textRes("Missing user parameter", 400);
 
   const before = url.searchParams.get("before");
+  // `back=1` loads the most recent days first (PWA overview) and backfills
+  // older months on each call — the calendar is usually read newest-first.
+  const back = url.searchParams.get("back") === "1";
+  // Lower bound for a sync: never fetch older than this.
+  const sinceParam = url.searchParams.get("since");
+  const sinceFloor =
+    sinceParam && /^\d{4}-\d{2}-\d{2}$/.test(sinceParam)
+      ? `${sinceParam}T00:00:00Z`
+      : "2020-01-01T00:00:00Z";
 
   try {
     const loginHash = await hashLogin(targetLogin);
@@ -72,82 +143,106 @@ export async function handleLogtimeHistory(
       .first<{ days_json: ArrayBuffer | string; updated_at: number } | null>();
 
     const now = Date.now();
-
     const decoded = row ? await decryptBytes(env, row.days_json) : null;
     const existing: Record<string, number> = decoded ? JSON.parse(decoded) : {};
-    const existingDates = Object.keys(existing);
-    const maxDate =
-      existingDates.length > 0 ? existingDates.sort().slice(-1)[0] : null;
-
-    const rangeStart = maxDate
-      ? new Date(
-          new Date(maxDate).getTime() + 24 * 60 * 60 * 1000,
-        ).toISOString()
-      : "2020-01-01T00:00:00Z";
-
+    const dates = Object.keys(existing).sort();
+    const maxDate = dates.length > 0 ? dates[dates.length - 1] : null;
+    const minDate = dates.length > 0 ? dates[0] : null;
     const rangeEnd = before
       ? `${before}T00:00:00Z`
-      : new Date(now + 24 * 60 * 60 * 1000).toISOString();
+      : new Date(now + DAY_MS).toISOString();
 
-    if (rangeStart < rangeEnd) {
-      const token = await getUserToken(
+    const token = await getUserToken(
+      env,
+      existingData,
+      loginParam,
+      request.headers.get("CF-IPCountry"),
+    );
+
+    const save = async (days: Record<string, number>): Promise<void> => {
+      await env.better_intra_d1
+        .prepare(
+          "INSERT OR REPLACE INTO logtime_history (login_hash, days_json, updated_at) VALUES (?, ?, ?)",
+        )
+        .bind(loginHash, await encryptBytes(env, JSON.stringify(days)), now)
+        .run();
+    };
+
+    if (!token) {
+      await save(existing);
+      return jsonRes({ days: existing });
+    }
+
+    if (!back) {
+      // Incremental forward sync from the newest stored day (extension path).
+      const rangeStart = maxDate
+        ? new Date(new Date(maxDate).getTime() + DAY_MS).toISOString()
+        : sinceFloor;
+      if (rangeStart >= rangeEnd) return jsonRes({ days: existing });
+
+      const { sessions, capped } = await fetchRange(
         env,
-        existingData,
-        loginParam,
-        request.headers.get("CF-IPCountry"),
+        token,
+        targetLogin,
+        rangeStart,
+        rangeEnd,
+        "begin_at",
+        MAX_SYNC_PAGES,
       );
-      if (!token) {
-        await env.better_intra_d1
-          .prepare(
-            "INSERT OR REPLACE INTO logtime_history (login_hash, days_json, updated_at) VALUES (?, ?, ?)",
-          )
-          .bind(loginHash, await encryptBytes(env, JSON.stringify(existing)), now)
-          .run();
-        return jsonRes({ days: existing });
-      }
+      accumulate(existing, sessions);
+      await save(existing);
+      return jsonRes(
+        capped ? { days: existing, partial: true } : { days: existing },
+      );
+    }
 
-      const pageSize = 100;
-      const sessions: LocationEntry[] = [];
-      let page = 1;
+    // Newest-first mode: close the forward gap, then extend history backwards.
+    let budget = MAX_SYNC_PAGES;
+    let partial = false;
 
-      while (true) {
-        const data = await fetchLocationsPage(
+    const forwardStart = maxDate
+      ? new Date(new Date(maxDate).getTime() + DAY_MS).toISOString()
+      : null;
+    if (!forwardStart || forwardStart < rangeEnd) {
+      const start = forwardStart ?? rangeEnd;
+      if (start < rangeEnd) {
+        const forward = await fetchRange(
           env,
           token,
           targetLogin,
-          page,
-          pageSize,
-          rangeStart,
+          start,
           rangeEnd,
+          "begin_at",
+          budget,
         );
-
-        if (data.length === 0) break;
-
-        sessions.push(...data);
-
-        if (data.length < pageSize) break;
-        page++;
-      }
-
-      for (const session of sessions) {
-        const date = session.begin_at.slice(0, 10);
-        const begin = new Date(session.begin_at).getTime();
-        const end = new Date(session.end_at).getTime();
-        const seconds = Math.round((end - begin) / 1000);
-        if (seconds > 0) {
-          existing[date] = (existing[date] || 0) + seconds;
-        }
+        budget -= forward.pages;
+        accumulate(existing, forward.sessions);
       }
     }
 
-    await env.better_intra_d1
-      .prepare(
-        "INSERT OR REPLACE INTO logtime_history (login_hash, days_json, updated_at) VALUES (?, ?, ?)",
-      )
-      .bind(loginHash, await encryptBytes(env, JSON.stringify(existing)), now)
-      .run();
+    // Sessions on the oldest stored day were fully counted already; stop just
+    // before it so the day isn't added twice.
+    const olderEnd = minDate ? `${minDate}T00:00:00Z` : rangeEnd;
+    if (budget > 0 && sinceFloor < olderEnd) {
+      const older = await fetchRange(
+        env,
+        token,
+        targetLogin,
+        sinceFloor,
+        olderEnd,
+        "-begin_at",
+        budget,
+      );
+      accumulate(existing, older.sessions);
+      partial = older.capped;
+    } else if (budget <= 0) {
+      partial = true;
+    }
 
-    return jsonRes({ days: existing });
+    await save(existing);
+    return jsonRes(
+      partial ? { days: existing, partial: true } : { days: existing },
+    );
   } catch {
     return jsonRes({ days: {} });
   }
