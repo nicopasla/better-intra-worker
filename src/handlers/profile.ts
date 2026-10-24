@@ -135,6 +135,22 @@ const asColor = (value: unknown): string | null => {
 const asMode = (value: unknown): string =>
   typeof value === "string" && BANNER_MODES.has(value) ? value : "fill";
 
+/** A 42 group with its own colour, shared with the PWA so badges match 42. */
+export interface ProfileGroup {
+  name: string;
+  color: string | null;
+}
+
+export function pickGroups(groups: unknown): ProfileGroup[] {
+  if (!Array.isArray(groups)) return [];
+  return groups
+    .map((g: any) => ({
+      name: typeof g?.name === "string" ? g.name.trim() : "",
+      color: asColor(g?.color),
+    }))
+    .filter((g): g is ProfileGroup => Boolean(g.name));
+}
+
 const asNumber = (value: unknown, min: number, max: number, base: number) => {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return base;
@@ -237,7 +253,7 @@ export function buildProfilePayload(
     campus?: { id?: number; name?: string }[];
     pool_month?: string | null;
     pool_year?: string | null;
-    groups?: { name?: string }[];
+    groups?: { name?: string; color?: string }[];
     projects_users?: unknown;
     cursus_users?: RawCursusUser[];
   };
@@ -277,9 +293,7 @@ export function buildProfilePayload(
       poolMonth && poolYear
         ? `${String(new Date(`${poolMonth} 1, 2000`).getMonth() + 1).padStart(2, "0")}/${poolYear}`
         : null,
-    groups: (Array.isArray(u.groups) ? u.groups : [])
-      .map((g) => g?.name)
-      .filter((name): name is string => Boolean(name)),
+    groups: pickGroups(u.groups),
     cursus: best
       ? {
           name: best.cursus?.name ?? null,

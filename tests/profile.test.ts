@@ -3,6 +3,7 @@ import {
   buildProfilePayload,
   buildProjects,
   pickBestCursus,
+  pickGroups,
   pickLogtimeConfig,
   pickVisuals,
 } from "../src/handlers/profile";
@@ -286,7 +287,10 @@ describe("buildProfilePayload", () => {
     campus: [{ id: 12, name: "Belgium" }],
     pool_month: "june",
     pool_year: "2001",
-    groups: [{ name: "Piscine C" }, { name: "42 Network" }],
+    groups: [
+      { name: "Piscine C", color: "#0099ff" },
+      { name: "42 Network" },
+    ],
     cursus_users: [
       {
         cursus_id: 4,
@@ -329,7 +333,10 @@ describe("buildProfilePayload", () => {
     expect(p.grade).toBe("Member");
     expect(p.poolLabel).toBe("06/2001");
     expect(p.campusName).toBe("Belgium");
-    expect(p.groups).toEqual(["Piscine C", "42 Network"]);
+    expect(p.groups).toEqual([
+      { name: "Piscine C", color: "#0099ff" },
+      { name: "42 Network", color: null },
+    ]);
     expect(p.cursus).toEqual({
       name: "42cursus",
       slug: "42cursus",
@@ -362,5 +369,39 @@ describe("buildProfilePayload", () => {
     expect(p.alumnizedAt).toBeNull();
     expect(p.projects.total).toBe(0);
     expect(p.groups).toEqual([]);
+  });
+});
+
+describe("pickGroups", () => {
+  it("keeps group names with their colours", () => {
+    expect(
+      pickGroups([
+        { name: "PHOENIX", color: "#f99e3b" },
+        { name: "Supervising Tutor", color: "#6000bc" },
+      ]),
+    ).toEqual([
+      { name: "PHOENIX", color: "#f99e3b" },
+      { name: "Supervising Tutor", color: "#6000bc" },
+    ]);
+  });
+
+  it("drops invalid colours and nameless or malformed entries", () => {
+    expect(
+      pickGroups([
+        { name: "Bocal", color: "red" },
+        { name: "  " },
+        null,
+        { name: 42 },
+        { name: "Alumni", color: "#abc" },
+      ]),
+    ).toEqual([
+      { name: "Bocal", color: null },
+      { name: "Alumni", color: "#abc" },
+    ]);
+  });
+
+  it("handles a missing groups array", () => {
+    expect(pickGroups(undefined)).toEqual([]);
+    expect(pickGroups("nope")).toEqual([]);
   });
 });

@@ -11,6 +11,7 @@ import {
 } from "../utils";
 import { intraFetch } from "../rate";
 import { isAvatarUrl, setCustomAvatar } from "./custom-avatars";
+import { pickGroups } from "./profile";
 
 const API_BASE = "https://api.intra.42.fr";
 const ME_CACHE_TTL = 60;
@@ -175,7 +176,7 @@ export async function handleMe(
       me.pool_month && me.pool_year
         ? `${String(new Date(`${me.pool_month} 1, 2000`).getMonth() + 1).padStart(2, "0")}/${me.pool_year}`
         : null,
-    groups: (Array.isArray(me.groups) ? me.groups : []).map((g: any) => g.name),
+    groups: pickGroups(me.groups),
     cursus: best
       ? {
           name: best.cursus?.name ?? null,
