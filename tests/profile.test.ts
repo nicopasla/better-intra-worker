@@ -3,6 +3,7 @@ import {
   buildProfilePayload,
   buildProjects,
   pickBestCursus,
+  pickGroupColors,
   pickGroups,
   pickLogtimeConfig,
   pickVisuals,
@@ -150,6 +151,7 @@ describe("pickVisuals", () => {
       background: "https://example.com/bg.png",
       backgroundMode: "fit",
       backgroundColor: "#abcdef",
+      groupColors: {},
     });
   });
 
@@ -369,6 +371,30 @@ describe("buildProfilePayload", () => {
     expect(p.alumnizedAt).toBeNull();
     expect(p.projects.total).toBe(0);
     expect(p.groups).toEqual([]);
+  });
+});
+
+describe("pickGroupColors", () => {
+  it("keeps valid group colours only", () => {
+    expect(
+      pickGroupColors({
+        PHOENIX: "#f99e3b",
+        "Supervising Tutor": "#6000bc",
+        Bad: "orange",
+        "": "#123456",
+        Trimmed: " #abc ",
+      }),
+    ).toEqual({
+      PHOENIX: "#f99e3b",
+      "Supervising Tutor": "#6000bc",
+      Trimmed: "#abc",
+    });
+  });
+
+  it("rejects non-objects", () => {
+    expect(pickGroupColors(undefined)).toEqual({});
+    expect(pickGroupColors(["#fff"])).toEqual({});
+    expect(pickGroupColors("PHOENIX")).toEqual({});
   });
 });
 

@@ -15,6 +15,7 @@ import {
   isAvatarUrl,
   setCustomAvatar,
 } from "./custom-avatars";
+import { pickGroupColors } from "./profile";
 
 const MAX_LOOK_STRING = 64;
 const SETTINGS_HISTORY_LIMIT = 5;
@@ -221,6 +222,7 @@ export async function handlePublicVisuals(
     avatarScale: Number(settings.PROFILE_AVATAR_SCALE ?? 100),
     badgeBg: settings.PROFILE_BADGE_BG || "",
     nameAlign: settings.PROFILE_NAME_ALIGN || "left",
+    groupColors: pickGroupColors(settings.PROFILE_GROUP_COLORS),
 
     // Badge wrapped around the profile username/login line
     usernameBadge: {

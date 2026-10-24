@@ -121,6 +121,8 @@ export interface ProfileVisuals {
   background: string | null;
   backgroundMode: string;
   backgroundColor: string | null;
+  /** Group-name → 42 colour, captured by the extension and used by the PWA. */
+  groupColors: Record<string, string>;
 }
 
 const asUrl = (value: unknown): string | null =>
@@ -151,6 +153,22 @@ export function pickGroups(groups: unknown): ProfileGroup[] {
     .filter((g): g is ProfileGroup => Boolean(g.name));
 }
 
+/** Sanitised group-name → colour map captured by the extension. */
+export function pickGroupColors(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, string> = {};
+  let count = 0;
+  for (const [name, color] of Object.entries(value as Record<string, unknown>)) {
+    if (count >= 200) break;
+    const key = name.trim();
+    const hex = asColor(color);
+    if (!key || key.length > 64 || !hex) continue;
+    out[key] = hex;
+    count++;
+  }
+  return out;
+}
+
 const asNumber = (value: unknown, min: number, max: number, base: number) => {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return base;
@@ -176,6 +194,7 @@ export function pickVisuals(
     background: asUrl(s.PROFILE_BACKGROUND_URL),
     backgroundMode: asMode(s.PROFILE_BACKGROUND_MODE),
     backgroundColor: asColor(s.PROFILE_BACKGROUND_COLOR),
+    groupColors: pickGroupColors(s.PROFILE_GROUP_COLORS),
   };
 }
 
