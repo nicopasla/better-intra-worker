@@ -184,7 +184,7 @@ export default {
 
     const loginParam = url.searchParams.get("login");
     if (!loginParam) {
-      return textRes("Username hash required", 400);
+      return errorPage(444, "Username hash required.");
     }
 
     const existingData: UserData | null = await env.BETTER_INTRA_KV.get(

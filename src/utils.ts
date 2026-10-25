@@ -187,6 +187,7 @@ const STATUS_REASONS: Record<number, string> = {
   405: "Method Not Allowed",
   409: "Conflict",
   429: "Too Many Requests",
+  444: "No Response",
   500: "Internal Server Error",
   502: "Bad Gateway",
   503: "Service Unavailable",
