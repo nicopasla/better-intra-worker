@@ -179,6 +179,93 @@ export const textRes = (
     headers: { ...corsHeaders, "Content-Type": contentType },
   });
 
+const STATUS_REASONS: Record<number, string> = {
+  400: "Bad Request",
+  401: "Unauthorized",
+  403: "Forbidden",
+  404: "Not Found",
+  405: "Method Not Allowed",
+  409: "Conflict",
+  429: "Too Many Requests",
+  500: "Internal Server Error",
+  502: "Bad Gateway",
+  503: "Service Unavailable",
+};
+
+/**
+ * Browser-facing error page with the matching http.cat picture. Only for
+ * responses a human opens in a tab; API clients keep `textRes`/`jsonRes`.
+ */
+export function errorPage(status: number, message: string): Response {
+  const title = `${status} ${STATUS_REASONS[status] ?? ""}`.trim();
+  const escape = (value: string): string =>
+    value.replace(
+      /[&<>"']/g,
+      (c) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        })[c] ?? c,
+    );
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escape(title)}</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #f5f5f7;
+    color: #1d1d1f;
+  }
+  main {
+    width: 100%;
+    max-width: 26rem;
+    text-align: center;
+    background: #fff;
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  }
+  img { display: block; width: 100%; height: auto; border-radius: 12px; margin-bottom: 16px; }
+  h1 { font-size: 1.25rem; margin: 0 0 8px; }
+  p { margin: 0; font-size: 0.9rem; line-height: 1.5; opacity: 0.7; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #10161c; color: #e5ebf1; }
+    main { background: #1b242c; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+  }
+</style>
+</head>
+<body>
+<main>
+<img src="https://http.cat/${status}" alt="HTTP ${status} cat" referrerpolicy="no-referrer">
+<h1>${escape(title)}</h1>
+<p>${escape(message)}</p>
+</main>
+</body>
+</html>`;
+  return new Response(html, {
+    status,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
 export function getBearerToken(request: Request): string | null {
   return (
     request.headers.get("Authorization")?.match(/^Bearer\s+(.+)$/i)?.[1] ?? null

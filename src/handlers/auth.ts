@@ -7,6 +7,7 @@ import {
 } from "../types";
 import {
   encryptTokenData,
+  errorPage,
   getTokens,
   hashLogin,
   jsonRes,
@@ -31,13 +32,13 @@ export async function handleLogin(
 ): Promise<Response> {
   const url = new URL(request.url);
   const extUri = url.searchParams.get("redirect_uri");
-  if (!extUri) return textRes("Missing redirect_uri from extension", 400);
+  if (!extUri) return errorPage(400, "Missing redirect_uri from extension.");
 
   let parsed: URL;
   try {
     parsed = new URL(extUri);
   } catch {
-    return textRes("Invalid redirect_uri", 400);
+    return errorPage(400, "Invalid redirect_uri.");
   }
 
   const { hostname, protocol } = parsed;
@@ -51,7 +52,7 @@ export async function handleLogin(
   const isPwa = hostname === PWA_HOST;
 
   if (!isExtension && !isIntra && !isPwa) {
-    return textRes("Invalid redirect_uri", 400);
+    return errorPage(400, "Invalid redirect_uri.");
   }
 
   const cbUrl = getCallbackUrl(request, env);
@@ -72,13 +73,13 @@ export async function handleCallback(
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const extUri = url.searchParams.get("state");
-  if (!code || !extUri) return textRes("Missing code or state", 400);
+  if (!code || !extUri) return errorPage(400, "Missing code or state.");
 
   let redirectTarget: URL;
   try {
     redirectTarget = new URL(extUri);
   } catch {
-    return textRes("Invalid state", 400);
+    return errorPage(400, "Invalid state.");
   }
 
   const { hostname: cbHostname, protocol: cbProtocol } = redirectTarget;
@@ -91,7 +92,7 @@ export async function handleCallback(
       (cbParts.length === 3 || cbParts.length === 4));
   const cbIsPwa = cbHostname === PWA_HOST;
   if (!cbIsExtension && !cbIsIntra && !cbIsPwa) {
-    return textRes("Invalid state", 400);
+    return errorPage(400, "Invalid state.");
   }
 
   try {
@@ -114,13 +115,13 @@ export async function handleCallback(
       },
     );
     if (!tokenResponse.ok) {
-      return textRes("42 OAuth token exchange failed", 502);
+      return errorPage(502, "42 OAuth token exchange failed.");
     }
     const tokenData = (await tokenResponse.json()) as TokenResponse;
     if (tokenData.error)
-      return textRes(
-        `42 OAuth Error: ${tokenData.error_description || tokenData.error}`,
+      return errorPage(
         400,
+        `42 OAuth Error: ${tokenData.error_description || tokenData.error}`,
       );
 
     const userResponse = await fetchIntra(
@@ -131,12 +132,12 @@ export async function handleCallback(
       },
     );
     if (!userResponse.ok) {
-      return textRes("Failed to fetch user info from 42", 502);
+      return errorPage(502, "Failed to fetch user info from 42.");
     }
     const rawUser = (await userResponse.json()) as UserResponse;
     const rawLogin = rawUser.login;
     const userId = rawUser.id;
-    if (!rawLogin) return textRes("Invalid 42 session", 400);
+    if (!rawLogin) return errorPage(400, "Invalid 42 session.");
 
     const campusId = rawUser.campus?.[0]?.id ?? null;
     const campusName = rawUser.campus?.[0]?.name ?? null;
@@ -310,9 +311,9 @@ export async function handleCallback(
     );
   } catch (e) {
     console.error("Auth callback error:", e);
-    return textRes(
-      `Auth Server Error: ${e instanceof Error ? e.message : String(e)}`,
+    return errorPage(
       500,
+      `Auth Server Error: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
 }

@@ -57,6 +57,7 @@ import { Env, UserData } from "./types";
 import {
   isOriginAllowed,
   textRes,
+  errorPage,
   getAppToken,
   updateProjectMap,
   jsonRes,
@@ -345,7 +346,7 @@ export default {
       return handleImageUpload(request, env, loginParam, existingData);
     }
 
-    return textRes("Not found", 404);
+    return errorPage(404, "This endpoint doesn't exist.");
   },
   // No-op: cron work runs via POST /api/v1/public/cron (fetch context), since
   // scheduled events get Cloudflare-challenged by 42. Kept so any lingering cron
