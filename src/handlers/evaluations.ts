@@ -2,6 +2,9 @@ import { Env, UserData } from "../types";
 import { getBearerToken, jsonRes, textRes, validateSession } from "../utils";
 import { normalizeIsoUtc } from "../time";
 
+/** How far back the evaluations endpoint returns history for the PWA card. */
+const HISTORY_DAYS = 30;
+
 export async function handleEvaluations(
   request: Request,
   env: Env,
@@ -83,7 +86,11 @@ export async function handleEvaluations(
   }
 
   if (action === "upcoming") {
-    const nowIso = new Date().toISOString();
+    // The PWA card keeps a history: past evals stay in D1, so a fresh device can
+    // rebuild the "Past" section from the last HISTORY_DAYS.
+    const sinceIso = new Date(
+      Date.now() - HISTORY_DAYS * 86_400_000,
+    ).toISOString();
     const { results } = await env.better_intra_d1
       .prepare(
         `SELECT es.eval_id AS id, es.begin_at AS begin_at, es.state, es.correcteds,
@@ -97,9 +104,10 @@ export async function handleEvaluations(
          FROM eval_corrected ec
          LEFT JOIN projects p ON ec.project_id = p.id
          WHERE ec.hash = ? AND datetime(ec.begin_at) >= datetime(?) AND ec.state IN ('booked', 'revealed')
-         ORDER BY begin_at ASC`,
+         ORDER BY begin_at ASC
+         LIMIT 300`,
       )
-      .bind(loginParam, nowIso, loginParam, nowIso)
+      .bind(loginParam, sinceIso, loginParam, sinceIso)
       .all<{
         id: number;
         begin_at: string;
