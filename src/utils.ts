@@ -160,7 +160,8 @@ export function isOriginAllowed(
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers":
+    "Content-Type, Authorization, If-None-Match, If-Modified-Since",
 };
 
 export const jsonRes = (body: any, status = 200) =>
