@@ -109,4 +109,53 @@ describe("handleGhProxy", () => {
 
     expect(res.headers.get("content-type")).toBe("application/json");
   });
+
+  it("forwards validators and returns 304 when upstream is unchanged", async () => {
+    let sent: Headers | undefined;
+    globalThis.fetch = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        sent = new Headers(init?.headers);
+        return new Response(null, {
+          status: 304,
+          headers: { ETag: '"abc"' },
+        });
+      },
+    ) as unknown as typeof fetch;
+
+    const request = new Request(
+      "https://api.betterintra.com/gh/campuses/maps/belgium/shi.svg",
+      { headers: { "If-None-Match": '"abc"' } },
+    );
+    const res = await handleGhProxy(request);
+
+    expect(sent?.get("if-none-match")).toBe('"abc"');
+    expect(res.status).toBe(304);
+    expect(await res.text()).toBe("");
+    expect(res.headers.get("etag")).toBe('"abc"');
+    expect(res.headers.get("cache-control")).toContain("max-age=3600");
+  });
+
+  it("exposes the upstream ETag so clients can revalidate", async () => {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response("raw", {
+          status: 200,
+          headers: {
+            "Content-Type": "image/svg+xml",
+            ETag: '"v1"',
+            "Last-Modified": "Tue, 01 Jan 2030 00:00:00 GMT",
+          },
+        }),
+    ) as unknown as typeof fetch;
+
+    const res = await handleGhProxy(
+      new Request("https://api.betterintra.com/gh/campuses/maps/belgium/shi.svg"),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("etag")).toBe('"v1"');
+    expect(res.headers.get("last-modified")).toBe(
+      "Tue, 01 Jan 2030 00:00:00 GMT",
+    );
+  });
 });
