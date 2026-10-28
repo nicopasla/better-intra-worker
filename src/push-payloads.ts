@@ -1,4 +1,10 @@
-import type { PushPayload } from "./push";
+import type { PushPayload } from "./handlers/push";
+
+/**
+ * Push payload builders shared by every notification type (evals, corrections,
+ * calendar events). Times are rendered here in the receiving device's timezone
+ * because a service worker's own timezone is UTC on Android.
+ */
 
 /** True when `value` is an IANA timezone `Intl` accepts. */
 export function isValidTimeZone(value: unknown): value is string {
@@ -120,5 +126,28 @@ export function buildCorrectedPush(input: CorrectedPushInput): PushPayload {
     body: detail.join(" "),
     kind: "corrected",
     corrector: input.corrector,
+  };
+}
+
+export interface EventPushInput {
+  name: string;
+  location?: string | null;
+  beginAt: string;
+  /** IANA timezone of the receiving device. UTC when unknown. */
+  timeZone?: string | null;
+}
+
+/** Push for a subscribed 42 event starting in 15 minutes. Event reminders use
+ *  the same timezone rules as evals: the time is rendered here. */
+export function buildEventPush(input: EventPushInput): PushPayload {
+  const stamp = formatPushTime(input.beginAt, input.timeZone);
+  const detail: string[] = [input.name.trim()];
+  if (stamp) detail.push(`at ${stamp}`);
+  const location = input.location?.trim();
+  if (location) detail.push(`· ${location}`);
+  return {
+    title: "Event in 15 min",
+    body: detail.join(" "),
+    kind: "event",
   };
 }

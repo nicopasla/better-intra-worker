@@ -6,7 +6,7 @@ import {
   textRes,
   validateSession,
 } from "../utils";
-import { buildEvalPush, isValidTimeZone } from "./eval-notify";
+import { buildEvalPush, buildEventPush, isValidTimeZone } from "../push-payloads";
 
 const MAX_SUBSCRIPTIONS_PER_USER = 10;
 
@@ -15,10 +15,10 @@ export interface PushPayload {
   body: string;
   url?: string;
   tag?: string;
-  /** Eval details for clients that want to open a specific view. The time is
-   *  already rendered in `body`: formatting it in the service worker is not
+  /** Eval/event details for clients that want to open a specific view. The time
+   *  is already rendered in `body`: formatting it in the service worker is not
    *  reliable because a background worker's timezone is UTC on Android. */
-  kind?: "booked" | "revealed" | "corrected";
+  kind?: "booked" | "revealed" | "corrected" | "event";
   project?: string | null;
   correcteds?: string[];
   corrector?: string;
@@ -439,12 +439,23 @@ export async function handlePushTest(
             url: "https://mobile.betterintra.com/",
             tag: "ft-test-revealed",
           }
-        : {
-            title: "Push test",
-            body: "Push notifications are working 🎉",
-            url: "https://mobile.betterintra.com/",
-            tag: "ft-test",
-          };
+        : variant === "event"
+          ? {
+              ...buildEventPush({
+                name: "ft_transcendence defence",
+                location: "Cluster 1",
+                beginAt: testBeginAt,
+                timeZone,
+              }),
+              url: "https://mobile.betterintra.com/#/dashboard",
+              tag: "ft-test-event",
+            }
+          : {
+              title: "Push test",
+              body: "Push notifications are working 🎉",
+              url: "https://mobile.betterintra.com/",
+              tag: "ft-test",
+            };
 
   const result = await sendWebPush(env, target, payload);
 

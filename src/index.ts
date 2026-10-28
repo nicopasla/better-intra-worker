@@ -49,6 +49,7 @@ import {
   handlePushTest,
 } from "./handlers/push";
 import { handleLogtimeHistory } from "./handlers/logtime";
+import { handleEventReminders } from "./handlers/event-notify";
 import { handleAnnouncement } from "./handlers/announcement";
 import { handleStats } from "./handlers/stats";
 import { handleImageUpload } from "./handlers/image-upload";
@@ -349,10 +350,15 @@ export default {
 
     return errorPage(404, "This endpoint doesn't exist.");
   },
-  // No-op: cron work runs via POST /api/v1/public/cron (fetch context), since
-  // scheduled events get Cloudflare-challenged by 42. Kept so any lingering cron
-  // trigger doesn't throw "no scheduled() handler".
-  async scheduled(): Promise<void> {
-    /* intentionally empty */
+  // Event reminders are the only cron work that makes no 42 API calls (they
+  // read the ICS in D1 and send Web Push), so they're safe from the scheduled
+  // context, which 42 challenges. Everything that talks to 42 still runs from
+  // the external cron (POST /api/v1/public/cron).
+  async scheduled(
+    controller: ScheduledController,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    ctx.waitUntil(handleEventReminders(env));
   },
 };
