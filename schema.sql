@@ -151,3 +151,14 @@ CREATE TABLE IF NOT EXISTS custom_avatars (
   url TEXT NOT NULL,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
+
+CREATE TABLE IF NOT EXISTS custom_badges (
+  badge TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  color TEXT,
+  icon TEXT,
+  tooltip TEXT,
+  sort INTEGER NOT NULL DEFAULT 0,
+  logins TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);

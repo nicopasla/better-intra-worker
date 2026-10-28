@@ -9,6 +9,7 @@ import {
   validateSession,
 } from "../utils";
 import { intraFetch } from "../rate";
+import { readCustomBadges } from "./custom-badges";
 
 const API_BASE = "https://api.intra.42.fr";
 /** Same order of magnitude as `ME_CACHE_TTL`: profiles are cheap to re-read. */
@@ -351,7 +352,14 @@ export async function handleProfile(
 
   const cacheKey = `USER_PROFILE_CACHE_${login}`;
   const cached = await env.BETTER_INTRA_KV.get(cacheKey, { type: "json" });
-  if (cached) return jsonRes(cached);
+  if (cached) {
+    // Badges are read fresh so a new grant shows up without waiting for the
+    // profile cache to expire.
+    return jsonRes({
+      ...(cached as Record<string, unknown>),
+      customBadges: await readCustomBadges(env, login),
+    });
+  }
 
   const country: string | null =
     (request.cf?.country as string | undefined) || null;
@@ -396,7 +404,10 @@ export async function handleProfile(
     { type: "json" },
   );
 
-  const payload = buildProfilePayload(user, targetData?.settings ?? {});
+  const payload = {
+    ...buildProfilePayload(user, targetData?.settings ?? {}),
+    customBadges: await readCustomBadges(env, login),
+  };
   await env.BETTER_INTRA_KV.put(cacheKey, JSON.stringify(payload), {
     expirationTtl: PROFILE_CACHE_TTL,
   });

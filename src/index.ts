@@ -53,6 +53,7 @@ import { handleEventReminders } from "./handlers/event-notify";
 import { handleAnnouncement } from "./handlers/announcement";
 import { handleStats } from "./handlers/stats";
 import { handleImageUpload } from "./handlers/image-upload";
+import { handleCustomBadges } from "./handlers/custom-badges";
 import { handleImageServe } from "./handlers/image-serve";
 import { Env, UserData } from "./types";
 import {
@@ -330,6 +331,10 @@ export default {
       const target = url.searchParams.get("target");
       if (!target) return textRes("Missing target parameter", 400);
       return handleProfile(request, env, loginParam, existingData, target);
+    }
+
+    if (url.pathname === "/api/v1/private/custom-badges") {
+      return handleCustomBadges(request, env, loginParam, existingData);
     }
 
     if (url.pathname === "/api/v1/private/calendar/token") {
