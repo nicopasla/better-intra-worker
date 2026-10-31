@@ -95,15 +95,17 @@ export async function handleUserLookup(
     }
   }
 
+  const photo = user.image?.versions?.small ?? user.image?.link ?? null;
   return jsonRes({
     login: user.login ?? login,
     displayName:
       user.usual_full_name ?? user.displayname ?? user.login ?? login,
-    avatar: user.image?.versions?.small ?? user.image?.link ?? null,
+    avatar: photo,
     avatarUrl: await mintAvatarUrl(
       env,
       user.login ?? login,
       new URL(request.url).origin,
+      photo,
     ),
     level: best?.level ?? 0,
     grade: best?.grade ?? null,

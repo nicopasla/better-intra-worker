@@ -214,7 +214,12 @@ export async function handleFriendsData(
   const selfOrigin = new URL(request.url).origin;
   await Promise.all(
     friends.map(async (friend) => {
-      friend.avatarUrl = await mintAvatarUrl(env, friend.login, selfOrigin);
+      friend.avatarUrl = await mintAvatarUrl(
+        env,
+        friend.login,
+        selfOrigin,
+        friend.avatar,
+      );
     }),
   );
 

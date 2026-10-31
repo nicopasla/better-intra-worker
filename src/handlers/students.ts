@@ -149,7 +149,12 @@ async function respondWithAvatars(
   const selfOrigin = new URL(request.url).origin;
   await Promise.all(
     entries.map(async (entry) => {
-      entry.avatar_url = await mintAvatarUrl(env, entry.login, selfOrigin);
+      entry.avatar_url = await mintAvatarUrl(
+        env,
+        entry.login,
+        selfOrigin,
+        entry.image_url,
+      );
     }),
   );
   return jsonRes({ cached_at: cachedAt, data: entries });
@@ -538,7 +543,12 @@ export async function handleStudentsList(
     const selfOrigin = new URL(request.url).origin;
     await Promise.all(
       page.data.map(async (entry) => {
-        entry.avatar_url = await mintAvatarUrl(env, entry.login, selfOrigin);
+        entry.avatar_url = await mintAvatarUrl(
+          env,
+          entry.login,
+          selfOrigin,
+          entry.image_url,
+        );
       }),
     );
     return jsonRes({ cached_at: row.cached_at, ...page });

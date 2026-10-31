@@ -42,7 +42,11 @@ interface RawLocation {
     last_name?: string | null;
     image?: {
       link?: string | null;
-      versions?: { large?: string | null; medium?: string | null } | null;
+      versions?: {
+        large?: string | null;
+        medium?: string | null;
+        small?: string | null;
+      } | null;
     } | null;
   } | null;
 }
@@ -137,6 +141,7 @@ export async function handleClusterOccupancy(
           cdn_uri:
             image?.versions?.medium ||
             image?.versions?.large ||
+            image?.versions?.small ||
             image?.link ||
             `${CDN_BASE}/${login}.jpg`,
           custom_avatar: null,
@@ -175,7 +180,12 @@ async function signEntries(
   const origin = new URL(request.url).origin;
   await Promise.all(
     entries.map(async (entry) => {
-      entry.avatar_url = await mintAvatarUrl(env, entry.login, origin);
+      entry.avatar_url = await mintAvatarUrl(
+        env,
+        entry.login,
+        origin,
+        entry.cdn_uri,
+      );
     }),
   );
 }

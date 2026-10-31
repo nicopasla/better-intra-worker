@@ -105,6 +105,7 @@ export async function handleEventSubscribers(
   let truncated = false;
 
   const maxPages = Math.ceil(MAX_SUBSCRIBERS / PAGE_SIZE);
+  const selfOrigin = new URL(request.url).origin;
   for (let page = 1; page <= maxPages; page++) {
     const res = await intraFetch(
       env,
@@ -117,17 +118,12 @@ export async function handleEventSubscribers(
     const rows = (await res.json()) as ApiUser[];
     for (const u of rows) {
       if (!u.login) continue;
+      const photo = u.image?.versions?.small ?? u.image?.link ?? null;
       users.push({
         login: u.login,
         displayName: u.usual_full_name ?? u.displayname ?? u.login,
-        avatar:
-          u.image?.versions?.small ||
-          `https://cdn.intra.42.fr/users/${u.login}.jpg`,
-        avatarUrl: await mintAvatarUrl(
-          env,
-          u.login,
-          new URL(request.url).origin,
-        ),
+        avatar: photo || `https://cdn.intra.42.fr/users/${u.login}.jpg`,
+        avatarUrl: await mintAvatarUrl(env, u.login, selfOrigin, photo),
         location: u.location ?? null,
       });
     }

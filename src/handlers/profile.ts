@@ -352,18 +352,19 @@ export async function handleProfile(
   if (!login) return textRes("Missing target parameter", 400);
 
   const cacheKey = `USER_PROFILE_CACHE_${login}`;
-  const avatarUrl = await mintAvatarUrl(
-    env,
-    login,
-    new URL(request.url).origin,
-  );
+  const selfOrigin = new URL(request.url).origin;
   const cached = await env.BETTER_INTRA_KV.get(cacheKey, { type: "json" });
   if (cached) {
     // Badges are read fresh so a new grant shows up without waiting for the
     // profile cache to expire.
     return jsonRes({
       ...(cached as Record<string, unknown>),
-      avatarUrl,
+      avatarUrl: await mintAvatarUrl(
+        env,
+        login,
+        selfOrigin,
+        (cached as { avatar?: string | null }).avatar ?? null,
+      ),
       customBadges: await readCustomBadges(env, login),
     });
   }
@@ -418,5 +419,8 @@ export async function handleProfile(
   await env.BETTER_INTRA_KV.put(cacheKey, JSON.stringify(payload), {
     expirationTtl: PROFILE_CACHE_TTL,
   });
-  return jsonRes({ ...payload, avatarUrl });
+  return jsonRes({
+    ...payload,
+    avatarUrl: await mintAvatarUrl(env, login, selfOrigin, payload.avatar),
+  });
 }

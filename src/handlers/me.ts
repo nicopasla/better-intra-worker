@@ -181,7 +181,15 @@ export async function handleMe(
     displayName: me.displayname ?? login,
     usualFullName: me.usual_full_name ?? me.displayname ?? login,
     image: me.image?.versions?.large ?? me.image?.link ?? null,
-    avatarUrl: await mintAvatarUrl(env, login, new URL(request.url).origin),
+    avatarUrl: await mintAvatarUrl(
+      env,
+      login,
+      new URL(request.url).origin,
+      me.image?.versions?.large ??
+        me.image?.link ??
+        me.image?.versions?.small ??
+        null,
+    ),
     kind: me.kind ?? null,
     staff: Boolean(me["staff?"]),
     alumni: Boolean(me["alumni?"]),

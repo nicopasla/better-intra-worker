@@ -4,6 +4,7 @@ import {
   handleAvatarProxy,
   isValidAvatarLogin,
   mintAvatarUrl,
+  photoPathFromUrl,
 } from "../src/handlers/avatar";
 
 vi.mock("../src/utils", async (importOriginal) => {
@@ -22,6 +23,9 @@ vi.mock("../src/rate", async (importOriginal) => {
 import { fetchIntra } from "../src/rate";
 
 const ORIGIN = "https://api.betterintra.com";
+const HASH = "a".repeat(32);
+const PHOTO_PATH = `/users/${HASH}/photo.jpg`;
+const PHOTO_URL = `https://cdn.intra.42.fr${PHOTO_PATH}`;
 
 function makeEnv(secret: string = "test-secret"): Env {
   return {
@@ -80,17 +84,47 @@ describe("isValidAvatarLogin", () => {
   });
 });
 
-describe("mintAvatarUrl", () => {
-  it("returns null without a signing secret", async () => {
-    expect(await mintAvatarUrl(makeEnv(""), "jsmith", ORIGIN)).toBeNull();
+describe("photoPathFromUrl", () => {
+  it("accepts the per-photo CDN path", () => {
+    expect(photoPathFromUrl(PHOTO_URL)).toBe(PHOTO_PATH);
   });
 
-  it("returns a signed proxy URL", async () => {
-    const url = await mintAvatarUrl(makeEnv(), "JSmith", ORIGIN);
+  it("rejects legacy or foreign URLs", () => {
+    expect(photoPathFromUrl("https://cdn.intra.42.fr/users/jsmith.jpg")).toBe(
+      null,
+    );
+    expect(photoPathFromUrl("https://example.com/users/a/photo.jpg")).toBe(
+      null,
+    );
+    expect(photoPathFromUrl(PHOTO_URL + "?v=1")).toBe(null);
+    expect(photoPathFromUrl(null)).toBe(null);
+  });
+});
+
+describe("mintAvatarUrl", () => {
+  it("returns null without a signing secret", async () => {
+    expect(await mintAvatarUrl(makeEnv(""), "jsmith", ORIGIN, PHOTO_URL)).toBeNull();
+  });
+
+  it("returns null without a valid photo", async () => {
+    expect(await mintAvatarUrl(makeEnv(), "jsmith", ORIGIN)).toBeNull();
+    expect(
+      await mintAvatarUrl(
+        makeEnv(),
+        "jsmith",
+        ORIGIN,
+        "https://cdn.intra.42.fr/users/jsmith.jpg",
+      ),
+    ).toBeNull();
+  });
+
+  it("returns a signed proxy URL carrying the photo path", async () => {
+    const url = await mintAvatarUrl(makeEnv(), "JSmith", ORIGIN, PHOTO_URL);
     expect(url).not.toBeNull();
     const parsed = new URL(url!);
     expect(parsed.origin).toBe(ORIGIN);
     expect(parsed.pathname).toBe("/api/v1/public/avatar/jsmith");
+    expect(parsed.searchParams.get("p")).toBe(PHOTO_PATH);
     expect(parsed.searchParams.get("exp")).toMatch(/^\d+$/);
     expect(parsed.searchParams.get("sig")).toMatch(/^[a-f0-9]{64}$/);
   });
@@ -99,13 +133,16 @@ describe("mintAvatarUrl", () => {
 describe("handleAvatarProxy", () => {
   it("serves the image with the app token and caches it", async () => {
     const env = makeEnv();
-    const url = await mintAvatarUrl(env, "jsmith", ORIGIN);
+    const url = await mintAvatarUrl(env, "jsmith", ORIGIN, PHOTO_URL);
 
     const res = await handleAvatarProxy(new Request(url!), env, "jsmith");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/jpeg");
 
     expect(fetchIntra).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetchIntra).mock.calls[0][1]).toBe(
+      `https://cdn.intra.42.fr${PHOTO_PATH}`,
+    );
     const init = vi.mocked(fetchIntra).mock.calls[0][2] as RequestInit;
     expect((init.headers as Record<string, string>).Authorization).toBe(
       "Bearer app-token",
@@ -120,16 +157,24 @@ describe("handleAvatarProxy", () => {
 
   it("rejects a tampered signature", async () => {
     const env = makeEnv();
-    const url = new URL((await mintAvatarUrl(env, "jsmith", ORIGIN))!);
+    const url = new URL((await mintAvatarUrl(env, "jsmith", ORIGIN, PHOTO_URL))!);
     url.searchParams.set("sig", "0".repeat(64));
     const res = await handleAvatarProxy(new Request(url), env, "jsmith");
     expect(res.status).toBe(403);
     expect(fetchIntra).not.toHaveBeenCalled();
   });
 
+  it("rejects a swapped photo path", async () => {
+    const env = makeEnv();
+    const url = new URL((await mintAvatarUrl(env, "jsmith", ORIGIN, PHOTO_URL))!);
+    url.searchParams.set("p", `/users/${"b".repeat(32)}/photo.jpg`);
+    const res = await handleAvatarProxy(new Request(url), env, "jsmith");
+    expect(res.status).toBe(403);
+  });
+
   it("rejects an expired link", async () => {
     const env = makeEnv();
-    const url = new URL((await mintAvatarUrl(env, "jsmith", ORIGIN))!);
+    const url = new URL((await mintAvatarUrl(env, "jsmith", ORIGIN, PHOTO_URL))!);
     url.searchParams.set("exp", "1000");
     const res = await handleAvatarProxy(new Request(url), env, "jsmith");
     expect(res.status).toBe(403);
@@ -139,7 +184,7 @@ describe("handleAvatarProxy", () => {
     const env = makeEnv("");
     const res = await handleAvatarProxy(
       new Request(
-        `${ORIGIN}/api/v1/public/avatar/jsmith?exp=9999999999&sig=${"0".repeat(64)}`,
+        `${ORIGIN}/api/v1/public/avatar/jsmith?p=${encodeURIComponent(PHOTO_PATH)}&exp=9999999999&sig=${"0".repeat(64)}`,
       ),
       env,
       "jsmith",
@@ -155,7 +200,7 @@ describe("handleAvatarProxy", () => {
         headers: { "content-type": "text/html" },
       }),
     );
-    const url = await mintAvatarUrl(env, "jsmith", ORIGIN);
+    const url = await mintAvatarUrl(env, "jsmith", ORIGIN, PHOTO_URL);
     const res = await handleAvatarProxy(new Request(url!), env, "jsmith");
     expect(res.status).toBe(502);
   });
