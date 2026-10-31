@@ -9,9 +9,10 @@ const LOGIN_RE = /^[a-z0-9_-]{1,32}$/;
 const PHOTO_PATH_RE =
   /^\/users\/[a-f0-9]{32}\/[A-Za-z0-9_.-]{1,100}\.(?:jpe?g|png|gif|webp)$/;
 
-/** Edge/browser cache lifetime for the image bytes. */
-const IMAGE_CACHE_TTL = 60 * 60 * 24;
-const IMAGE_MAX_AGE = 30 * 60;
+/** Edge/browser cache lifetime for the image bytes. The CDN path changes when a
+ *  photo changes, so the bytes behind a given path are immutable. */
+const IMAGE_CACHE_TTL = 60 * 60 * 24 * 30;
+const IMAGE_MAX_AGE = 60 * 60 * 24;
 
 /** Signatures are bucketed per hour and valid for 1–2 hours. */
 const SIGN_WINDOW_SECONDS = 60 * 60;

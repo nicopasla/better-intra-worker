@@ -13,7 +13,6 @@ import {
 import { intraFetch } from "../rate";
 import { getCustomAvatarMap } from "./custom-avatars";
 import { BELGIUM_CAMPUS_ID, requireBelgiumCampus } from "./campus-access";
-import { mintAvatarUrl } from "./avatar";
 
 const API_BASE = "https://api.intra.42.fr";
 const PAGE_SIZE = 100;
@@ -60,7 +59,6 @@ export interface StudentEntry {
   displayname: string;
   image_url: string;
   custom_avatar?: string | null;
-  avatar_url?: string | null;
   begin_at: string | null;
   blackholed_at: string | null;
   active: boolean;
@@ -137,27 +135,6 @@ function cacheResponse(origin: string | null, row: CacheRow): Response {
       "Access-Control-Allow-Origin": origin || "*",
     },
   });
-}
-
-/** Adds freshly-signed proxy URLs to a cohort response (never cached). */
-async function respondWithAvatars(
-  env: Env,
-  request: Request,
-  entries: StudentEntry[],
-  cachedAt: number,
-): Promise<Response> {
-  const selfOrigin = new URL(request.url).origin;
-  await Promise.all(
-    entries.map(async (entry) => {
-      entry.avatar_url = await mintAvatarUrl(
-        env,
-        entry.login,
-        selfOrigin,
-        entry.image_url,
-      );
-    }),
-  );
-  return jsonRes({ cached_at: cachedAt, data: entries });
 }
 
 async function fetchAllCursusUsers(
@@ -539,19 +516,10 @@ export async function handleStudentsList(
     if (!paged || !pageOpts) {
       return jsonRes({ cached_at: row.cached_at, data: entries });
     }
-    const page = paginateStudents(entries, pageOpts);
-    const selfOrigin = new URL(request.url).origin;
-    await Promise.all(
-      page.data.map(async (entry) => {
-        entry.avatar_url = await mintAvatarUrl(
-          env,
-          entry.login,
-          selfOrigin,
-          entry.image_url,
-        );
-      }),
-    );
-    return jsonRes({ cached_at: row.cached_at, ...page });
+    return jsonRes({
+      cached_at: row.cached_at,
+      ...paginateStudents(entries, pageOpts),
+    });
   };
 
   const cached = await readCacheRow(
@@ -655,12 +623,7 @@ export async function handlePiscinersList(
   const now = Math.floor(Date.now() / 1000);
   const cached = await readCacheRow(env, STUDENTS_CURSUS_ID, cacheBegin, "");
   if (cached && cached.cached_at > now - PISCINE_CACHE_TTL) {
-    return respondWithAvatars(
-      env,
-      request,
-      JSON.parse(cached.data) as StudentEntry[],
-      cached.cached_at,
-    );
+    return cacheResponse(origin, cached);
   }
 
   const country: string | null =
@@ -684,18 +647,14 @@ export async function handlePiscinersList(
         "",
         entries,
       );
-      return respondWithAvatars(env, request, entries, cachedAt);
+      return cacheResponse(origin, {
+        data: JSON.stringify(entries),
+        cached_at: cachedAt,
+      });
     }
   }
 
-  if (cached) {
-    return respondWithAvatars(
-      env,
-      request,
-      JSON.parse(cached.data) as StudentEntry[],
-      cached.cached_at,
-    );
-  }
+  if (cached) return cacheResponse(origin, cached);
   return jsonRes({ cached_at: 0, data: [] });
 }
 
@@ -841,12 +800,7 @@ export async function handleFutureStudentsList(
   const row = await readCacheRow(env, STUDENTS_CURSUS_ID, "FUTURE", "FUTURE");
   const now = Math.floor(Date.now() / 1000);
   if (row && now - row.cached_at < STUDENTS_CACHE_TTL) {
-    return respondWithAvatars(
-      env,
-      request,
-      JSON.parse(row.data) as StudentEntry[],
-      row.cached_at,
-    );
+    return cacheResponse(origin, row);
   }
 
   // Stale or missing: refresh lazily (same 24h TTL as the students tab). On
@@ -867,20 +821,13 @@ export async function handleFutureStudentsList(
         "FUTURE",
         all,
       );
-      return respondWithAvatars(env, request, all, cachedAt);
+      return jsonRes({ cached_at: cachedAt, data: all });
     }
   } catch {
     /* fall through to stale/empty */
   }
 
-  return row
-    ? respondWithAvatars(
-        env,
-        request,
-        JSON.parse(row.data) as StudentEntry[],
-        row.cached_at,
-      )
-    : jsonRes({ cached_at: 0, data: [] });
+  return row ? cacheResponse(origin, row) : jsonRes({ cached_at: 0, data: [] });
 }
 
 export async function handleFutureStudentsRefresh(
