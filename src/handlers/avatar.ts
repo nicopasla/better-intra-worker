@@ -153,6 +153,32 @@ async function isRateLimited(env: Env, ip: string): Promise<boolean> {
 }
 
 /**
+ * Fetches the CDN photo. Cloudflare's bot management challenges Worker egress,
+ * so when a relay is configured (Deno Deploy etc.) the request goes through it.
+ */
+async function fetchPhoto(
+  env: Env,
+  path: string,
+  token: string,
+): Promise<Response> {
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    Accept: "image/*",
+  };
+  const relay = (env.RELAY_URL || "").replace(/\/+$/, "");
+  if (relay) {
+    return fetch(`${relay}?url=${encodeURIComponent(`${CDN_ORIGIN}${path}`)}`, {
+      headers: { ...headers, "X-Relay-Key": env.RELAY_KEY || "" },
+      redirect: "error",
+    });
+  }
+  return fetchIntra(env, `${CDN_ORIGIN}${path}`, {
+    headers,
+    redirect: "error",
+  });
+}
+
+/**
  * Signature-gated avatar proxy. Downloads the 42 CDN image server-side with
  * the application token (CDN reads are not API calls and don't count against
  * the API rate limit) and serves it same-origin, edge-cached.
@@ -196,27 +222,32 @@ export async function handleAvatarProxy(
   try {
     const token = await getAppToken(env);
     if (!token) return textRes("Upstream error", 502);
-    upstream = await fetchIntra(env, `${CDN_ORIGIN}${path}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "image/*",
-      },
-      redirect: "error",
-    });
+    upstream = await fetchPhoto(env, path, token);
   } catch {
     return textRes("Upstream error", 502);
   }
 
   const contentType = upstream.headers.get("content-type") || "";
   if (!upstream.ok || !contentType.startsWith("image/")) {
+    const mitigated = upstream.headers.get("cf-mitigated") || "";
     console.warn(
       "[avatar] upstream rejected",
       normalized,
       upstream.status,
       contentType,
-      upstream.headers.get("cf-mitigated") || "",
+      mitigated,
+      env.RELAY_URL ? "relay" : "direct",
     );
-    return textRes("Avatar not found", upstream.status === 404 ? 404 : 502);
+    return new Response(`Avatar not found (upstream ${upstream.status})`, {
+      status: upstream.status === 404 ? 404 : 502,
+      headers: {
+        ...corsHeaders,
+        "x-avatar-upstream-status": String(upstream.status),
+        "x-avatar-upstream-type": contentType,
+        "x-avatar-upstream-mitigated": mitigated,
+        "x-avatar-fetch": env.RELAY_URL ? "relay" : "direct",
+      },
+    });
   }
 
   const response = new Response(upstream.body, {

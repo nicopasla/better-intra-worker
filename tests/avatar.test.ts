@@ -172,6 +172,34 @@ describe("handleAvatarProxy", () => {
     expect(res.status).toBe(403);
   });
 
+  it("uses the relay when configured", async () => {
+    const env = {
+      ...makeEnv(),
+      RELAY_URL: "https://relay.example.com/",
+      RELAY_KEY: "relay-key",
+    };
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(imageResponse());
+    const url = await mintAvatarUrl(env, "jsmith", ORIGIN, PHOTO_URL);
+    const res = await handleAvatarProxy(new Request(url!), env, "jsmith");
+    expect(res.status).toBe(200);
+
+    const target = `https://cdn.intra.42.fr${PHOTO_PATH}`;
+    expect(String(fetchSpy.mock.calls[0][0])).toBe(
+      `https://relay.example.com?url=${encodeURIComponent(target)}`,
+    );
+    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>)["X-Relay-Key"]).toBe(
+      "relay-key",
+    );
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      "Bearer app-token",
+    );
+    expect(fetchIntra).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
   it("rejects an expired link", async () => {
     const env = makeEnv();
     const url = new URL((await mintAvatarUrl(env, "jsmith", ORIGIN, PHOTO_URL))!);

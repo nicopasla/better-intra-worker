@@ -15,6 +15,8 @@ export interface Env {
   ALLOW_LOCAL_DEV?: string;
   CRON_SECRET?: string;
   AVATAR_URL_SECRET?: string;
+  RELAY_URL?: string;
+  RELAY_KEY?: string;
 }
 
 export interface SessionMeta {
