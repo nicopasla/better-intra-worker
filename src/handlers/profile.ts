@@ -10,6 +10,7 @@ import {
 } from "../utils";
 import { intraFetch } from "../rate";
 import { readCustomBadges } from "./custom-badges";
+import { mintAvatarUrl } from "./avatar";
 
 const API_BASE = "https://api.intra.42.fr";
 /** Same order of magnitude as `ME_CACHE_TTL`: profiles are cheap to re-read. */
@@ -351,12 +352,18 @@ export async function handleProfile(
   if (!login) return textRes("Missing target parameter", 400);
 
   const cacheKey = `USER_PROFILE_CACHE_${login}`;
+  const avatarUrl = await mintAvatarUrl(
+    env,
+    login,
+    new URL(request.url).origin,
+  );
   const cached = await env.BETTER_INTRA_KV.get(cacheKey, { type: "json" });
   if (cached) {
     // Badges are read fresh so a new grant shows up without waiting for the
     // profile cache to expire.
     return jsonRes({
       ...(cached as Record<string, unknown>),
+      avatarUrl,
       customBadges: await readCustomBadges(env, login),
     });
   }
@@ -411,5 +418,5 @@ export async function handleProfile(
   await env.BETTER_INTRA_KV.put(cacheKey, JSON.stringify(payload), {
     expirationTtl: PROFILE_CACHE_TTL,
   });
-  return jsonRes(payload);
+  return jsonRes({ ...payload, avatarUrl });
 }

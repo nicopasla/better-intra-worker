@@ -14,6 +14,7 @@ export interface Env {
   VAPID_SUBJECT?: string;
   ALLOW_LOCAL_DEV?: string;
   CRON_SECRET?: string;
+  AVATAR_URL_SECRET?: string;
 }
 
 export interface SessionMeta {

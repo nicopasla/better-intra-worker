@@ -8,6 +8,7 @@ import {
   validateSession,
 } from "../utils";
 import { intraFetch } from "../rate";
+import { mintAvatarUrl } from "./avatar";
 
 const API_BASE = "https://api.intra.42.fr";
 
@@ -99,6 +100,11 @@ export async function handleUserLookup(
     displayName:
       user.usual_full_name ?? user.displayname ?? user.login ?? login,
     avatar: user.image?.versions?.small ?? user.image?.link ?? null,
+    avatarUrl: await mintAvatarUrl(
+      env,
+      user.login ?? login,
+      new URL(request.url).origin,
+    ),
     level: best?.level ?? 0,
     grade: best?.grade ?? null,
     location: user.location ?? null,

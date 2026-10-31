@@ -11,6 +11,7 @@ import {
 } from "../utils";
 import { intraFetch } from "../rate";
 import { getCustomAvatarMap } from "./custom-avatars";
+import { mintAvatarUrl } from "./avatar";
 
 const API_BASE = "https://api.intra.42.fr";
 const CDN_BASE = "https://cdn.intra.42.fr/users";
@@ -24,6 +25,7 @@ export interface OccupancyEntry {
   name: string;
   cdn_uri: string;
   custom_avatar: string | null;
+  avatar_url?: string | null;
   begin_at: string;
   end_at: string | null;
 }
@@ -83,7 +85,15 @@ export async function handleClusterOccupancy(
 
   if (cached && now - cached.cached_at < CACHE_TTL_SECONDS) {
     const decoded = await decryptBytes(env, cached.response_body);
-    if (decoded) return jsonRes(JSON.parse(decoded));
+    if (decoded) {
+      const body = JSON.parse(decoded) as {
+        campus: string;
+        entries: OccupancyEntry[];
+        updatedAt: number;
+      };
+      await signEntries(env, request, body.entries);
+      return jsonRes(body);
+    }
   }
 
   const country: string | null =
@@ -152,5 +162,20 @@ export async function handleClusterOccupancy(
     )
     .bind(campus, await encryptBytes(env, JSON.stringify(body)), now)
     .run();
+  await signEntries(env, request, entries);
   return jsonRes(body);
+}
+
+/** Signs avatar URLs at response time so they never end up in the D1 cache. */
+async function signEntries(
+  env: Env,
+  request: Request,
+  entries: OccupancyEntry[],
+): Promise<void> {
+  const origin = new URL(request.url).origin;
+  await Promise.all(
+    entries.map(async (entry) => {
+      entry.avatar_url = await mintAvatarUrl(env, entry.login, origin);
+    }),
+  );
 }

@@ -13,6 +13,7 @@ import {
 } from "../utils";
 import { FRIEND_USER_IDS } from "../constants";
 import { intraFetch } from "../rate";
+import { mintAvatarUrl } from "./avatar";
 
 const INTRA_API = "https://api.intra.42.fr/v2";
 const PAGE_SIZE = 100;
@@ -207,6 +208,13 @@ export async function handleFriendsData(
         friend.avatarPosY = 50;
         friend.avatarScale = 100;
       }
+    }),
+  );
+
+  const selfOrigin = new URL(request.url).origin;
+  await Promise.all(
+    friends.map(async (friend) => {
+      friend.avatarUrl = await mintAvatarUrl(env, friend.login, selfOrigin);
     }),
   );
 

@@ -12,6 +12,7 @@ import {
 import { intraFetch } from "../rate";
 import { isAvatarUrl, setCustomAvatar } from "./custom-avatars";
 import { primaryCampusFromMe } from "./campus-access";
+import { mintAvatarUrl } from "./avatar";
 import { pickGroups } from "./profile";
 
 const API_BASE = "https://api.intra.42.fr";
@@ -180,6 +181,7 @@ export async function handleMe(
     displayName: me.displayname ?? login,
     usualFullName: me.usual_full_name ?? me.displayname ?? login,
     image: me.image?.versions?.large ?? me.image?.link ?? null,
+    avatarUrl: await mintAvatarUrl(env, login, new URL(request.url).origin),
     kind: me.kind ?? null,
     staff: Boolean(me["staff?"]),
     alumni: Boolean(me["alumni?"]),

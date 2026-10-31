@@ -8,6 +8,7 @@ import {
   validateSession,
 } from "../utils";
 import { intraFetch } from "../rate";
+import { mintAvatarUrl } from "./avatar";
 import { upcomingEvents } from "../ics";
 
 const API_BASE = "https://api.intra.42.fr";
@@ -98,6 +99,7 @@ export async function handleEventSubscribers(
     login: string;
     displayName: string;
     avatar: string | null;
+    avatarUrl?: string | null;
     location: string | null;
   }[] = [];
   let truncated = false;
@@ -121,6 +123,11 @@ export async function handleEventSubscribers(
         avatar:
           u.image?.versions?.small ||
           `https://cdn.intra.42.fr/users/${u.login}.jpg`,
+        avatarUrl: await mintAvatarUrl(
+          env,
+          u.login,
+          new URL(request.url).origin,
+        ),
         location: u.location ?? null,
       });
     }
