@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { Env } from "../src/types";
 import {
+  assetPathFromUrl,
+  handleAssetProxy,
   handleAvatarProxy,
   isValidAvatarLogin,
+  mintAssetUrl,
   mintAvatarUrl,
   photoPathFromUrl,
 } from "../src/handlers/avatar";
@@ -231,5 +234,56 @@ describe("handleAvatarProxy", () => {
     const url = await mintAvatarUrl(env, "jsmith", ORIGIN, PHOTO_URL);
     const res = await handleAvatarProxy(new Request(url!), env, "jsmith");
     expect(res.status).toBe(502);
+  });
+});
+
+const ACHIEVEMENT_PATH = "/achievement/image/25/PRO010.svg";
+const ACHIEVEMENT_URL = `https://cdn.intra.42.fr${ACHIEVEMENT_PATH}`;
+
+describe("achievement assets", () => {
+  it("validates achievement SVG paths", () => {
+    expect(assetPathFromUrl(ACHIEVEMENT_URL)).toBe(ACHIEVEMENT_PATH);
+    expect(assetPathFromUrl(PHOTO_URL)).toBeNull();
+    expect(
+      assetPathFromUrl("https://example.com/achievement/image/1/x.svg"),
+    ).toBeNull();
+  });
+
+  it("mints a signed asset URL", async () => {
+    const url = await mintAssetUrl(makeEnv(), ORIGIN, ACHIEVEMENT_URL);
+    expect(url).not.toBeNull();
+    const parsed = new URL(url!);
+    expect(parsed.pathname).toBe("/api/v1/public/asset");
+    expect(parsed.searchParams.get("p")).toBe(ACHIEVEMENT_PATH);
+    expect(parsed.searchParams.get("sig")).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("serves the SVG with the app token and caches it", async () => {
+    const env = makeEnv();
+    const url = await mintAssetUrl(env, ORIGIN, ACHIEVEMENT_URL);
+    const res = await handleAssetProxy(new Request(url!), env);
+    expect(res.status).toBe(200);
+    expect(fetchIntra).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetchIntra).mock.calls[0][1]).toBe(
+      `https://cdn.intra.42.fr${ACHIEVEMENT_PATH}`,
+    );
+    const init = vi.mocked(fetchIntra).mock.calls[0][2] as RequestInit;
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      "Bearer app-token",
+    );
+
+    const again = await handleAssetProxy(new Request(url!), env);
+    expect(again.status).toBe(200);
+    expect(fetchIntra).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a swapped asset path", async () => {
+    const env = makeEnv();
+    const url = new URL(
+      (await mintAssetUrl(env, ORIGIN, ACHIEVEMENT_URL))!,
+    );
+    url.searchParams.set("p", "/achievement/image/99/OTHER.svg");
+    const res = await handleAssetProxy(new Request(url), env);
+    expect(res.status).toBe(403);
   });
 });

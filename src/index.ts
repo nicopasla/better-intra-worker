@@ -56,7 +56,7 @@ import { handleStats } from "./handlers/stats";
 import { handleImageUpload } from "./handlers/image-upload";
 import { handleCustomBadges } from "./handlers/custom-badges";
 import { handleImageServe } from "./handlers/image-serve";
-import { handleAvatarProxy } from "./handlers/avatar";
+import { handleAssetProxy, handleAvatarProxy } from "./handlers/avatar";
 import { Env, UserData } from "./types";
 import {
   isOriginAllowed,
@@ -156,6 +156,10 @@ export default {
     );
     if (avatarMatch) {
       return handleAvatarProxy(request, env, avatarMatch[1]);
+    }
+
+    if (url.pathname === "/api/v1/public/asset") {
+      return handleAssetProxy(request, env);
     }
 
     if (url.pathname === "/api/v1/public/announcement") {

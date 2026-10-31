@@ -9,10 +9,18 @@ const LOGIN_RE = /^[a-z0-9_-]{1,32}$/;
 const PHOTO_PATH_RE =
   /^\/users\/[a-f0-9]{32}\/[A-Za-z0-9_.-]{1,100}\.(?:jpe?g|png|gif|webp)$/;
 
+/** Static achievement badges served from the same CDN. */
+const ACHIEVEMENT_PATH_RE =
+  /^\/achievement\/image\/\d+\/[A-Za-z0-9_.-]+\.svg$/i;
+
 /** Edge/browser cache lifetime for the image bytes. The CDN path changes when a
  *  photo changes, so the bytes behind a given path are immutable. */
 const IMAGE_CACHE_TTL = 60 * 60 * 24 * 30;
 const IMAGE_MAX_AGE = 60 * 60 * 24;
+
+/** Achievement SVG paths are immutable, so they get a much longer cache. */
+const ASSET_CACHE_TTL = 60 * 60 * 24 * 365;
+const ASSET_MAX_AGE = 60 * 60 * 24 * 7;
 
 /** Signatures are bucketed per hour and valid for 1–2 hours. */
 const SIGN_WINDOW_SECONDS = 60 * 60;
@@ -41,6 +49,26 @@ export function photoPathFromUrl(
       return null;
     }
     return PHOTO_PATH_RE.test(url.pathname) ? url.pathname : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Extracts a validated achievement SVG path from a 42 CDN URL. */
+export function assetPathFromUrl(
+  value: string | null | undefined,
+): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      url.hostname !== "cdn.intra.42.fr" ||
+      url.search
+    ) {
+      return null;
+    }
+    return ACHIEVEMENT_PATH_RE.test(url.pathname) ? url.pathname : null;
   } catch {
     return null;
   }
@@ -132,6 +160,25 @@ export async function mintAvatarUrl(
     SIGN_WINDOW_SECONDS;
   const sig = await sign(env.AVATAR_URL_SECRET, normalized, path, exp);
   return `${origin}/api/v1/public/avatar/${normalized}?p=${encodeURIComponent(path)}&exp=${exp}&sig=${sig}`;
+}
+
+/**
+ * Signed proxy URL for an achievement SVG. The path is immutable, so callers
+ * can cache it aggressively; the signature only gates access.
+ */
+export async function mintAssetUrl(
+  env: Env,
+  origin: string,
+  imageUrl?: string | null,
+): Promise<string | null> {
+  if (!env.AVATAR_URL_SECRET) return null;
+  const path = assetPathFromUrl(imageUrl);
+  if (!path) return null;
+  const exp =
+    (Math.floor(Date.now() / 1000 / SIGN_WINDOW_SECONDS) + 2) *
+    SIGN_WINDOW_SECONDS;
+  const sig = await sign(env.AVATAR_URL_SECRET, "asset", path, exp);
+  return `${origin}/api/v1/public/asset?p=${encodeURIComponent(path)}&exp=${exp}&sig=${sig}`;
 }
 
 /**
@@ -299,6 +346,100 @@ export async function handleAvatarProxy(
       ...corsHeaders,
       "Content-Type": contentType,
       "Cache-Control": `public, max-age=${IMAGE_MAX_AGE}, s-maxage=${IMAGE_CACHE_TTL}, immutable`,
+    },
+  });
+  try {
+    await cache?.put(cacheKey, response.clone());
+  } catch {
+    /* ignore cache write failures */
+  }
+  return response;
+}
+
+/**
+ * Signature-gated proxy for static 42 CDN assets (achievement SVGs). Same
+ * app-token fetch path as avatars, but the paths are immutable so the cache is
+ * much longer-lived.
+ */
+export async function handleAssetProxy(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  if (request.method !== "GET") return textRes("Method not allowed", 405);
+
+  const secret = env.AVATAR_URL_SECRET;
+  if (!secret) return textRes("Asset proxy unavailable", 503);
+
+  const url = new URL(request.url);
+  const path = url.searchParams.get("p") || "";
+  const exp = Number(url.searchParams.get("exp"));
+  const sig = url.searchParams.get("sig") || "";
+  if (!ACHIEVEMENT_PATH_RE.test(path)) return textRes("Invalid asset", 400);
+  if (!Number.isInteger(exp) || exp * 1000 < Date.now()) {
+    return textRes("Link expired", 403);
+  }
+  if (!(await verify(secret, "asset", path, exp, sig))) {
+    return textRes("Forbidden", 403);
+  }
+
+  let relay: RelayConfig | null = null;
+  try {
+    relay = relayConfig(env);
+  } catch {
+    return textRes("Asset unavailable", 502);
+  }
+  const fetchMode = relay ? `relay:${new URL(relay.url).host}` : "direct";
+
+  const fail = (detail: string, message?: string): Response => {
+    console.error("[asset] failed", fetchMode, detail, message ?? "");
+    return textRes("Asset unavailable", 502);
+  };
+
+  if (relay && !relay.key) return fail("relay_key");
+
+  const cacheKey = new Request(`${url.origin}/__asset${path}`);
+  const cache = typeof caches !== "undefined" ? caches.default : null;
+  const hit = cache ? await cache.match(cacheKey) : undefined;
+  if (hit) return hit;
+
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+  if (await isRateLimited(env, ip)) return textRes("Too many requests", 429);
+
+  let token: string;
+  try {
+    token = await getAppToken(env);
+  } catch (error) {
+    return fail("token", errorMessage(error));
+  }
+  if (!token) return fail("token", "empty token");
+
+  let upstream: Response;
+  try {
+    upstream = await fetchPhoto(env, path, token, relay);
+  } catch (error) {
+    return fail(
+      relay ? "fetch_relay" : "fetch_direct",
+      errorMessage(error),
+    );
+  }
+
+  const contentType = upstream.headers.get("content-type") || "";
+  if (!upstream.ok || !contentType.startsWith("image/")) {
+    console.error(
+      "[asset] rejected",
+      fetchMode,
+      upstream.status,
+      contentType,
+    );
+    return textRes("Asset not found", upstream.status === 404 ? 404 : 502);
+  }
+
+  const response = new Response(upstream.body, {
+    status: 200,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": contentType,
+      "Cache-Control": `public, max-age=${ASSET_MAX_AGE}, s-maxage=${ASSET_CACHE_TTL}, immutable`,
     },
   });
   try {

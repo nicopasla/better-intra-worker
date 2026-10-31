@@ -12,7 +12,7 @@ import {
 import { intraFetch } from "../rate";
 import { isAvatarUrl, setCustomAvatar } from "./custom-avatars";
 import { primaryCampusFromMe } from "./campus-access";
-import { mintAvatarUrl } from "./avatar";
+import { mintAssetUrl, mintAvatarUrl } from "./avatar";
 import { pickGroups } from "./profile";
 
 const API_BASE = "https://api.intra.42.fr";
@@ -162,18 +162,28 @@ export async function handleMe(
       })),
   };
 
-  const achievements = (Array.isArray(me.achievements) ? me.achievements : [])
-    .map((a: any) => ({
-      name: a.name ?? "?",
-      description: a.description ?? "",
-      tier: a.tier ?? null,
-      kind: a.kind ?? null,
-      nbrOfSuccess: a.nbr_of_success ?? null,
-      image: a.image
-        ? `https://cdn.intra.42.fr${String(a.image).replace(/^\/uploads/, "")}`
-        : null,
-    }))
-    .sort((a: any, b: any) => a.name.localeCompare(b.name));
+  const selfOrigin = new URL(request.url).origin;
+  const achievements = await Promise.all(
+    (Array.isArray(me.achievements) ? me.achievements : []).map(
+      async (a: any) => {
+        const image = a.image
+          ? `https://cdn.intra.42.fr${String(a.image).replace(/^\/uploads/, "")}`
+          : null;
+        return {
+          name: a.name ?? "?",
+          description: a.description ?? "",
+          tier: a.tier ?? null,
+          kind: a.kind ?? null,
+          nbrOfSuccess: a.nbr_of_success ?? null,
+          image,
+          imageUrl: image
+            ? await mintAssetUrl(env, selfOrigin, image)
+            : null,
+        };
+      },
+    ),
+  );
+  achievements.sort((a, b) => a.name.localeCompare(b.name));
 
   const s = existingData.settings || {};
   const body = {
