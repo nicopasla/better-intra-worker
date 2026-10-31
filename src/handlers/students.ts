@@ -12,9 +12,9 @@ import {
 } from "../utils";
 import { intraFetch } from "../rate";
 import { getCustomAvatarMap } from "./custom-avatars";
+import { BELGIUM_CAMPUS_ID, requireBelgiumCampus } from "./campus-access";
 
 const API_BASE = "https://api.intra.42.fr";
-const BELGIUM_CAMPUS_ID = 12;
 const PAGE_SIZE = 100;
 const STUDENTS_CURSUS_ID = 21;
 const STUDENTS_CACHE_TTL = 24 * 60 * 60;
@@ -485,6 +485,14 @@ export async function handleStudentsList(
     return textRes("Unauthorized", 401);
   }
 
+  const denied = await requireBelgiumCampus(
+    request,
+    env,
+    loginParam,
+    existingData,
+  );
+  if (denied) return denied;
+
   const url = new URL(request.url);
   const paged = url.searchParams.has("limit");
   const pageOpts = paged ? parseStudentPageOptions(url) : null;
@@ -589,6 +597,14 @@ export async function handlePiscinersList(
   ) {
     return textRes("Unauthorized", 401);
   }
+
+  const denied = await requireBelgiumCampus(
+    request,
+    env,
+    loginParam,
+    existingData,
+  );
+  if (denied) return denied;
 
   const url = new URL(request.url);
   const year = Number(url.searchParams.get("year"));
@@ -732,6 +748,14 @@ export async function handlePiscinesList(
     return textRes("Unauthorized", 401);
   }
 
+  const denied = await requireBelgiumCampus(
+    request,
+    env,
+    loginParam,
+    existingData,
+  );
+  if (denied) return denied;
+
   return new Response(
     JSON.stringify({
       cached_at: Math.floor(Date.now() / 1000),
@@ -764,6 +788,14 @@ export async function handleFutureStudentsList(
   ) {
     return textRes("Unauthorized", 401);
   }
+
+  const denied = await requireBelgiumCampus(
+    request,
+    env,
+    loginParam,
+    existingData,
+  );
+  if (denied) return denied;
 
   const row = await readCacheRow(env, STUDENTS_CURSUS_ID, "FUTURE", "FUTURE");
   const now = Math.floor(Date.now() / 1000);

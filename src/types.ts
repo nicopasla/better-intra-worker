@@ -42,6 +42,9 @@ export type UserData = {
   fortyTwoToken?: string; // AES-GCM encrypted JSON: { access_token, refresh_token, expires_at }
   fortyTwoUserId?: number;
   fortyTwoLogin?: string;
+  /** Primary 42 campus, refreshed at login and by the me endpoint. */
+  campusId?: number | null;
+  campusName?: string | null;
   tokenBroken?: boolean;
   tokenFailures?: number;
   pushTestedAt?: number;
@@ -89,6 +92,7 @@ export interface UserResponse {
   id?: number;
   login?: string;
   campus?: Array<{ id: number; name: string }>;
+  campus_users?: Array<{ campus_id?: number; is_primary?: boolean }>;
   pool_month?: string;
   pool_year?: string;
 }

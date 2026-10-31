@@ -11,6 +11,7 @@ import {
 } from "../utils";
 import { intraFetch } from "../rate";
 import { isAvatarUrl, setCustomAvatar } from "./custom-avatars";
+import { primaryCampusFromMe } from "./campus-access";
 import { pickGroups } from "./profile";
 
 const API_BASE = "https://api.intra.42.fr";
@@ -66,15 +67,36 @@ export async function handleMe(
   const me = (await meRes.json()) as any;
 
   const login: string = me.login;
-  if (!existingData.fortyTwoLogin) {
+  const campus = primaryCampusFromMe(me);
+  const campusChanged =
+    campus.id != null && existingData.campusId !== campus.id;
+  if (!existingData.fortyTwoLogin || campusChanged) {
     await env.BETTER_INTRA_KV.put(
       loginParam,
-      serializeUserData({ ...existingData, fortyTwoLogin: login }),
+      serializeUserData({
+        ...existingData,
+        fortyTwoLogin: existingData.fortyTwoLogin ?? login,
+        ...(campus.id != null
+          ? { campusId: campus.id, campusName: campus.name }
+          : {}),
+      }),
     );
     // Backfill the public custom-avatar lookup for pre-existing accounts.
     const avatar = existingData.settings?.PROFILE_IMAGE_URL;
     if (typeof avatar === "string" && isAvatarUrl(avatar)) {
       await setCustomAvatar(env, login, avatar);
+    }
+  }
+  if (campus.id != null) {
+    try {
+      await env.better_intra_d1
+        .prepare(
+          "UPDATE users SET campus_id = ?, campus_name = COALESCE(?, campus_name) WHERE hash = ?",
+        )
+        .bind(campus.id, campus.name, loginParam)
+        .run();
+    } catch {
+      /* best effort */
     }
   }
   const cursusRes = await intraFetch(
@@ -168,8 +190,8 @@ export async function handleMe(
     level,
     grade,
     location: me.location ?? null,
-    campusId: me.campus?.[0]?.id ?? null,
-    campusName: me.campus?.[0]?.name ?? null,
+    campusId: campus.id,
+    campusName: campus.name,
     poolMonth: me.pool_month ?? null,
     poolYear: me.pool_year ?? null,
     poolLabel:

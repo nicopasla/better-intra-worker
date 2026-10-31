@@ -23,6 +23,7 @@ import {
 import { AUTH_CODE_PREFIX } from "../constants";
 import { fetchIntra } from "../rate";
 import { isAvatarUrl, setCustomAvatar } from "./custom-avatars";
+import { primaryCampusFromMe } from "./campus-access";
 
 const PWA_HOST = "mobile.betterintra.com";
 
@@ -139,8 +140,7 @@ export async function handleCallback(
     const userId = rawUser.id;
     if (!rawLogin) return errorPage(400, "Invalid 42 session.");
 
-    const campusId = rawUser.campus?.[0]?.id ?? null;
-    const campusName = rawUser.campus?.[0]?.name ?? null;
+    const campus = primaryCampusFromMe(rawUser);
     const poolLabel =
       rawUser.pool_month && rawUser.pool_year
         ? `${String(new Date(`${rawUser.pool_month} 1, 2000`).getMonth() + 1).padStart(2, "0")}/${rawUser.pool_year}`
@@ -238,6 +238,8 @@ export async function handleCallback(
         sessionTokens: activeTokens,
         sessionMeta,
         fortyTwoLogin: rawLogin,
+        campusId: campus.id,
+        campusName: campus.name,
         tokenBroken: false,
         tokenFailures: 0,
       }),
@@ -256,21 +258,19 @@ export async function handleCallback(
     const country = request.cf?.country || null;
     await env.better_intra_d1
       .prepare(
-        "INSERT INTO users (hash, forty_two_token, forty_two_user_id, country, campus_id, campus_name, pool) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(hash) DO UPDATE SET forty_two_token = ?, forty_two_user_id = ?, country = COALESCE(users.country, ?), campus_id = COALESCE(users.campus_id, ?), campus_name = COALESCE(users.campus_name, ?), pool = COALESCE(users.pool, ?)",
+        "INSERT INTO users (hash, forty_two_token, forty_two_user_id, country, campus_id, campus_name, pool) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(hash) DO UPDATE SET forty_two_token = ?, forty_two_user_id = ?, country = COALESCE(users.country, ?), campus_id = COALESCE(excluded.campus_id, users.campus_id), campus_name = COALESCE(excluded.campus_name, users.campus_name), pool = COALESCE(users.pool, ?)",
       )
       .bind(
         hashedLogin,
         encryptedTokens,
         userId,
         country,
-        campusId,
-        campusName,
+        campus.id,
+        campus.name,
         poolLabel,
         encryptedTokens,
         userId,
         country,
-        campusId,
-        campusName,
         poolLabel,
       )
       .run();

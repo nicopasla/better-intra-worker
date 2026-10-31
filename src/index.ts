@@ -15,6 +15,7 @@ import { handleProxy } from "./handlers/proxy";
 import { handleGhProxy } from "./handlers/gh-proxy";
 import { handleEvaluations } from "./handlers/evaluations";
 import { handleMe } from "./handlers/me";
+import { handleMyCampus } from "./handlers/campus-access";
 import { handleEvents, handleEventSubscribers } from "./handlers/events";
 import {
   handleHideTheme,
@@ -265,6 +266,10 @@ export default {
 
     if (url.pathname === "/api/v1/private/me") {
       return handleMe(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/campus") {
+      return handleMyCampus(request, env, loginParam, existingData);
     }
 
     if (url.pathname === "/api/v1/private/cluster/occupancy") {
