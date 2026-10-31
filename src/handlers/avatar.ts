@@ -175,10 +175,6 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function headerSafe(value: string): string {
-  return value.replace(/[^\x20-\x7e]/g, " ").slice(0, 180);
-}
-
 /**
  * Fetches the CDN photo. Cloudflare's bot management challenges Worker egress,
  * so when a relay is configured (Deno Deploy etc.) the request goes through it.
@@ -238,38 +234,23 @@ export async function handleAvatarProxy(
   let relay: RelayConfig | null = null;
   try {
     relay = relayConfig(env);
-  } catch (error) {
-    console.error("[avatar] invalid relay config", errorMessage(error));
-    return new Response(`Upstream error (invalid relay: ${errorMessage(error)})`, {
-      status: 502,
-      headers: { ...corsHeaders, "x-avatar-error": "relay_config" },
-    });
+  } catch {
+    return textRes("Avatar unavailable", 502);
   }
   const fetchMode = relay ? `relay:${new URL(relay.url).host}` : "direct";
 
   const fail = (detail: string, message?: string): Response => {
     console.error(
-      "[avatar] failure",
+      "[avatar] failed",
       normalized,
       fetchMode,
       detail,
       message ?? "",
     );
-    return new Response(
-      `Upstream error (${detail}${message ? `: ${message}` : ""})`,
-      {
-        status: 502,
-        headers: {
-          ...corsHeaders,
-          "x-avatar-fetch": fetchMode,
-          "x-avatar-error": detail,
-          ...(message ? { "x-avatar-error-message": headerSafe(message) } : {}),
-        },
-      },
-    );
+    return textRes("Avatar unavailable", 502);
   };
 
-  if (relay && !relay.key) return fail("relay_key", "RELAY_KEY is not set");
+  if (relay && !relay.key) return fail("relay_key");
 
   // The signature is per-request, so the cache key must not include it. The
   // photo path is part of the key: a new photo is a new URL.
@@ -301,25 +282,14 @@ export async function handleAvatarProxy(
 
   const contentType = upstream.headers.get("content-type") || "";
   if (!upstream.ok || !contentType.startsWith("image/")) {
-    const mitigated = upstream.headers.get("cf-mitigated") || "";
-    console.warn(
-      "[avatar] upstream rejected",
+    console.error(
+      "[avatar] rejected",
       normalized,
       fetchMode,
       upstream.status,
       contentType,
-      mitigated,
     );
-    return new Response(`Avatar not found (upstream ${upstream.status})`, {
-      status: upstream.status === 404 ? 404 : 502,
-      headers: {
-        ...corsHeaders,
-        "x-avatar-upstream-status": String(upstream.status),
-        "x-avatar-upstream-type": contentType,
-        "x-avatar-upstream-mitigated": mitigated,
-        "x-avatar-fetch": fetchMode,
-      },
-    });
+    return textRes("Avatar not found", upstream.status === 404 ? 404 : 502);
   }
 
   const response = new Response(upstream.body, {
