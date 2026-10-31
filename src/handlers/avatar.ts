@@ -152,6 +152,33 @@ async function isRateLimited(env: Env, ip: string): Promise<boolean> {
   return false;
 }
 
+interface RelayConfig {
+  url: string;
+  key: string;
+}
+
+/** Normalizes the relay secrets; returns null when unset or malformed. */
+function relayConfig(env: Env): RelayConfig | null {
+  const raw = (env.RELAY_URL || "").trim().replace(/\/+$/, "");
+  if (!raw) return null;
+  const url = new URL(raw); // throws on malformed input; handled by the caller
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error(`invalid RELAY_URL protocol: ${url.protocol}`);
+  }
+  return {
+    url: url.toString().replace(/\/+$/, ""),
+    key: (env.RELAY_KEY || "").trim(),
+  };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function headerSafe(value: string): string {
+  return value.replace(/[^\x20-\x7e]/g, " ").slice(0, 180);
+}
+
 /**
  * Fetches the CDN photo. Cloudflare's bot management challenges Worker egress,
  * so when a relay is configured (Deno Deploy etc.) the request goes through it.
@@ -160,21 +187,21 @@ async function fetchPhoto(
   env: Env,
   path: string,
   token: string,
+  relay: RelayConfig | null,
 ): Promise<Response> {
   const headers = {
     Authorization: `Bearer ${token}`,
     Accept: "image/*",
   };
-  const relay = (env.RELAY_URL || "").replace(/\/+$/, "");
   if (relay) {
-    return fetch(`${relay}?url=${encodeURIComponent(`${CDN_ORIGIN}${path}`)}`, {
-      headers: { ...headers, "X-Relay-Key": env.RELAY_KEY || "" },
-      redirect: "error",
+    return fetch(`${relay.url}?url=${encodeURIComponent(`${CDN_ORIGIN}${path}`)}`, {
+      headers: { ...headers, "X-Relay-Key": relay.key },
+      redirect: "manual",
     });
   }
   return fetchIntra(env, `${CDN_ORIGIN}${path}`, {
     headers,
-    redirect: "error",
+    redirect: "manual",
   });
 }
 
@@ -208,6 +235,42 @@ export async function handleAvatarProxy(
     return textRes("Forbidden", 403);
   }
 
+  let relay: RelayConfig | null = null;
+  try {
+    relay = relayConfig(env);
+  } catch (error) {
+    console.error("[avatar] invalid relay config", errorMessage(error));
+    return new Response(`Upstream error (invalid relay: ${errorMessage(error)})`, {
+      status: 502,
+      headers: { ...corsHeaders, "x-avatar-error": "relay_config" },
+    });
+  }
+  const fetchMode = relay ? `relay:${new URL(relay.url).host}` : "direct";
+
+  const fail = (detail: string, message?: string): Response => {
+    console.error(
+      "[avatar] failure",
+      normalized,
+      fetchMode,
+      detail,
+      message ?? "",
+    );
+    return new Response(
+      `Upstream error (${detail}${message ? `: ${message}` : ""})`,
+      {
+        status: 502,
+        headers: {
+          ...corsHeaders,
+          "x-avatar-fetch": fetchMode,
+          "x-avatar-error": detail,
+          ...(message ? { "x-avatar-error-message": headerSafe(message) } : {}),
+        },
+      },
+    );
+  };
+
+  if (relay && !relay.key) return fail("relay_key", "RELAY_KEY is not set");
+
   // The signature is per-request, so the cache key must not include it. The
   // photo path is part of the key: a new photo is a new URL.
   const cacheKey = new Request(`${url.origin}/__avatar${path}`);
@@ -218,13 +281,22 @@ export async function handleAvatarProxy(
   const ip = request.headers.get("cf-connecting-ip") || "unknown";
   if (await isRateLimited(env, ip)) return textRes("Too many requests", 429);
 
+  let token: string;
+  try {
+    token = await getAppToken(env);
+  } catch (error) {
+    return fail("token", errorMessage(error));
+  }
+  if (!token) return fail("token", "empty token");
+
   let upstream: Response;
   try {
-    const token = await getAppToken(env);
-    if (!token) return textRes("Upstream error", 502);
-    upstream = await fetchPhoto(env, path, token);
-  } catch {
-    return textRes("Upstream error", 502);
+    upstream = await fetchPhoto(env, path, token, relay);
+  } catch (error) {
+    return fail(
+      relay ? "fetch_relay" : "fetch_direct",
+      errorMessage(error),
+    );
   }
 
   const contentType = upstream.headers.get("content-type") || "";
@@ -233,10 +305,10 @@ export async function handleAvatarProxy(
     console.warn(
       "[avatar] upstream rejected",
       normalized,
+      fetchMode,
       upstream.status,
       contentType,
       mitigated,
-      env.RELAY_URL ? "relay" : "direct",
     );
     return new Response(`Avatar not found (upstream ${upstream.status})`, {
       status: upstream.status === 404 ? 404 : 502,
@@ -245,7 +317,7 @@ export async function handleAvatarProxy(
         "x-avatar-upstream-status": String(upstream.status),
         "x-avatar-upstream-type": contentType,
         "x-avatar-upstream-mitigated": mitigated,
-        "x-avatar-fetch": env.RELAY_URL ? "relay" : "direct",
+        "x-avatar-fetch": fetchMode,
       },
     });
   }
