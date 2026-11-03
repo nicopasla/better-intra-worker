@@ -36,8 +36,9 @@ const HOST_RE = /^[a-z0-9][a-z0-9-]{1,48}$/;
 const MAX_REPORTS = SEAT_COMPONENTS.length;
 /** Cheap abuse guard per reporter hash, per hour. */
 const MAX_ACTIONS_PER_HOUR = 60;
-/** Repeat taps within this window don't increase the confirmation count. */
-const CONFIRM_TTL_SECONDS = 30;
+/** Repeat taps within this window don't increase the confirmation count.
+ *  Cloudflare KV rejects expiration TTLs below 60 seconds. */
+const CONFIRM_TTL_SECONDS = 60;
 
 export interface SeatEntryInput {
   component: SeatComponent;
