@@ -35,6 +35,7 @@ import {
 } from "./handlers/calendar";
 import { handleClusterSvg, handleClusterSvgs } from "./handlers/clusters";
 import { handleClusterOccupancy } from "./handlers/cluster-occupancy";
+import { handleSeatReports, handleSeatHistory } from "./handlers/seat-reports";
 import {
   handleStudentsList,
   handlePiscinersList,
@@ -286,6 +287,14 @@ export default {
 
     if (url.pathname === "/api/v1/private/cluster/occupancy") {
       return handleClusterOccupancy(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/cluster/reports") {
+      return handleSeatReports(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/cluster/reports/history") {
+      return handleSeatHistory(request, env, loginParam, existingData);
     }
 
     if (url.pathname === "/api/v1/private/events") {

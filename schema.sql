@@ -162,3 +162,33 @@ CREATE TABLE IF NOT EXISTS custom_badges (
   logins TEXT NOT NULL DEFAULT '',
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
+
+-- Anonymous cluster-computer reports (Belgium campus only). No reporter
+-- identity is stored: reports are keyed by seat + component.
+CREATE TABLE IF NOT EXISTS seat_components (
+  campus TEXT NOT NULL,
+  host TEXT NOT NULL,
+  cluster TEXT,
+  component TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('broken', 'works')),
+  updated_at INTEGER NOT NULL,
+  confirmations INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (campus, host, component)
+);
+
+CREATE INDEX IF NOT EXISTS idx_seat_components_campus
+  ON seat_components (campus);
+
+-- Anonymous status-change log for the seat sheet's history.
+CREATE TABLE IF NOT EXISTS seat_component_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campus TEXT NOT NULL,
+  host TEXT NOT NULL,
+  cluster TEXT,
+  component TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('broken', 'works')),
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_seat_component_events_seat
+  ON seat_component_events (campus, host, created_at);
