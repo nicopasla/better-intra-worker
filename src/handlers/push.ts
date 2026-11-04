@@ -18,7 +18,7 @@ export interface PushPayload {
   /** Eval/event details for clients that want to open a specific view. The time
    *  is already rendered in `body`: formatting it in the service worker is not
    *  reliable because a background worker's timezone is UTC on Android. */
-  kind?: "booked" | "revealed" | "corrected" | "event";
+  kind?: "booked" | "revealed" | "corrected" | "event" | "subject";
   project?: string | null;
   correcteds?: string[];
   corrector?: string;

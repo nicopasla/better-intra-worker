@@ -129,6 +129,34 @@ export function buildCorrectedPush(input: CorrectedPushInput): PushPayload {
   };
 }
 
+function formatSubjectDate(ms: number): string {
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) return "";
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const year = String(date.getUTCFullYear()).slice(-2);
+  return `${day}/${month}/${year}`;
+}
+
+export interface SubjectPushInput {
+  project: string;
+  /** PDF update date, already resolved by the extension. */
+  modifiedAt?: number | null;
+}
+
+/** Push for a new version of a project the user is currently doing. */
+export function buildSubjectPush(input: SubjectPushInput): PushPayload {
+  const project = input.project.trim() || "A project";
+  const date = input.modifiedAt ? formatSubjectDate(input.modifiedAt) : "";
+  return {
+    title: "Subject updated",
+    body: date
+      ? `${project} - new version (${date})`
+      : `${project} - new version`,
+    kind: "subject",
+  };
+}
+
 export interface EventPushInput {
   name: string;
   location?: string | null;

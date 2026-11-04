@@ -162,6 +162,37 @@ export async function handleMe(
       })),
   };
 
+  // Remember which projects this user is currently doing, so a subject update
+  // reported by the extension can be pushed to them. Only useful with a push
+  // subscription; writing even an empty list clears stale mappings.
+  if ((existingData.pushSubscriptions?.length ?? 0) > 0) {
+    const ongoing = inProgress
+      .map((p) => ({
+        slug: typeof p.project?.slug === "string" ? p.project.slug : null,
+        name: typeof p.project?.name === "string" ? p.project.name : null,
+      }))
+      .filter((p): p is { slug: string; name: string | null } =>
+        Boolean(p.slug),
+      );
+    try {
+      const serialized = JSON.stringify(ongoing);
+      const current = await env.better_intra_d1
+        .prepare("SELECT projects FROM user_ongoing_projects WHERE hash = ?")
+        .bind(loginParam)
+        .first<{ projects: string }>();
+      if (current?.projects !== serialized) {
+        await env.better_intra_d1
+          .prepare(
+            "INSERT INTO user_ongoing_projects (hash, projects, updated_at) VALUES (?, ?, ?) ON CONFLICT(hash) DO UPDATE SET projects = excluded.projects, updated_at = excluded.updated_at",
+          )
+          .bind(loginParam, serialized, Math.floor(Date.now() / 1000))
+          .run();
+      }
+    } catch (e) {
+      console.warn(`[me] ongoing projects write failed: ${e}`);
+    }
+  }
+
   const selfOrigin = new URL(request.url).origin;
   const achievements = await Promise.all(
     (Array.isArray(me.achievements) ? me.achievements : []).map(

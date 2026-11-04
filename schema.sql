@@ -47,13 +47,26 @@ CREATE TABLE IF NOT EXISTS projects (
   slug TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS subjects (
+-- Subject version registry, populated by the extension when it reads a
+-- project's subject PDF. A row with `notified_at IS NULL` is a pending push.
+CREATE TABLE IF NOT EXISTS subject_versions (
   slug TEXT PRIMARY KEY,
+  name TEXT,
   url TEXT NOT NULL,
-  subject_id TEXT,
-  created_at INTEGER,
   modified_at INTEGER,
-  last_changed_at INTEGER
+  changed_at INTEGER,
+  notified_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS subject_versions_pending
+  ON subject_versions(notified_at);
+
+-- Ongoing projects per cloud user, written by /me. Used to decide who should
+-- receive a subject-update push. Projects are stored as a JSON array.
+CREATE TABLE IF NOT EXISTS user_ongoing_projects (
+  hash TEXT PRIMARY KEY,
+  projects TEXT NOT NULL,
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
 CREATE TABLE IF NOT EXISTS correction_point_historics (

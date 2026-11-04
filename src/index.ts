@@ -52,6 +52,10 @@ import {
 } from "./handlers/push";
 import { handleLogtimeHistory } from "./handlers/logtime";
 import { handleEventReminders } from "./handlers/event-notify";
+import {
+  handleSubjectNotifications,
+  handleSubjectsReport,
+} from "./handlers/subjects";
 import { handleAnnouncement } from "./handlers/announcement";
 import { handleStats } from "./handlers/stats";
 import { handleImageUpload } from "./handlers/image-upload";
@@ -360,6 +364,10 @@ const worker = {
       return handleProfile(request, env, loginParam, existingData, target);
     }
 
+    if (url.pathname === "/api/v1/private/subjects/report") {
+      return handleSubjectsReport(request, env, loginParam, existingData);
+    }
+
     if (url.pathname === "/api/v1/private/custom-badges") {
       return handleCustomBadges(request, env, loginParam, existingData);
     }
@@ -382,16 +390,17 @@ const worker = {
 
     return errorPage(404, "This endpoint doesn't exist.");
   },
-  // Event reminders are the only cron work that makes no 42 API calls (they
-  // read the ICS in D1 and send Web Push), so they're safe from the scheduled
-  // context, which 42 challenges. Everything that talks to 42 still runs from
-  // the external cron (POST /api/v1/public/cron).
+  // Event reminders and subject notifications make no 42 API calls (they read
+  // D1 and send Web Push), so they're safe from the scheduled context, which
+  // 42 challenges. Everything that talks to 42 still runs from the external
+  // cron (POST /api/v1/public/cron).
   async scheduled(
     controller: ScheduledController,
     env: Env,
     ctx: ExecutionContext,
   ): Promise<void> {
     ctx.waitUntil(handleEventReminders(env));
+    ctx.waitUntil(handleSubjectNotifications(env));
   },
 };
 

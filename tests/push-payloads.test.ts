@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildCorrectedPush,
   buildEvalPush,
+  buildSubjectPush,
   formatPushTime,
   isValidTimeZone,
 } from "../src/push-payloads";
@@ -130,5 +131,22 @@ describe("buildCorrectedPush", () => {
     expect(push.body).toContain("Your evaluator: elmo");
     expect(push.body).toContain("15:30");
     expect("beginAt" in push).toBe(false);
+  });
+});
+
+describe("buildSubjectPush", () => {
+  it("names the project and renders the PDF date", () => {
+    const push = buildSubjectPush({
+      project: "Libft",
+      modifiedAt: Date.UTC(2026, 9, 15, 9, 42),
+    });
+    expect(push.title).toBe("Subject updated");
+    expect(push.body).toBe("Libft - new version (15/10/26)");
+    expect(push.kind).toBe("subject");
+  });
+
+  it("falls back to a dateless body when the PDF date is missing", () => {
+    const push = buildSubjectPush({ project: "Libft", modifiedAt: null });
+    expect(push.body).toBe("Libft - new version");
   });
 });
