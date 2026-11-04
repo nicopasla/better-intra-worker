@@ -165,6 +165,11 @@ CREATE TABLE IF NOT EXISTS custom_badges (
 
 -- Anonymous cluster-computer reports (Belgium campus only). No reporter
 -- identity is stored: reports are keyed by seat + component.
+-- Existing deployments: SQLite has no ADD COLUMN IF NOT EXISTS, so run these
+-- once before deploying the worker that writes `reporter`:
+--   ALTER TABLE seat_components ADD COLUMN reporter TEXT;
+--   ALTER TABLE seat_component_events ADD COLUMN reporter TEXT;
+
 CREATE TABLE IF NOT EXISTS seat_components (
   campus TEXT NOT NULL,
   host TEXT NOT NULL,
@@ -173,13 +178,15 @@ CREATE TABLE IF NOT EXISTS seat_components (
   status TEXT NOT NULL CHECK (status IN ('broken', 'works')),
   updated_at INTEGER NOT NULL,
   confirmations INTEGER NOT NULL DEFAULT 1,
+  reporter TEXT,
   PRIMARY KEY (campus, host, component)
 );
 
 CREATE INDEX IF NOT EXISTS idx_seat_components_campus
   ON seat_components (campus);
 
--- Anonymous status-change log for the seat sheet's history.
+-- Status-change log for the seat sheet's history. `reporter` is the 42 login
+-- that made the change (NULL for rows written before reporter tracking).
 CREATE TABLE IF NOT EXISTS seat_component_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   campus TEXT NOT NULL,
@@ -187,7 +194,8 @@ CREATE TABLE IF NOT EXISTS seat_component_events (
   cluster TEXT,
   component TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('broken', 'works')),
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  reporter TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_seat_component_events_seat

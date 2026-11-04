@@ -10,7 +10,7 @@ import {
 import type { Env, UserData } from "../src/types";
 
 const HASH = "a".repeat(32);
-const USER: UserData = { sessionTokens: ["token"] };
+const USER: UserData = { sessionTokens: ["token"], fortyTwoLogin: "alice" };
 const ORIGIN = "https://api.betterintra.com";
 
 function request(path: string, init: RequestInit = {}): Request {
@@ -29,6 +29,7 @@ function makeEnv(rows: ReturnType<typeof groupSeatRows> = []) {
       status: component.status,
       updatedAt: component.updatedAt,
       confirmations: component.confirmations,
+      reporter: component.reporter,
     })),
   );
   const env = {
@@ -150,6 +151,7 @@ describe("handleSeatReports", () => {
             status: "broken",
             updatedAt: 5,
             confirmations: 3,
+            reporter: "alice",
           },
         ],
       },
@@ -195,6 +197,52 @@ describe("handleSeatReports", () => {
     expect(res.status).toBe(400);
     const text = await res.text();
     expect(text).toContain(String(SEAT_REPORT_CAMPUS));
+  });
+
+  it("records the reporter from the session blob", async () => {
+    const calls: { sql: string; args: unknown[] }[] = [];
+    const env = {
+      BETTER_INTRA_KV: {
+        get: vi.fn(async () => null),
+        put: vi.fn(async () => {}),
+      },
+      better_intra_d1: {
+        prepare: vi.fn((sql: string) => ({
+          bind: vi.fn((...args: unknown[]) => {
+            calls.push({ sql, args });
+            return {
+              all: vi.fn(async () => ({ results: [] })),
+              run: vi.fn(async () => ({})),
+            };
+          }),
+        })),
+        batch: vi.fn(async () => []),
+      },
+    } as unknown as Env;
+
+    await handleSeatReports(
+      request("/api/v1/private/cluster/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          host: "shi-r1-p1",
+          cluster: "shi",
+          reports: [{ component: "audio", status: "works" }],
+        }),
+      }),
+      env,
+      HASH,
+      USER,
+    );
+
+    const upsert = calls.find((call) =>
+      call.sql.includes("INSERT INTO seat_components"),
+    );
+    expect(upsert?.args).toContain("alice");
+    const event = calls.find((call) =>
+      call.sql.includes("INSERT INTO seat_component_events"),
+    );
+    expect(event?.args).toContain("alice");
   });
 
   it("stores a valid report", async () => {
@@ -249,7 +297,14 @@ describe("handleSeatHistory", () => {
       bind: () => ({
         all: async () => ({
           results: sql.includes("seat_component_events")
-            ? [{ component: "audio", status: "works", created_at: 100 }]
+            ? [
+                {
+                  component: "audio",
+                  status: "works",
+                  created_at: 100,
+                  reporter: "alice",
+                },
+              ]
             : [],
         }),
         run: async () => ({}),
@@ -269,10 +324,20 @@ describe("handleSeatHistory", () => {
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      events: { component: string; status: string; createdAt: number }[];
+      events: {
+        component: string;
+        status: string;
+        createdAt: number;
+        reporter: string | null;
+      }[];
     };
     expect(body.events).toEqual([
-      { component: "audio", status: "works", createdAt: 100_000 },
+      {
+        component: "audio",
+        status: "works",
+        createdAt: 100_000,
+        reporter: "alice",
+      },
     ]);
   });
 

@@ -7,11 +7,12 @@ import {
 } from "../utils";
 
 /**
- * Anonymous broken-computer reports for the cluster maps.
+ * Broken-computer reports for the cluster maps.
  *
- * Reports are scoped to the Belgium campus for now. The reporter's identity is
- * never written to D1: only a short-lived KV hash is used to de-duplicate
- * repeat taps and rate-limit abuse.
+ * Reports are scoped to the Belgium campus for now. Every write stores the
+ * reporter's 42 login (from the session blob, so it cannot be spoofed by the
+ * client) on the seat row and in the history log. A short-lived KV lock keyed
+ * by the login hash still de-duplicates repeat taps.
  */
 export const SEAT_REPORT_CAMPUS = "12";
 
@@ -52,12 +53,14 @@ export interface SeatComponentRow {
   status: SeatStatus;
   updatedAt: number;
   confirmations: number;
+  reporter?: string | null;
 }
 
 export interface SeatEventRow {
   component: SeatComponent;
   status: SeatStatus;
   created_at: number;
+  reporter?: string | null;
 }
 
 export interface SeatRow {
@@ -68,6 +71,7 @@ export interface SeatRow {
     status: SeatStatus;
     updatedAt: number;
     confirmations: number;
+    reporter: string | null;
   }[];
 }
 
@@ -123,6 +127,7 @@ export function groupSeatRows(rows: SeatComponentRow[] | null): SeatRow[] {
       status,
       updatedAt: Number(row.updatedAt) || 0,
       confirmations: Math.max(1, Number(row.confirmations) || 1),
+      reporter: row.reporter ?? null,
     });
   }
   return [...seats.values()];
@@ -142,7 +147,7 @@ function authorized(
 }
 
 const SEAT_COLUMNS =
-  "host, cluster, component, status, updated_at AS updatedAt, confirmations";
+  "host, cluster, component, status, updated_at AS updatedAt, confirmations, reporter";
 
 async function loadSeats(env: Env): Promise<SeatRow[]> {
   const { results } = await env.better_intra_d1
@@ -159,12 +164,13 @@ async function loadSeats(env: Env): Promise<SeatRow[]> {
 
 const UPSERT_SQL = `
   INSERT INTO seat_components
-    (campus, host, cluster, component, status, updated_at, confirmations)
-  VALUES (?, ?, ?, ?, ?, ?, 1)
+    (campus, host, cluster, component, status, updated_at, confirmations, reporter)
+  VALUES (?, ?, ?, ?, ?, ?, 1, ?)
   ON CONFLICT(campus, host, component) DO UPDATE SET
     cluster = excluded.cluster,
     status = excluded.status,
     updated_at = excluded.updated_at,
+    reporter = excluded.reporter,
     confirmations = CASE
       WHEN seat_components.status = excluded.status
         THEN seat_components.confirmations + ?
@@ -214,6 +220,9 @@ export async function handleSeatReports(
   const entries = parseSeatReports(body.reports);
   if (!entries) return textRes("Invalid reports", 400);
 
+  /** From the session blob, so it cannot be spoofed by the request body. */
+  const reporter = existingData?.fortyTwoLogin ?? null;
+
   const rateKey = `SEAT_REPORT_RATE_${loginParam}`;
   const used = Number((await env.BETTER_INTRA_KV.get(rateKey)) ?? "0");
   if (used >= MAX_ACTIONS_PER_HOUR) {
@@ -259,6 +268,7 @@ export async function handleSeatReports(
           entry.component,
           entry.status,
           now,
+          reporter,
           increments[index],
         ),
     );
@@ -269,8 +279,8 @@ export async function handleSeatReports(
         env.better_intra_d1
           .prepare(
             `INSERT INTO seat_component_events
-               (campus, host, cluster, component, status, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)`,
+               (campus, host, cluster, component, status, created_at, reporter)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
           )
           .bind(
             SEAT_REPORT_CAMPUS,
@@ -279,6 +289,7 @@ export async function handleSeatReports(
             entry.component,
             entry.status,
             now,
+            reporter,
           ),
       );
     }
@@ -297,7 +308,7 @@ export async function handleSeatReports(
   return jsonRes({ seat: groupSeatRows(results)[0] ?? null });
 }
 
-/** Anonymous status-change history for one seat, newest first. */
+/** Status-change history for one seat, newest first, with the reporter login. */
 export async function handleSeatHistory(
   request: Request,
   env: Env,
@@ -315,7 +326,7 @@ export async function handleSeatHistory(
 
   const { results } = await env.better_intra_d1
     .prepare(
-      `SELECT component, status, created_at
+      `SELECT component, status, created_at, reporter
        FROM seat_component_events
        WHERE campus = ? AND host = ?
        ORDER BY created_at DESC, id DESC
@@ -333,6 +344,7 @@ export async function handleSeatHistory(
         component,
         status,
         createdAt: Number(row.created_at) * 1000,
+        reporter: row.reporter ?? null,
       };
     })
     .filter((event): event is NonNullable<typeof event> => event !== null);
