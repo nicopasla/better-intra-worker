@@ -68,9 +68,10 @@ import {
   jsonRes,
   getBearerToken,
   touchSession,
+  maybeErrorPage,
 } from "./utils";
 
-export default {
+const worker = {
   async fetch(
     request: Request,
     env: Env,
@@ -392,4 +393,15 @@ export default {
   ): Promise<void> {
     ctx.waitUntil(handleEventReminders(env));
   },
+};
+
+export default {
+  async fetch(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<Response> {
+    return maybeErrorPage(request, await worker.fetch(request, env, ctx));
+  },
+  scheduled: worker.scheduled,
 };

@@ -268,6 +268,43 @@ export function errorPage(status: number, message: string): Response {
   });
 }
 
+const CAT_PAGE_MAX_TEXT = 2000;
+
+/**
+ * Swaps a plain-text error for the http.cat page when the request is a real
+ * browser navigation. API clients (extension, PWA, calendar, images) keep the
+ * original response: only `text/plain` bodies are converted, and only for
+ * top-level document loads (`Sec-Fetch-Dest: document`, or a `GET` that
+ * accepts HTML when the header is unavailable).
+ */
+export async function maybeErrorPage(
+  request: Request,
+  response: Response,
+): Promise<Response> {
+  if (response.status < 400 || request.method === "OPTIONS") return response;
+
+  const contentType = response.headers.get("Content-Type") ?? "";
+  const isText = contentType.startsWith("text/plain") || contentType === "";
+  if (!isText) return response;
+
+  const dest = request.headers.get("Sec-Fetch-Dest");
+  const acceptsHtml = (request.headers.get("Accept") ?? "").includes(
+    "text/html",
+  );
+  const isNavigation =
+    dest === "document" ||
+    (dest === null && acceptsHtml && request.method === "GET");
+  if (!isNavigation) return response;
+
+  const message =
+    (await response.text()).slice(0, CAT_PAGE_MAX_TEXT) ||
+    "Something went wrong.";
+  const page = errorPage(response.status, message);
+  const retryAfter = response.headers.get("Retry-After");
+  if (retryAfter) page.headers.set("Retry-After", retryAfter);
+  return page;
+}
+
 export function getBearerToken(request: Request): string | null {
   return (
     request.headers.get("Authorization")?.match(/^Bearer\s+(.+)$/i)?.[1] ?? null
