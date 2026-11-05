@@ -150,7 +150,13 @@ async function resolveCallerCampus(
       country,
     );
     if ("failure" in tokenResult) return null;
-    const res = await intraFetch(env, tokenResult.token, `${API_BASE}/v2/me`);
+    const res = await intraFetch(
+      env,
+      tokenResult.token,
+      `${API_BASE}/v2/me`,
+      {},
+      { op: "campus_access.me" },
+    );
     if (!res.ok) return null;
     const campus = primaryCampusFromMe((await res.json()) as RawMe);
     if (campus.id == null) return null;

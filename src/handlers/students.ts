@@ -160,6 +160,8 @@ async function fetchAllCursusUsers(
       env,
       token,
       `${API_BASE}/v2/cursus_users?${params}`,
+      {},
+      { op: "students" },
     );
     if (!apiRes.ok) return null;
 
@@ -679,7 +681,9 @@ async function fetchPiscineCohort(
       "page[number]": String(page),
     });
 
-    const res = await intraFetch(env, token, `${API_BASE}/v2/users?${params}`);
+    const res = await intraFetch(env, token, `${API_BASE}/v2/users?${params}`, {}, {
+      op: "students.users",
+    });
     if (!res.ok) return all.length > 0 ? all : null;
 
     const users = (await res.json()) as Array<{

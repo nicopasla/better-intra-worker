@@ -8,6 +8,7 @@
  */
 
 import type { Env } from "./types";
+import { recordApiCall, rateLimits, type ApiMeta } from "./metrics";
 
 const DEFAULT_SECONDLY_LIMIT = 4;
 const HOURLY_FLOOR = 100; // remaining below this → slow down to protect the hourly cap
@@ -114,13 +115,30 @@ export function isChallenge(res: Response): boolean {
 }
 
 /**
- * Fetch a 42 URL, spaced by the global egress gate.
+ * Fetch a 42 URL, spaced by the global egress gate, recording the call against
+ * the requested call site (`meta.op`).
  */
 export async function fetchIntra(
-  _env: Env,
+  env: Env,
   url: string,
   init: RequestInit = {},
+  meta: ApiMeta = { op: "unknown" },
 ): Promise<Response> {
+  const started = Date.now();
+  const res = await egressFetch(url, init);
+  recordApiCall(env, {
+    op: meta.op,
+    hash: meta.hash,
+    scope: "app",
+    status: res.status,
+    ms: Date.now() - started,
+    ...rateLimits(res.headers),
+  });
+  return res;
+}
+
+/** One gated outbound request, without metrics (callers own the recording). */
+async function egressFetch(url: string, init: RequestInit): Promise<Response> {
   await gateEgress();
   return fetch(url, {
     ...init,
@@ -138,10 +156,12 @@ export async function intraFetch(
   token: string,
   input: string,
   init: RequestInit = {},
+  meta: ApiMeta = { op: "unknown" },
 ): Promise<Response> {
-  const run = async (): Promise<Response> => {
+  const run = async (attempt: number): Promise<Response> => {
     await gate(token);
-    const res = await fetchIntra(env, input, {
+    const started = Date.now();
+    const res = await egressFetch(input, {
       ...init,
       headers: {
         ...((init.headers as Record<string, string>) || {}),
@@ -149,10 +169,19 @@ export async function intraFetch(
       },
     });
     observe(token, res);
+    recordApiCall(env, {
+      op: meta.op,
+      hash: meta.hash,
+      scope: "user",
+      status: res.status,
+      ms: Date.now() - started,
+      attempt,
+      ...rateLimits(res.headers),
+    });
     return res;
   };
 
-  let res = await run();
+  let res = await run(0);
   for (
     let attempt = 0;
     attempt < MAX_RETRIES && (res.status === 429 || isChallenge(res));
@@ -164,7 +193,7 @@ export async function intraFetch(
         ? retryAfter * 1000
         : bucketFor(token).intervalMs * (attempt + 2);
     await sleep(wait);
-    res = await run();
+    res = await run(attempt + 1);
   }
   return res;
 }

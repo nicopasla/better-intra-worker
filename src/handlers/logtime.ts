@@ -65,6 +65,8 @@ async function fetchLocationsPage(
     env,
     token,
     `https://api.intra.42.fr/v2/users/${targetLogin}/locations${qs}`,
+    {},
+    { op: "logtime" },
   );
   if (!res.ok) return null;
   try {

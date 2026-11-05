@@ -42,7 +42,9 @@ export async function handleProxy(
     }
   });
 
-  const apiRes = await intraFetch(env, fortyTwoToken, apiUrl.toString());
+  const apiRes = await intraFetch(env, fortyTwoToken, apiUrl.toString(), {}, {
+    op: "proxy",
+  });
 
   const body = apiRes.headers
     .get("content-type")

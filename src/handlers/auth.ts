@@ -114,6 +114,7 @@ export async function handleCallback(
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: tokenParams.toString(),
       },
+      { op: "auth.token" },
     );
     if (!tokenResponse.ok) {
       return errorPage(502, "42 OAuth token exchange failed.");
@@ -131,6 +132,7 @@ export async function handleCallback(
       {
         headers: { Authorization: `Bearer ${tokenData.access_token}` },
       },
+      { op: "auth.me" },
     );
     if (!userResponse.ok) {
       return errorPage(502, "Failed to fetch user info from 42.");

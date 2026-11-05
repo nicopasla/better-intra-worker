@@ -8,7 +8,7 @@ import {
   SessionActivity,
 } from "./types";
 import { APP_TOKEN_CACHE, SESSION_ACTIVITY_PREFIX } from "./constants";
-import { fetchIntra } from "./rate";
+import { fetchIntra, intraFetch } from "./rate";
 
 export const MAX_SESSION_TOKENS = 20;
 
@@ -351,15 +351,20 @@ export async function getAppToken(env: Env): Promise<string> {
   }
 
   const promise = (async () => {
-    const res = await fetchIntra(env, "https://api.intra.42.fr/oauth/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "client_credentials",
-        client_id: env.CLIENT_ID,
-        client_secret: env.CLIENT_SECRET,
-      }),
-    });
+    const res = await fetchIntra(
+      env,
+      "https://api.intra.42.fr/oauth/token",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "client_credentials",
+          client_id: env.CLIENT_ID,
+          client_secret: env.CLIENT_SECRET,
+        }),
+      },
+      { op: "app_token" },
+    );
 
     if (!res.ok) throw new Error("Failed to get app token");
 
@@ -421,11 +426,12 @@ export async function getCursusMap(
     const token = await getAppToken(env);
     const stmts: D1PreparedStatement[] = [];
     for (let page = 1; ; page++) {
-      const res = await fetch(
+      const res = await intraFetch(
+        env,
+        token,
         `https://api.intra.42.fr/v2/cursus?page[size]=100&page[number]=${page}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
+        {},
+        { op: "cursus_map" },
       );
       if (!res.ok) break;
       const rows = (await res.json()) as Array<{
@@ -459,11 +465,12 @@ export async function updateProjectMap(env: Env, appToken: string) {
   let page = 1;
 
   while (true) {
-    const res = await fetch(
+    const res = await intraFetch(
+      env,
+      appToken,
       `https://api.intra.42.fr/v2/projects?per_page=100&page=${page}`,
-      {
-        headers: { Authorization: `Bearer ${appToken}` },
-      },
+      {},
+      { op: "project_map" },
     );
 
     if (!res.ok) return;
@@ -734,16 +741,21 @@ async function resolveUserTokenInner(
     // The Cloudflare challenge is intermittent (per egress IP), so retry it a
     // couple of times before giving up.
     for (let attempt = 0; attempt < 3; attempt++) {
-      const res = await fetchIntra(env, "https://api.intra.42.fr/oauth/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "refresh_token",
-          client_id: env.CLIENT_ID,
-          client_secret: env.CLIENT_SECRET,
-          refresh_token: tokenData.refresh_token,
-        }),
-      });
+      const res = await fetchIntra(
+        env,
+        "https://api.intra.42.fr/oauth/token",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "refresh_token",
+            client_id: env.CLIENT_ID,
+            client_secret: env.CLIENT_SECRET,
+            refresh_token: tokenData.refresh_token,
+          }),
+        },
+        { op: "token_refresh", hash: loginParam },
+      );
 
       if (res.ok) {
         const data = (await res.json()) as TokenResponse;

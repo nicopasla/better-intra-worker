@@ -9,6 +9,7 @@ import {
   validateSession,
 } from "../utils";
 import { intraFetch } from "../rate";
+import { markCache } from "../metrics";
 import { readCustomBadges } from "./custom-badges";
 import { mintAvatarUrl } from "./avatar";
 
@@ -357,16 +358,19 @@ export async function handleProfile(
   if (cached) {
     // Badges are read fresh so a new grant shows up without waiting for the
     // profile cache to expire.
-    return jsonRes({
-      ...(cached as Record<string, unknown>),
-      avatarUrl: await mintAvatarUrl(
-        env,
-        login,
-        selfOrigin,
-        (cached as { avatar?: string | null }).avatar ?? null,
-      ),
-      customBadges: await readCustomBadges(env, login),
-    });
+    return markCache(
+      jsonRes({
+        ...(cached as Record<string, unknown>),
+        avatarUrl: await mintAvatarUrl(
+          env,
+          login,
+          selfOrigin,
+          (cached as { avatar?: string | null }).avatar ?? null,
+        ),
+        customBadges: await readCustomBadges(env, login),
+      }),
+      "hit",
+    );
   }
 
   const country: string | null =
@@ -384,6 +388,8 @@ export async function handleProfile(
     env,
     tokenResult.token,
     `${API_BASE}/v2/users/${encodeURIComponent(login)}`,
+    {},
+    { op: "profile" },
   );
   if (res.status === 404) return textRes("User not found", 404);
   if (!res.ok) return textRes(`42 API error: ${res.status}`, 502);
@@ -399,6 +405,8 @@ export async function handleProfile(
       env,
       tokenResult.token,
       `${API_BASE}/v2/users/${encodeURIComponent(login)}/cursus_users?page[size]=100&page[number]=1`,
+      {},
+      { op: "profile.cursus" },
     );
     if (cursusRes.ok) {
       const cursusUsers = await cursusRes.json();
@@ -419,8 +427,11 @@ export async function handleProfile(
   await env.BETTER_INTRA_KV.put(cacheKey, JSON.stringify(payload), {
     expirationTtl: PROFILE_CACHE_TTL,
   });
-  return jsonRes({
-    ...payload,
-    avatarUrl: await mintAvatarUrl(env, login, selfOrigin, payload.avatar),
-  });
+  return markCache(
+    jsonRes({
+      ...payload,
+      avatarUrl: await mintAvatarUrl(env, login, selfOrigin, payload.avatar),
+    }),
+    "miss",
+  );
 }

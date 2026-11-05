@@ -10,6 +10,7 @@ import {
   validateSession,
 } from "../utils";
 import { intraFetch } from "../rate";
+import { markCache } from "../metrics";
 import { isAvatarUrl, setCustomAvatar } from "./custom-avatars";
 import { primaryCampusFromMe } from "./campus-access";
 import { mintAssetUrl, mintAvatarUrl } from "./avatar";
@@ -49,7 +50,7 @@ export async function handleMe(
 
   const cacheKey = `ME_CACHE_${loginParam}`;
   const cached = await env.BETTER_INTRA_KV.get(cacheKey, { type: "json" });
-  if (cached) return jsonRes(cached);
+  if (cached) return markCache(jsonRes(cached), "hit");
 
   const country: string | null =
     (request.cf?.country as string | undefined) || null;
@@ -63,7 +64,9 @@ export async function handleMe(
     return tokenFailureResponse(tokenResult.failure);
   const token = tokenResult.token;
 
-  const meRes = await intraFetch(env, token, `${API_BASE}/v2/me`);
+  const meRes = await intraFetch(env, token, `${API_BASE}/v2/me`, {}, {
+    op: "me",
+  });
   if (!meRes.ok) return textRes(`42 API error: ${meRes.status}`, 502);
   const me = (await meRes.json()) as any;
 
@@ -104,6 +107,8 @@ export async function handleMe(
     env,
     token,
     `${API_BASE}/v2/users/${login}/cursus_users?page[size]=100&page[number]=1`,
+    {},
+    { op: "me.cursus" },
   );
   let level = 0;
   let grade: string | null = null;
@@ -274,5 +279,5 @@ export async function handleMe(
   await env.BETTER_INTRA_KV.put(cacheKey, JSON.stringify(body), {
     expirationTtl: ME_CACHE_TTL,
   });
-  return jsonRes(body);
+  return markCache(jsonRes(body), "miss");
 }

@@ -10,6 +10,7 @@ import {
   validateSession,
 } from "../utils";
 import { intraFetch } from "../rate";
+import { markCache } from "../metrics";
 import { getCustomAvatarMap } from "./custom-avatars";
 import { mintAvatarUrl } from "./avatar";
 
@@ -96,7 +97,7 @@ export async function handleClusterOccupancy(
         updatedAt: number;
       };
       await signEntries(env, request, body.entries);
-      return jsonRes(body);
+      return markCache(jsonRes(body), "hit");
     }
   }
 
@@ -118,7 +119,7 @@ export async function handleClusterOccupancy(
       const url =
         `${API_BASE}/v2/campus/${campus}/locations` +
         `?filter[active]=true&page[size]=${PAGE_SIZE}&page[number]=${page}`;
-      const res = await intraFetch(env, token, url);
+      const res = await intraFetch(env, token, url, {}, { op: "occupancy" });
       if (!res.ok) return textRes(`42 API error: ${res.status}`, 502);
       const list = (await res.json()) as RawLocation[];
       if (!Array.isArray(list)) break;
@@ -168,7 +169,7 @@ export async function handleClusterOccupancy(
     .bind(campus, await encryptBytes(env, JSON.stringify(body)), now)
     .run();
   await signEntries(env, request, entries);
-  return jsonRes(body);
+  return markCache(jsonRes(body), "miss");
 }
 
 /** Signs avatar URLs at response time so they never end up in the D1 cache. */

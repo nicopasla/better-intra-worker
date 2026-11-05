@@ -45,7 +45,9 @@ async function syncRouletteFromApi(
 
   while (page <= maxPages) {
     const url = `${API_BASE}/v2/users/${login}/correction_point_historics?filter[reason]=Thursday+Roulette&page[size]=100&page[number]=${page}&sort=-id`;
-    const res = await intraFetch(env, userToken, url);
+    const res = await intraFetch(env, userToken, url, {}, {
+      op: "profile_stats.roulette",
+    });
     if (!res.ok) break;
 
     const data: any[] = await res.json();
@@ -191,14 +193,19 @@ export async function handleProfileStats(
   // Eval stats: fetch from 42 API
   const graphPath = `/v2/users/${targetUsername}/scale_teams/graph/on/created_at/by/month`;
 
-  const totalRes = await intraFetch(env, token, `${API_BASE}${graphPath}`);
+  const totalRes = await intraFetch(env, token, `${API_BASE}${graphPath}`, {}, {
+    op: "profile_stats.graph",
+  });
   if (!totalRes.ok)
     return textRes(`42 API error (total): ${totalRes.status}`, totalRes.status);
   const totalMap = (await totalRes.json()) as Record<string, number>;
 
-  const failedRes = await intraFetch(env, 
+  const failedRes = await intraFetch(
+    env,
     token,
     `${API_BASE}${graphPath}?range[final_mark]=0,49`,
+    {},
+    { op: "profile_stats.graph" },
   );
   if (!failedRes.ok)
     return textRes(

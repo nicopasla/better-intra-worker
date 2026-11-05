@@ -22,6 +22,12 @@
       "database_id": "42210594-bca8-4d11-a89c-b5e63bdf218d"
     }
   ],
+  "analytics_engine_datasets": [
+    {
+      "binding": "API_METRICS",
+      "dataset": "better_intra_42_api"
+    }
+  ],
   "vars": {
     "CLIENT_ID": "u-s4t2ud-8a3189d9af041af2f8775dc0f3b6ea37d1ee7b3c1a9cb8581dac62b631144138"
   },

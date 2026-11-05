@@ -80,6 +80,7 @@ export async function handleFriendsData(
       env,
       `${INTRA_API}/users?filter[login]=${unknownLogins.join(",")}&page[size]=${PAGE_SIZE}`,
       intraToken,
+      "friends.users",
     );
     for (const u of users) {
       if (u?.id && u?.login) {
@@ -99,6 +100,7 @@ export async function handleFriendsData(
     env,
     `${INTRA_API}/cursus_users?filter[user_id]=${allIds.join(",")}&page[size]=${PAGE_SIZE}`,
     intraToken,
+    "friends.cursus",
   );
   const cursusMap = await getCursusMap(env);
   const rank = (id: number): number => {
@@ -250,12 +252,19 @@ async function fetchAllPages<T>(
   env: Env,
   url: string,
   token: string,
+  op: string,
 ): Promise<T[]> {
   const results: T[] = [];
   let page = 1;
   while (true) {
     const sep = url.includes("?") ? "&" : "?";
-    const res = await intraFetch(env, token, `${url}${sep}page[number]=${page}`);
+    const res = await intraFetch(
+      env,
+      token,
+      `${url}${sep}page[number]=${page}`,
+      {},
+      { op },
+    );
     const hourly = res.headers.get("x-hourly-ratelimit-remaining") ?? "?";
     const secondly = res.headers.get("x-secondly-ratelimit-remaining") ?? "?";
     console.log(

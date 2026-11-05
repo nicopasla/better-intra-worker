@@ -28,10 +28,14 @@ async function fetchScaleTeams(
   env: Env,
   fortyTwoToken: string,
   page: number,
+  hash: string,
 ): Promise<{ data: any[]; rateLimited: boolean }> {
   const url = `https://api.intra.42.fr/v2/me/scale_teams?page[size]=100&page[number]=${page}`;
 
-  const apiRes = await intraFetch(env, fortyTwoToken, url);
+  const apiRes = await intraFetch(env, fortyTwoToken, url, {}, {
+    op: "cron.scale_teams",
+    hash,
+  });
 
   if (apiRes.status === 429) {
     console.warn(`[cron] scale_teams page=${page} status=429 rate limited`);
@@ -69,6 +73,8 @@ async function getLogin(
       env,
       fortyTwoToken,
       "https://api.intra.42.fr/v2/me",
+      {},
+      { op: "cron.me", hash },
     );
     if (!res.ok) return null;
     const me = (await res.json()) as { login?: string };
@@ -97,6 +103,8 @@ async function getCampusTimeZone(
       env,
       fortyTwoToken,
       "https://api.intra.42.fr/v2/me",
+      {},
+      { op: "cron.me", hash },
     );
     if (!res.ok) throw new Error(`/v2/me ${res.status}`);
     const me = (await res.json()) as {
@@ -482,6 +490,7 @@ async function processCronUser(
     env,
     fortyTwoToken,
     1,
+    hash,
   );
   if (rateLimited) {
     console.warn(`[${prefix}] 429 rate limited for ${shortHash}`);

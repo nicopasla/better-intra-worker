@@ -8,6 +8,7 @@ import {
   validateSession,
 } from "../utils";
 import { intraFetch } from "../rate";
+import { markCache } from "../metrics";
 import { mintAvatarUrl } from "./avatar";
 
 const API_BASE = "https://api.intra.42.fr";
@@ -64,6 +65,8 @@ export async function handleUserLookup(
     env,
     tokenResult.token,
     `${API_BASE}/v2/users/${encodeURIComponent(login)}`,
+    {},
+    { op: "user.lookup" },
   );
   if (res.status === 404) return textRes("User not found", 404);
   if (!res.ok) return textRes(`42 API error: ${res.status}`, 502);
@@ -96,19 +99,22 @@ export async function handleUserLookup(
   }
 
   const photo = user.image?.versions?.small ?? user.image?.link ?? null;
-  return jsonRes({
-    login: user.login ?? login,
-    displayName:
-      user.usual_full_name ?? user.displayname ?? user.login ?? login,
-    avatar: photo,
-    avatarUrl: await mintAvatarUrl(
-      env,
-      user.login ?? login,
-      new URL(request.url).origin,
-      photo,
-    ),
-    level: best?.level ?? 0,
-    grade: best?.grade ?? null,
-    location: user.location ?? null,
-  });
+  return markCache(
+    jsonRes({
+      login: user.login ?? login,
+      displayName:
+        user.usual_full_name ?? user.displayname ?? user.login ?? login,
+      avatar: photo,
+      avatarUrl: await mintAvatarUrl(
+        env,
+        user.login ?? login,
+        new URL(request.url).origin,
+        photo,
+      ),
+      level: best?.level ?? 0,
+      grade: best?.grade ?? null,
+      location: user.location ?? null,
+    }),
+    "miss",
+  );
 }

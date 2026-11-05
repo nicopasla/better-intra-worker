@@ -63,6 +63,7 @@ import { handleCustomBadges } from "./handlers/custom-badges";
 import { handleImageServe } from "./handlers/image-serve";
 import { handleAssetProxy, handleAvatarProxy } from "./handlers/avatar";
 import { Env, UserData } from "./types";
+import { recordRequest } from "./metrics";
 import {
   isOriginAllowed,
   textRes,
@@ -410,7 +411,10 @@ export default {
     env: Env,
     ctx: ExecutionContext,
   ): Promise<Response> {
-    return maybeErrorPage(request, await worker.fetch(request, env, ctx));
+    const started = Date.now();
+    const response = await worker.fetch(request, env, ctx);
+    recordRequest(env, request, response, Date.now() - started);
+    return maybeErrorPage(request, response);
   },
   scheduled: worker.scheduled,
 };

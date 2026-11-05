@@ -111,6 +111,8 @@ export async function handleEventSubscribers(
       env,
       tokenResult.token,
       `${API_BASE}/v2/events/${eventId}/users?page[size]=${PAGE_SIZE}&page[number]=${page}`,
+      {},
+      { op: "events.subscribers" },
     );
     if (res.status === 404) return textRes("Event not found", 404);
     if (!res.ok) return textRes(`42 API error: ${res.status}`, 502);
