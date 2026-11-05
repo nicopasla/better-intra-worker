@@ -13,7 +13,10 @@ import {
 import { intraFetch } from "../rate";
 
 const API_BASE = "https://api.intra.42.fr";
-const CACHE_TTL = 3_600;
+/** Roulette is weekly and eval stats only move when evaluations end. */
+const CACHE_TTL = 21_600;
+/** A roulette sync per draw is enough: points land on Thursdays. */
+const ROULETTE_SYNC_MS = 6.5 * 24 * 60 * 60_000;
 
 interface RouletteEntry {
   historic_id: number;
@@ -166,12 +169,21 @@ export async function handleProfileStats(
 
   const hash = targetHash;
 
-  // Roulette: sync from 42 API if needed
+  // Roulette: only re-sync when the last known win is older than one draw cycle,
+  // so opening a profile rarely costs a 42 request at all.
   const existingEntries = await getRouletteEntries(env, hash);
-  if (existingEntries.length === 0) {
-    await syncRouletteFromApi(env, hash, token, targetUsername, 0);
-  } else {
-    const latestId = Math.max(...existingEntries.map((e) => e.historic_id));
+  const latestWinAt = existingEntries.reduce(
+    (latest, entry) => Math.max(latest, Date.parse(entry.created_at) || 0),
+    0,
+  );
+  const latestId = existingEntries.reduce(
+    (latest, entry) => Math.max(latest, entry.historic_id),
+    0,
+  );
+  if (
+    existingEntries.length === 0 ||
+    Date.now() - latestWinAt >= ROULETTE_SYNC_MS
+  ) {
     await syncRouletteFromApi(env, hash, token, targetUsername, latestId);
   }
   const rouletteEntries = await getRouletteEntries(env, hash);
