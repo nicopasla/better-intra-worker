@@ -124,6 +124,14 @@ CREATE TABLE IF NOT EXISTS online_cache (
   seen_at BLOB NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS friend_profiles (
+  login_hash TEXT PRIMARY KEY,
+  payload BLOB NOT NULL,
+  cached_at INTEGER NOT NULL,
+  location TEXT,
+  location_at INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS cursus (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
