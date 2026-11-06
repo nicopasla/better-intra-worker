@@ -21,7 +21,7 @@ const PUSH_URL = "https://mobile.betterintra.com/#/profile?tab=projects";
  * being stored while this is off, so rows recorded in the meantime stay pending
  * and are delivered once it's turned back on.
  */
-export const SUBJECT_NOTIFICATIONS_ENABLED = true;
+export const SUBJECT_NOTIFICATIONS_ENABLED = false;
 
 const SLUG_RE = /^[A-Za-z0-9._-]+$/;
 
