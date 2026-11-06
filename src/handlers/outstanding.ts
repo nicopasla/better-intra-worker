@@ -176,9 +176,11 @@ export async function handleOutstanding(
           .bind(targetHash, Number(countParam))
           .run();
       } else {
+        // `completed_count` is NOT NULL DEFAULT 0; omitting it lets the default
+        // apply and keeps the conflict update from clobbering a known count.
         await env.better_intra_d1
           .prepare(
-            "INSERT INTO outstanding_sync_state (hash, completed_count, updated_at) VALUES (?, NULL, unixepoch()) ON CONFLICT(hash) DO UPDATE SET updated_at = excluded.updated_at",
+            "INSERT INTO outstanding_sync_state (hash, updated_at) VALUES (?, unixepoch()) ON CONFLICT(hash) DO UPDATE SET updated_at = excluded.updated_at",
           )
           .bind(targetHash)
           .run();
@@ -252,13 +254,18 @@ export async function handleOutstanding(
       );
 
       // Only advance the timestamp: `completed_count` belongs to the target
-      // branch and must not be cleared here.
-      await env.better_intra_d1
-        .prepare(
-          "INSERT INTO outstanding_sync_state (hash, completed_count, updated_at) VALUES (?, NULL, unixepoch()) ON CONFLICT(hash) DO UPDATE SET updated_at = excluded.updated_at",
-        )
-        .bind(loginParam)
-        .run();
+      // branch and must not be cleared here. The column is NOT NULL DEFAULT 0,
+      // so it is omitted rather than bound to null.
+      try {
+        await env.better_intra_d1
+          .prepare(
+            "INSERT INTO outstanding_sync_state (hash, updated_at) VALUES (?, unixepoch()) ON CONFLICT(hash) DO UPDATE SET updated_at = excluded.updated_at",
+          )
+          .bind(loginParam)
+          .run();
+      } catch (e) {
+        console.warn(`[outstanding] sync state write failed: ${e}`);
+      }
     }
   }
 

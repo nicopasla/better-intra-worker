@@ -53,6 +53,15 @@ describe("shouldResync", () => {
     ).toBe(false);
   });
 
+  it("treats the NOT NULL default zero count as a real value", () => {
+    expect(
+      shouldResync({ completed_count: 0, updated_at: NOW - 61 }, "0", NOW),
+    ).toBe(false);
+    expect(
+      shouldResync({ completed_count: 0, updated_at: NOW - 61 }, "2", NOW),
+    ).toBe(true);
+  });
+
   it("accepts explicit thresholds", () => {
     const state = { completed_count: 1, updated_at: NOW - 30 };
     expect(shouldResync(state, null, NOW, 30)).toBe(true);
