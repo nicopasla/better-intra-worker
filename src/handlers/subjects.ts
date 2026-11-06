@@ -21,6 +21,13 @@ const MAX_SUBJECTS_PER_RUN = 10;
 const CONCURRENCY = 4;
 const PUSH_URL = "https://mobile.betterintra.com/#/profile?tab=projects";
 
+/**
+ * Temporary kill switch for subject-update Web Push (PWA recipients). Reports
+ * keep being stored, so updates that land while this is off stay pending and
+ * are delivered once it's turned back on.
+ */
+export const SUBJECT_NOTIFICATIONS_ENABLED = false;
+
 const SLUG_RE = /^[A-Za-z0-9._-]+$/;
 
 /** Stored version of a project subject. */
@@ -290,6 +297,7 @@ export async function handleSubjectsReport(
  * because it only reads D1 + KV and sends Web Push (no 42 API calls).
  */
 export async function handleSubjectNotifications(env: Env): Promise<void> {
+  if (!SUBJECT_NOTIFICATIONS_ENABLED) return;
   if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return;
 
   let pending: SubjectVersionRow[] = [];
