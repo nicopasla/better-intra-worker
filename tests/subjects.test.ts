@@ -61,9 +61,9 @@ describe("decideSubjectVersion", () => {
   const stored = { url: PDF, modified_at: NOW };
 
   it("establishes a baseline on the first report", () => {
-    expect(decideSubjectVersion(null, { url: PDF, modifiedAt: NOW }, NOW)).toEqual(
-      { status: "first", url: PDF, modifiedAt: NOW },
-    );
+    expect(
+      decideSubjectVersion(null, { url: PDF, modifiedAt: NOW }, NOW),
+    ).toEqual({ status: "first", url: PDF, modifiedAt: NOW });
   });
 
   it("is a no-op for the same version", () => {
@@ -72,15 +72,26 @@ describe("decideSubjectVersion", () => {
     ).toEqual({ status: "known", url: PDF, modifiedAt: NOW });
   });
 
-  it("detects a newer PDF date", () => {
+  it("detects a new version when the link changes", () => {
+    const next = "https://cdn.intra.42.fr/pdf/pdf/456/en.subject.pdf";
     expect(
       decideSubjectVersion(
         stored,
-        { url: PDF, modifiedAt: NOW + 60_000 },
+        { url: next, modifiedAt: NOW + 60_000 },
         NOW,
       ),
     ).toEqual({
       status: "changed",
+      url: next,
+      modifiedAt: NOW + 60_000,
+    });
+  });
+
+  it("absorbs a date change on the same link without notifying", () => {
+    expect(
+      decideSubjectVersion(stored, { url: PDF, modifiedAt: NOW + 60_000 }, NOW),
+    ).toEqual({
+      status: "known",
       url: PDF,
       modifiedAt: NOW + 60_000,
     });
@@ -88,11 +99,7 @@ describe("decideSubjectVersion", () => {
 
   it("never regresses the known date", () => {
     expect(
-      decideSubjectVersion(
-        stored,
-        { url: PDF, modifiedAt: NOW - 60_000 },
-        NOW,
-      ),
+      decideSubjectVersion(stored, { url: PDF, modifiedAt: NOW - 60_000 }, NOW),
     ).toEqual({ status: "known", url: PDF, modifiedAt: NOW });
   });
 
@@ -148,7 +155,12 @@ describe("wantsSubjectNotification", () => {
   const user = (settings: Record<string, unknown>): UserData => ({
     settings,
     pushSubscriptions: [
-      { endpoint: "https://push.example/1", p256dh: "x", auth: "y", addedAt: 1 },
+      {
+        endpoint: "https://push.example/1",
+        p256dh: "x",
+        auth: "y",
+        addedAt: 1,
+      },
     ],
   });
 
@@ -245,7 +257,7 @@ describe("handleSubjectsReport", () => {
     }
   }
 
-  function reportRequest() {
+  function reportRequest(url = PDF) {
     return new Request(
       "https://api.betterintra.com/api/v1/private/subjects/report?login=user",
       {
@@ -258,7 +270,7 @@ describe("handleSubjectsReport", () => {
           items: [
             {
               slug: "netpractice",
-              url: PDF,
+              url,
               modifiedAt: Date.now() - 60_000,
             },
           ],
@@ -267,31 +279,64 @@ describe("handleSubjectsReport", () => {
     );
   }
 
-  it("records a changed subject version when the PDF date advances", async () => {
+  const storedRow = (now: number) => ({
+    slug: "netpractice",
+    name: "NetPractice",
+    url: "https://cdn.intra.42.fr/pdf/pdf/100/en.subject.pdf",
+    modified_at: now - 86_400_000,
+    changed_at: now - 86_400_000,
+    notified_at: now - 86_400_000,
+  });
+
+  it("queues a notification when the subject link changes", async () => {
     const now = Date.now();
-    const d1 = new FakeD1({
-      slug: "netpractice",
-      name: "NetPractice",
-      url: PDF,
-      modified_at: now - 86_400_000,
-      changed_at: now - 86_400_000,
-      notified_at: now - 86_400_000,
-    });
+    const d1 = new FakeD1(storedRow(now));
     const env = { better_intra_d1: d1 } as unknown as Env;
     const existing: UserData = { sessionTokens: ["session-token"] };
 
-    const res = await handleSubjectsReport(reportRequest(), env, "user", existing);
+    const res = await handleSubjectsReport(
+      reportRequest(),
+      env,
+      "user",
+      existing,
+    );
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       subjects: [{ slug: "netpractice", status: "changed" }],
     });
     expect(d1.runs).toHaveLength(1);
-    expect(d1.runs[0].sql).toContain("UPDATE subject_versions");
+    expect(d1.runs[0].sql).toContain("notified_at = NULL");
     expect(d1.runs[0].args).toEqual([
       "NetPractice",
       PDF,
       expect.any(Number),
+      expect.any(Number),
+      "netpractice",
+    ]);
+  });
+
+  it("only adopts a newer date on the same link", async () => {
+    const now = Date.now();
+    const d1 = new FakeD1({ ...storedRow(now), url: PDF });
+    const env = { better_intra_d1: d1 } as unknown as Env;
+    const existing: UserData = { sessionTokens: ["session-token"] };
+
+    const res = await handleSubjectsReport(
+      reportRequest(),
+      env,
+      "user",
+      existing,
+    );
+
+    expect(await res.json()).toEqual({
+      subjects: [{ slug: "netpractice", status: "known" }],
+    });
+    expect(d1.runs).toHaveLength(1);
+    expect(d1.runs[0].sql).not.toContain("notified_at");
+    expect(d1.runs[0].args).toEqual([
+      "NetPractice",
+      PDF,
       expect.any(Number),
       "netpractice",
     ]);

@@ -1,10 +1,5 @@
 import { Env, UserData } from "../types";
-import {
-  getBearerToken,
-  jsonRes,
-  textRes,
-  validateSession,
-} from "../utils";
+import { getBearerToken, jsonRes, textRes, validateSession } from "../utils";
 import { pushTransition } from "../push-send";
 import { buildSubjectPush } from "../push-payloads";
 
@@ -98,8 +93,11 @@ export function normalizeSubjectUrl(raw: string): string {
  * Decides whether a report introduces a new subject version, is a no-op, or is
  * the first observation (which only establishes a baseline).
  *
- * A URL change alone is not a new version: the same PDF may be exposed under a
- * language-specific link. Only a strictly newer `modifiedAt` notifies.
+ * A new version always ships as a new PDF link, so the link is the signal. A
+ * date moving on the same link is a metadata artifact (the CDN `Last-Modified`
+ * header versus the PDF's own date, which differ per visit) and must never
+ * notify, or old versions get announced as if they had just changed. A
+ * different link carrying the same date is a language variant: also quiet.
  */
 export function decideSubjectVersion(
   stored: StoredSubjectVersion | null,
@@ -114,19 +112,23 @@ export function decideSubjectVersion(
   }
 
   const previous = stored.modified_at;
-  const newer =
-    modifiedAt != null && previous != null && modifiedAt > previous;
+  const storedUrl = normalizeSubjectUrl(stored.url);
+  const dateOlder =
+    modifiedAt != null && previous != null && modifiedAt < previous;
+  const sameDate =
+    modifiedAt != null && previous != null && modifiedAt === previous;
 
-  if (newer) {
+  if (url !== storedUrl && !dateOlder && !sameDate) {
     return { status: "changed", url, modifiedAt };
   }
 
-  const stale = modifiedAt != null && previous != null && modifiedAt < previous;
   return {
     status: "known",
-    // Never regress a known date (or its URL) on a stale report.
-    url: stale ? stored.url : url,
-    modifiedAt: previous ?? modifiedAt,
+    // Never take an older link or date: stale reports (cached pages, old
+    // variants) must not regress the registry. A newer date on the same link
+    // is adopted quietly so later comparisons use the real baseline.
+    url: dateOlder ? stored.url : url,
+    modifiedAt: dateOlder ? previous : (modifiedAt ?? previous),
   };
 }
 
@@ -176,10 +178,7 @@ async function loadSubject(
   );
 }
 
-async function loadProjectName(
-  env: Env,
-  slug: string,
-): Promise<string | null> {
+async function loadProjectName(env: Env, slug: string): Promise<string | null> {
   const row = await env.better_intra_d1
     .prepare("SELECT name FROM projects WHERE slug = ?")
     .bind(slug)
@@ -251,14 +250,7 @@ export async function handleSubjectsReport(
           .prepare(
             "INSERT INTO subject_versions (slug, name, url, modified_at, changed_at, notified_at) VALUES (?, ?, ?, ?, ?, ?)",
           )
-          .bind(
-            slug,
-            name,
-            decision.url,
-            decision.modifiedAt,
-            nowSec,
-            nowSec,
-          )
+          .bind(slug, name, decision.url, decision.modifiedAt, nowSec, nowSec)
           .run();
       } else if (decision.status === "changed") {
         await env.better_intra_d1
@@ -337,8 +329,7 @@ export async function handleSubjectNotifications(env: Env): Promise<void> {
         )
         .bind(nowSec, subject.slug)
         .run();
-      const changes = (claim.meta as { changes?: number } | undefined)
-        ?.changes;
+      const changes = (claim.meta as { changes?: number } | undefined)?.changes;
       if (changes === 0) continue;
     } catch (e) {
       console.warn(`[subjects] claim failed slug=${subject.slug}: ${e}`);
