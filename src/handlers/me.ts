@@ -8,6 +8,7 @@ import {
   textRes,
   tokenFailureResponse,
   validateSession,
+  type CursusInfo,
 } from "../utils";
 import { intraFetch } from "../rate";
 import { markCache } from "../metrics";
@@ -31,6 +32,33 @@ function rankCursus(kind: string | undefined): number {
   }
   if (kind === "main_deprecated") return 3;
   return 4;
+}
+
+/**
+ * Picks the cursus that represents the student: the main one, then piscines,
+ * then anything else, breaking ties on level. Kinds come from the D1 cursus map
+ * because the `cursus` objects embedded in `/v2/me` carry only id/name/slug.
+ */
+export function pickBestCursus(
+  cursusUsers: any[],
+  cursusMap: Record<number, CursusInfo>,
+): any | null {
+  let best: any = null;
+  for (const cu of cursusUsers) {
+    if (!best) {
+      best = cu;
+      continue;
+    }
+    const rank = rankCursus(cursusMap[cu.cursus_id]?.kind);
+    const bestRank = rankCursus(cursusMap[best.cursus_id]?.kind);
+    if (
+      rank < bestRank ||
+      (rank === bestRank && (cu.level ?? 0) > (best.level ?? 0))
+    ) {
+      best = cu;
+    }
+  }
+  return best;
 }
 
 export async function handleMe(
@@ -103,35 +131,28 @@ export async function handleMe(
       /* best effort */
     }
   }
-  const cursusRes = await intraFetch(
-    env,
-    token,
-    `${API_BASE}/v2/users/${login}/cursus_users?page[size]=100&page[number]=1`,
-    {},
-    { op: "me.cursus" },
-  );
-  let level = 0;
-  let grade: string | null = null;
-  let best: any = null;
-  if (cursusRes.ok) {
-    const cursusUsers = (await cursusRes.json()) as any[];
-    const cursusMap = await getCursusMap(env);
-    for (const cu of cursusUsers) {
-      const r = rankCursus(cursusMap[cu.cursus_id]?.kind);
-      if (
-        !best ||
-        r < rankCursus(cursusMap[best.cursus_id]?.kind) ||
-        (r === rankCursus(cursusMap[best.cursus_id]?.kind) &&
-          cu.level > best.level)
-      ) {
-        best = cu;
-      }
-    }
-    if (best) {
-      level = best.level ?? 0;
-      grade = best.grade ?? null;
+  // `/v2/me` always embeds the full user resource, including `cursus_users`
+  // (GET /v2/me, API 2.0), so the extra request is only needed for payloads
+  // that omit them.
+  let cursusUsers: any[] = Array.isArray(me.cursus_users) ? me.cursus_users : [];
+  if (cursusUsers.length === 0) {
+    const cursusRes = await intraFetch(
+      env,
+      token,
+      `${API_BASE}/v2/users/${login}/cursus_users?page[size]=100&page[number]=1`,
+      {},
+      { op: "me.cursus" },
+    );
+    if (cursusRes.ok) {
+      const list = await cursusRes.json();
+      if (Array.isArray(list)) cursusUsers = list;
     }
   }
+
+  const cursusMap = await getCursusMap(env);
+  const best = pickBestCursus(cursusUsers, cursusMap);
+  const level = best?.level ?? 0;
+  const grade = best?.grade ?? null;
 
   // --- Projects (scoped to the current main cursus) ---
   const mainCursusId: number | null = best?.cursus_id ?? null;
@@ -257,9 +278,19 @@ export async function handleMe(
     groups: pickGroups(me.groups),
     cursus: best
       ? {
-          name: best.cursus?.name ?? null,
-          slug: best.cursus?.slug ?? null,
-          kind: best.cursus?.kind ?? null,
+          name:
+            best.cursus?.name ??
+            cursusMap[best.cursus_id]?.name ??
+            null,
+          slug:
+            best.cursus?.slug ??
+            cursusMap[best.cursus_id]?.slug ??
+            null,
+          // The embedded `cursus` object has no `kind`; the D1 map does.
+          kind:
+            best.cursus?.kind ??
+            cursusMap[best.cursus_id]?.kind ??
+            null,
           beginAt: best.begin_at ?? null,
           endAt: best.end_at ?? null,
         }
