@@ -17,11 +17,11 @@ const CONCURRENCY = 4;
 const PUSH_URL = "https://mobile.betterintra.com/#/profile?tab=projects";
 
 /**
- * Temporary kill switch for subject-update Web Push (PWA recipients). Reports
- * keep being stored, so updates that land while this is off stay pending and
- * are delivered once it's turned back on.
+ * Master switch for subject-update Web Push (PWA recipients). Reports keep
+ * being stored while this is off, so rows recorded in the meantime stay pending
+ * and are delivered once it's turned back on.
  */
-export const SUBJECT_NOTIFICATIONS_ENABLED = false;
+export const SUBJECT_NOTIFICATIONS_ENABLED = true;
 
 const SLUG_RE = /^[A-Za-z0-9._-]+$/;
 
