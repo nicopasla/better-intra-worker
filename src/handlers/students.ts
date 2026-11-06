@@ -1,7 +1,7 @@
 import { Env, UserData } from "../types";
 import { PISCINE_INTAKES } from "./piscine-intakes";
 import {
-  decryptBytes,
+  decodeBytes,
   encryptBytes,
   getAppToken,
   getBearerToken,
@@ -11,6 +11,11 @@ import {
   validateSession,
 } from "../utils";
 import { intraFetch } from "../rate";
+import {
+  markCache,
+  recordCacheLookup,
+  type CacheState,
+} from "../metrics";
 import { getCustomAvatarMap } from "./custom-avatars";
 import { BELGIUM_CAMPUS_ID, requireBelgiumCampus } from "./campus-access";
 
@@ -112,6 +117,7 @@ async function readCacheRow(
   cursusId: number,
   cacheBegin: string,
   cacheEnd: string,
+  op = "students",
 ): Promise<CacheRow | null> {
   await ensureCacheTable(env);
   const cached = await env.better_intra_d1
@@ -121,10 +127,24 @@ async function readCacheRow(
     .bind(cursusId, cacheBegin, cacheEnd)
     .first<{ data: ArrayBuffer | string; cached_at: number }>();
 
-  if (!cached) return null;
-  const decoded = await decryptBytes(env, cached.data);
-  if (decoded === null) return null;
-  return { data: decoded, cached_at: cached.cached_at };
+  if (!cached) {
+    recordCacheLookup(env, op, "empty", -1);
+    return null;
+  }
+  const decoded = await decodeBytes(env, cached.data);
+  if (!decoded.ok) {
+    console.warn(
+      `[${op}] cache row ${cacheBegin || "-"}/${cacheEnd || "-"} is ${decoded.reason} (age=${Math.floor(Date.now() / 1000) - cached.cached_at}s)`,
+    );
+    recordCacheLookup(
+      env,
+      op,
+      decoded.reason,
+      Math.floor(Date.now() / 1000) - cached.cached_at,
+    );
+    return null;
+  }
+  return { data: decoded.text, cached_at: cached.cached_at };
 }
 
 function cacheResponse(origin: string | null, row: CacheRow): Response {
@@ -499,9 +519,14 @@ export async function handleStudentsList(
   const paged = url.searchParams.has("limit");
   const pageOpts = paged ? parseStudentPageOptions(url) : null;
 
-  const respond = async (row: CacheRow): Promise<Response> => {
+  const respond = async (
+    row: CacheRow,
+    cacheState: CacheState = "hit",
+  ): Promise<Response> => {
     const avatars = await getCustomAvatarMap(env);
-    if (!paged && avatars.size === 0) return cacheResponse(origin, row);
+    if (!paged && avatars.size === 0) {
+      return markCache(cacheResponse(origin, row), cacheState);
+    }
 
     let entries: StudentEntry[] = [];
     try {
@@ -516,12 +541,18 @@ export async function handleStudentsList(
       }
     }
     if (!paged || !pageOpts) {
-      return jsonRes({ cached_at: row.cached_at, data: entries });
+      return markCache(
+        jsonRes({ cached_at: row.cached_at, data: entries }),
+        cacheState,
+      );
     }
-    return jsonRes({
-      cached_at: row.cached_at,
-      ...paginateStudents(entries, pageOpts),
-    });
+    return markCache(
+      jsonRes({
+        cached_at: row.cached_at,
+        ...paginateStudents(entries, pageOpts),
+      }),
+      cacheState,
+    );
   };
 
   const cached = await readCacheRow(
@@ -532,7 +563,11 @@ export async function handleStudentsList(
   );
   const now = Math.floor(Date.now() / 1000);
   if (cached && cached.cached_at > now - STUDENTS_CACHE_TTL) {
-    return respond(cached);
+    recordCacheLookup(env, "students", "hit", now - cached.cached_at);
+    return respond(cached, "hit");
+  }
+  if (cached) {
+    recordCacheLookup(env, "students", "stale", now - cached.cached_at);
   }
 
   const country: string | null =
@@ -562,11 +597,11 @@ export async function handleStudentsList(
         "",
         all,
       );
-      return respond({ data: JSON.stringify(all), cached_at: cachedAt });
+      return respond({ data: JSON.stringify(all), cached_at: cachedAt }, "miss");
     }
   }
 
-  if (cached) return respond(cached);
+  if (cached) return respond(cached, "stale");
   if (paged && pageOpts) {
     return jsonRes({
       cached_at: 0,

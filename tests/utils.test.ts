@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  decodeBytes,
   decryptBytes,
   encryptBytes,
   hashLogin,
@@ -59,6 +60,40 @@ describe("encryptBytes / decryptBytes", () => {
     const encrypted = await encryptBytes(testEnv, "value");
     encrypted[encrypted.length - 1] ^= 0xff;
     expect(await decryptBytes(testEnv, encrypted)).toBeNull();
+  });
+});
+
+describe("decodeBytes", () => {
+  it("reports the plaintext with an ok flag", async () => {
+    const encrypted = await encryptBytes(testEnv, "hello");
+    expect(await decodeBytes(testEnv, encrypted)).toEqual({
+      ok: true,
+      text: "hello",
+    });
+  });
+
+  it("distinguishes an empty value from an undecryptable one", async () => {
+    expect(await decodeBytes(testEnv, null)).toEqual({
+      ok: false,
+      reason: "empty",
+    });
+    expect(await decodeBytes(testEnv, new Uint8Array(5))).toEqual({
+      ok: false,
+      reason: "empty",
+    });
+    expect(await decodeBytes(testEnv, new Uint8Array(20).fill(7))).toEqual({
+      ok: false,
+      reason: "undecryptable",
+    });
+  });
+
+  it("reports a corrupted ciphertext as undecryptable", async () => {
+    const encrypted = await encryptBytes(testEnv, "value");
+    encrypted[encrypted.length - 1] ^= 0xff;
+    expect(await decodeBytes(testEnv, encrypted)).toEqual({
+      ok: false,
+      reason: "undecryptable",
+    });
   });
 });
 

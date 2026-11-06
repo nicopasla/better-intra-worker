@@ -1,6 +1,6 @@
 import { Env, UserData } from "../types";
 import {
-  decryptBytes,
+  decodeBytes,
   encryptBytes,
   getBearerToken,
   hashLogin,
@@ -11,6 +11,7 @@ import {
   validateSession,
 } from "../utils";
 import { intraFetch } from "../rate";
+import { markCache, recordCacheLookup, type CacheOutcome } from "../metrics";
 
 const API_BASE = "https://api.intra.42.fr";
 /** Roulette is weekly and eval stats only move when evaluations end. */
@@ -153,10 +154,36 @@ export async function handleProfileStats(
     .bind(targetHash)
     .first<{ response_body: ArrayBuffer | string; cached_at: number }>();
 
-  if (!force && cached && now - cached.cached_at < CACHE_TTL) {
-    const decoded = await decryptBytes(env, cached.response_body);
-    if (decoded) return jsonRes(JSON.parse(decoded));
+  let cacheOutcome: CacheOutcome = "empty";
+  let cacheAge = -1;
+  if (cached) {
+    cacheAge = now - cached.cached_at;
+    if (force) {
+      cacheOutcome = "forced";
+    } else if (cacheAge >= CACHE_TTL) {
+      cacheOutcome = "stale";
+    } else {
+      const decoded = await decodeBytes(env, cached.response_body);
+      if (!decoded.ok) {
+        cacheOutcome = decoded.reason;
+        console.warn(
+          `[profile-stats] fresh cache row ${targetHash.slice(0, 8)} is ${decoded.reason} (age=${cacheAge}s) — refetching, the write below replaces it`,
+        );
+      } else {
+        try {
+          const body = JSON.parse(decoded.text);
+          recordCacheLookup(env, "profile_stats", "hit", cacheAge);
+          return markCache(jsonRes(body), "hit");
+        } catch {
+          cacheOutcome = "parse_error";
+          console.warn(
+            `[profile-stats] cache row ${targetHash.slice(0, 8)} is not valid JSON (age=${cacheAge}s)`,
+          );
+        }
+      }
+    }
   }
+  recordCacheLookup(env, "profile_stats", cacheOutcome, cacheAge);
 
   const country: string | null =
     (request.cf?.country as string | undefined) || null;
@@ -228,5 +255,5 @@ export async function handleProfileStats(
     .bind(targetHash, await encryptBytes(env, JSON.stringify(body)), now)
     .run();
 
-  return jsonRes(body);
+  return markCache(jsonRes(body), "miss");
 }

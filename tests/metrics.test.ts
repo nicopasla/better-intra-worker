@@ -4,6 +4,7 @@ import {
   outcomeOf,
   rateLimits,
   recordApiCall,
+  recordCacheLookup,
   recordRequest,
   routeTemplate,
 } from "../src/metrics";
@@ -161,6 +162,29 @@ describe("recordApiCall", () => {
     expect(() =>
       recordApiCall(env, { op: "me", scope: "app", status: 200, ms: 1 }),
     ).not.toThrow();
+  });
+});
+
+describe("recordCacheLookup", () => {
+  it("writes the outcome and age", () => {
+    const points: any[] = [];
+    const env = envWith((point) => points.push(point));
+
+    recordCacheLookup(env, "profile_stats", "undecryptable", 42);
+
+    expect(points).toHaveLength(1);
+    expect(points[0].indexes).toEqual(["cache"]);
+    expect(points[0].blobs).toEqual(["profile_stats", "undecryptable"]);
+    expect(points[0].doubles).toEqual([1, 42]);
+  });
+
+  it("defaults the age to -1 and is a no-op without the binding", () => {
+    const points: any[] = [];
+    const env = envWith((point) => points.push(point));
+    recordCacheLookup(env, "students", "empty");
+    expect(points[0].doubles).toEqual([1, -1]);
+
+    expect(() => recordCacheLookup({} as Env, "students", "hit")).not.toThrow();
   });
 });
 

@@ -579,19 +579,24 @@ export async function encryptBytes(
 }
 
 /**
- * Decrypt an `iv || ciphertext` BLOB back to a UTF-8 string. Legacy plaintext
- * rows (pre-migration) are returned untouched so reads keep working during a
- * lazy migration; null/undefined and undecryptable values return null.
+ * Decrypts an `iv || ciphertext` BLOB, reporting *why* it failed so cache
+ * instrumentation can tell a poisoned row apart from a missing one.
  */
-export async function decryptBytes(
+export type DecodedBytes =
+  | { ok: true; text: string }
+  | { ok: false; reason: "empty" | "undecryptable" };
+
+export async function decodeBytes(
   env: Env,
   value: ArrayBuffer | Uint8Array | string | null | undefined,
-): Promise<string | null> {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "string") return value;
+): Promise<DecodedBytes> {
+  if (value === null || value === undefined) {
+    return { ok: false, reason: "empty" };
+  }
+  if (typeof value === "string") return { ok: true, text: value };
 
   const combined = value instanceof Uint8Array ? value : new Uint8Array(value);
-  if (combined.byteLength <= 12) return null;
+  if (combined.byteLength <= 12) return { ok: false, reason: "empty" };
 
   const key = await getEncryptionKey(env);
   const iv = combined.slice(0, 12);
@@ -602,10 +607,23 @@ export async function decryptBytes(
       key,
       ciphertext,
     );
-    return new TextDecoder().decode(decrypted);
+    return { ok: true, text: new TextDecoder().decode(decrypted) };
   } catch {
-    return null;
+    return { ok: false, reason: "undecryptable" };
   }
+}
+
+/**
+ * Decrypt an `iv || ciphertext` BLOB back to a UTF-8 string. Legacy plaintext
+ * rows (pre-migration) are returned untouched so reads keep working during a
+ * lazy migration; null/undefined and undecryptable values return null.
+ */
+export async function decryptBytes(
+  env: Env,
+  value: ArrayBuffer | Uint8Array | string | null | undefined,
+): Promise<string | null> {
+  const result = await decodeBytes(env, value);
+  return result.ok ? result.text : null;
 }
 
 export type TokenFailureReason = "reconnect" | "transient";

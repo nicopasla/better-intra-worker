@@ -49,6 +49,19 @@ export interface ApiCallMetric extends ApiMeta {
 
 export type CacheState = "hit" | "miss" | "stale" | "n/a";
 
+/**
+ * Why a cache lookup did or didn't produce a value. Written as its own point
+ * shape so a persistent `undecryptable`/`empty` shows up immediately instead of
+ * looking like ordinary cache churn.
+ */
+export type CacheOutcome =
+  | "hit"
+  | "stale"
+  | "empty"
+  | "undecryptable"
+  | "parse_error"
+  | "forced";
+
 const HASH_PREFIX_LENGTH = 8;
 
 /** Path segments that are route names, not ids/logins/tokens. */
@@ -241,6 +254,33 @@ export function recordRequest(
         response.headers.get("x-bi-cache") ?? "n/a",
       ],
       doubles: [1, response.status, ms],
+    });
+  } catch {
+    /* metrics must never break a request */
+  }
+}
+
+/**
+ * Cache lookup point — `indexes: ["cache"]`
+ *   blob1 op       profile_stats | students | …
+ *   blob2 outcome  hit | stale | empty | undecryptable | parse_error | forced
+ *   double1 count  1
+ *   double2 age    seconds since the row was written (-1 when unknown)
+ */
+export function recordCacheLookup(
+  env: Env,
+  op: string,
+  outcome: CacheOutcome,
+  ageSeconds = -1,
+): void {
+  const dataset = env.API_METRICS;
+  if (!dataset) return;
+
+  try {
+    dataset.writeDataPoint({
+      indexes: ["cache"],
+      blobs: [op, outcome],
+      doubles: [1, ageSeconds],
     });
   } catch {
     /* metrics must never break a request */
