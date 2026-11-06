@@ -24,6 +24,14 @@ const FRESH_MS = 60 * 1000;
 /** Lower bound for a sync: never fetch older than this. */
 const DEFAULT_SINCE_DAY = "2020-01-01";
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** A week view only needs a few pages; a longer gap resumes on the next call. */
+const MAX_WEEK_PAGES = 10;
+/** Even after a long absence, never walk back further than this. */
+const MAX_BACKFILL_DAYS = 45;
+/** Day key of the session still running, so an overnight session keeps its
+ *  start day live across requests. */
+const OPEN_DAY_PREFIX = "LOGTIME_OPEN_";
+const OPEN_DAY_TTL = 3 * 24 * 60 * 60;
 
 interface LocationEntry {
   id: number;
@@ -336,5 +344,188 @@ export async function handleLogtimeHistory(
     });
   } catch {
     return textRes("Failed to load logtime history", 500);
+  }
+}
+
+const utcDay = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
+
+const shiftDay = (day: string, days: number): string =>
+  new Date(new Date(startOfDay(day)).getTime() + days * DAY_MS)
+    .toISOString()
+    .slice(0, 10);
+
+/** Monday of the UTC week containing `day`. */
+const mondayOf = (day: string): string =>
+  shiftDay(day, -((new Date(startOfDay(day)).getUTCDay() + 6) % 7));
+
+function weekSlice(
+  days: Record<string, number>,
+  start: string,
+): { days: Record<string, number>; total: number } {
+  const out: Record<string, number> = {};
+  let total = 0;
+  for (let i = 0; i < 7; i++) {
+    const day = shiftDay(start, i);
+    const secs = days[day] ?? 0;
+    out[day] = secs;
+    total += secs;
+  }
+  return { days: out, total };
+}
+
+/**
+ * The current week's days only (seconds per day), for the home heat card.
+ *
+ * Every call re-reads the days that can still move: today, the start day of a
+ * session that is still running (overnight sessions), yesterday once when the
+ * first call of a new day arrives, and the gap since the last successful sync
+ * (opening the app after a few days away backfills the missing days). Days
+ * older than that are never fetched again: their cached total is final.
+ */
+export async function handleLogtimeWeek(
+  request: Request,
+  env: Env,
+  loginParam: string,
+  existingData: UserData | null,
+): Promise<Response> {
+  if (request.method !== "GET") return textRes("Method not allowed", 405);
+
+  const authHeader = getBearerToken(request);
+  if (!authHeader) return textRes("Missing Authorization Token", 401);
+  if (!existingData) return textRes("User not found", 404);
+  if (!validateSession(existingData, authHeader)) {
+    return textRes("Unauthorized: Invalid Session Token", 401);
+  }
+
+  const url = new URL(request.url);
+  const targetLogin = url.searchParams.get("user");
+  if (!targetLogin) return textRes("Missing user parameter", 400);
+
+  const startParam = url.searchParams.get("start");
+  if (startParam && !DAY_RE.test(startParam)) {
+    return textRes("Invalid start parameter", 400);
+  }
+
+  const now = Date.now();
+  const today = utcDay(now);
+  const yesterday = shiftDay(today, -1);
+  const floorDay = shiftDay(today, -MAX_BACKFILL_DAYS);
+  // Clamp rather than fail: a client's local Monday can be slightly ahead of
+  // the UTC date, and an old `start` must never trigger an unbounded fetch.
+  const requested = startParam ?? mondayOf(today);
+  const start =
+    requested > shiftDay(today, 7)
+      ? mondayOf(today)
+      : requested < floorDay
+        ? floorDay
+        : requested;
+
+  try {
+    const loginHash = await hashLogin(targetLogin);
+    const row = await env.better_intra_d1
+      .prepare(
+        "SELECT days_json, updated_at FROM logtime_history WHERE login_hash = ?",
+      )
+      .bind(loginHash)
+      .first<{ days_json: ArrayBuffer | string; updated_at: number } | null>();
+
+    const decoded = row ? await decryptBytes(env, row.days_json) : null;
+    const existing: Record<string, number> = decoded ? JSON.parse(decoded) : {};
+    const updatedAt = row?.updated_at ?? null;
+
+    const openKey = `${OPEN_DAY_PREFIX}${loginHash}`;
+    let openDay: string | null = null;
+    try {
+      const stored = await env.BETTER_INTRA_KV.get(openKey);
+      if (stored && DAY_RE.test(stored) && stored <= today) openDay = stored;
+    } catch {
+      /* best effort */
+    }
+
+    // Earliest day whose value can still change.
+    let fromDay = today;
+    if (openDay && openDay < fromDay) fromDay = openDay;
+    const syncedDay = updatedAt !== null ? utcDay(updatedAt) : null;
+    if (syncedDay === null) {
+      // Never synced: seed the requested week (bounded by the floor).
+      if (start < fromDay) fromDay = start;
+    } else if (syncedDay < today) {
+      // Fill the gap since the last sync; yesterday needs one final read even
+      // when the gap is just one day.
+      const gap = nextDay(syncedDay);
+      if (gap < fromDay) fromDay = gap;
+      if (yesterday < fromDay) fromDay = yesterday;
+    }
+    if (fromDay < floorDay) fromDay = floorDay;
+
+    const tokenResult = await resolveUserToken(
+      env,
+      existingData,
+      loginParam,
+      request.headers.get("CF-IPCountry"),
+    );
+    if (!("token" in tokenResult)) {
+      if (!row) return tokenFailureResponse(tokenResult.failure);
+      return jsonRes({
+        start,
+        ...weekSlice(existing, start),
+        updatedAt,
+        stale: true,
+      });
+    }
+
+    const range = await fetchRange(
+      env,
+      tokenResult.token,
+      targetLogin,
+      startOfDay(fromDay),
+      new Date(now).toISOString(),
+      "begin_at",
+      MAX_WEEK_PAGES,
+    );
+
+    if (range.failed) {
+      return jsonRes({
+        start,
+        ...weekSlice(existing, start),
+        updatedAt,
+        stale: true,
+      });
+    }
+
+    applyRange(existing, range, fromDay, nextDay(today), now);
+
+    await env.better_intra_d1
+      .prepare(
+        "INSERT OR REPLACE INTO logtime_history (login_hash, days_json, updated_at) VALUES (?, ?, ?)",
+      )
+      .bind(loginHash, await encryptBytes(env, JSON.stringify(existing)), now)
+      .run();
+
+    // Remember which day the running session began on, so the next call keeps
+    // that day live even though it is no longer "today".
+    if (!range.capped) {
+      const open = range.sessions.find((session) => session.end_at === null);
+      const nextOpen = open ? open.begin_at.slice(0, 10) : null;
+      try {
+        if (nextOpen && nextOpen !== openDay) {
+          await env.BETTER_INTRA_KV.put(openKey, nextOpen, {
+            expirationTtl: OPEN_DAY_TTL,
+          });
+        } else if (!nextOpen && openDay) {
+          await env.BETTER_INTRA_KV.delete(openKey);
+        }
+      } catch {
+        /* best effort */
+      }
+    }
+
+    return jsonRes({
+      start,
+      ...weekSlice(existing, start),
+      updatedAt: now,
+    });
+  } catch {
+    return textRes("Failed to load logtime week", 500);
   }
 }

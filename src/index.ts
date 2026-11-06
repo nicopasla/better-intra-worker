@@ -50,7 +50,7 @@ import {
   handlePushUnsubscribe,
   handlePushTest,
 } from "./handlers/push";
-import { handleLogtimeHistory } from "./handlers/logtime";
+import { handleLogtimeHistory, handleLogtimeWeek } from "./handlers/logtime";
 import { handleEventReminders } from "./handlers/event-notify";
 import {
   handleSubjectNotifications,
@@ -379,6 +379,10 @@ const worker = {
 
     if (url.pathname === "/api/v1/private/calendar/update") {
       return handleCalendarUpdate(request, env, loginParam, existingData);
+    }
+
+    if (url.pathname === "/api/v1/private/logtime/week") {
+      return handleLogtimeWeek(request, env, loginParam, existingData);
     }
 
     if (url.pathname === "/api/v1/private/logtime/history") {

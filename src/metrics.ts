@@ -104,6 +104,7 @@ const STATIC_SEGMENTS = new Set([
   "token",
   "update",
   "logtime",
+  "week",
   "image-upload",
   "visuals",
   "future-students",
