@@ -2,13 +2,14 @@ import { describe, it, expect } from "vitest";
 import {
   clampModifiedAt,
   decideSubjectVersion,
+  handleSubjectsReport,
   isSubjectPdfUrl,
   normalizeSubjectUrl,
   ongoingProjectSlugs,
   subjectRecipients,
   wantsSubjectNotification,
 } from "../src/handlers/subjects";
-import type { UserData } from "../src/types";
+import type { Env, UserData } from "../src/types";
 
 const NOW = new Date("2026-10-23T12:00:00.000Z").getTime();
 const PDF = "https://cdn.intra.42.fr/pdf/pdf/123/en.subject.pdf";
@@ -187,5 +188,112 @@ describe("subjectRecipients", () => {
 
   it("returns nobody when the project is not ongoing", () => {
     expect(subjectRecipients(rows, "push_swap")).toEqual([]);
+  });
+});
+
+describe("handleSubjectsReport", () => {
+  const PDF = "https://cdn.intra.42.fr/pdf/pdf/123/en.subject.pdf";
+
+  interface Query {
+    sql: string;
+    args: unknown[];
+  }
+
+  /** Mirrors D1: binding the wrong number of values fails the query. */
+  class FakeStatement {
+    private args: unknown[] = [];
+
+    constructor(
+      private sql: string,
+      private d1: FakeD1,
+    ) {}
+
+    bind(...args: unknown[]) {
+      const placeholders = (this.sql.match(/\?/g) ?? []).length;
+      if (placeholders !== args.length) {
+        throw new Error(
+          "D1_ERROR: Wrong number of parameter bindings for SQL query.",
+        );
+      }
+      this.args = args;
+      return this;
+    }
+
+    async first<T>(): Promise<T | null> {
+      return this.d1.first(this.sql) as T | null;
+    }
+
+    async run() {
+      this.d1.runs.push({ sql: this.sql, args: this.args });
+      return { success: true, meta: {} };
+    }
+  }
+
+  class FakeD1 {
+    runs: Query[] = [];
+
+    constructor(private stored: Record<string, unknown> | null) {}
+
+    prepare(sql: string) {
+      return new FakeStatement(sql, this);
+    }
+
+    first(sql: string) {
+      if (sql.includes("FROM subject_versions")) return this.stored;
+      if (sql.includes("FROM projects")) return { name: "NetPractice" };
+      return null;
+    }
+  }
+
+  function reportRequest() {
+    return new Request(
+      "https://api.betterintra.com/api/v1/private/subjects/report?login=user",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer session-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          items: [
+            {
+              slug: "netpractice",
+              url: PDF,
+              modifiedAt: Date.now() - 60_000,
+            },
+          ],
+        }),
+      },
+    );
+  }
+
+  it("records a changed subject version when the PDF date advances", async () => {
+    const now = Date.now();
+    const d1 = new FakeD1({
+      slug: "netpractice",
+      name: "NetPractice",
+      url: PDF,
+      modified_at: now - 86_400_000,
+      changed_at: now - 86_400_000,
+      notified_at: now - 86_400_000,
+    });
+    const env = { better_intra_d1: d1 } as unknown as Env;
+    const existing: UserData = { sessionTokens: ["session-token"] };
+
+    const res = await handleSubjectsReport(reportRequest(), env, "user", existing);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      subjects: [{ slug: "netpractice", status: "changed" }],
+    });
+    expect(d1.runs).toHaveLength(1);
+    expect(d1.runs[0].sql).toContain("UPDATE subject_versions");
+    expect(d1.runs[0].args).toEqual([
+      "NetPractice",
+      PDF,
+      expect.any(Number),
+      expect.any(Number),
+      "netpractice",
+    ]);
   });
 });

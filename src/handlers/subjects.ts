@@ -258,7 +258,7 @@ export async function handleSubjectsReport(
           .prepare(
             "UPDATE subject_versions SET name = ?, url = ?, modified_at = ?, changed_at = ?, notified_at = NULL WHERE slug = ?",
           )
-          .bind(slug, name, decision.url, decision.modifiedAt, nowSec, slug)
+          .bind(name, decision.url, decision.modifiedAt, nowSec, slug)
           .run();
       } else if (
         stored &&
