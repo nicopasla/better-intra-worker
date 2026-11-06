@@ -8,8 +8,47 @@ import {
   hashLogin,
 } from "../utils";
 import { intraFetch } from "../rate";
+import { markCache } from "../metrics";
 
 const OUTSTANDING_RESYNC_SECONDS = 60;
+/** Cached results are served for this long before another 42 API sync. */
+const OUTSTANDING_CACHE_SECONDS = 5 * 60;
+
+/** Row from `outstanding_sync_state`; `null` when the user was never synced. */
+export interface OutstandingSyncState {
+  completed_count: number | null;
+  updated_at: number | null;
+}
+
+/**
+ * Decides whether a request may spend a 42 API round trip.
+ *
+ * The 5-minute window is the cache: within it the stored flags are served as
+ * is. A changed completed count means a project was just marked, so it may
+ * resync earlier — but never sooner than {@link OUTSTANDING_RESYNC_SECONDS}, so
+ * several tabs opening at once cannot fan out into a burst.
+ */
+export function shouldResync(
+  state: OutstandingSyncState | null | undefined,
+  countParam: string | null,
+  nowSeconds: number,
+  cacheSeconds = OUTSTANDING_CACHE_SECONDS,
+  countSeconds = OUTSTANDING_RESYNC_SECONDS,
+): boolean {
+  const updatedAt = state?.updated_at;
+  if (updatedAt == null) return true;
+
+  const age = nowSeconds - updatedAt;
+  if (age >= cacheSeconds) return true;
+
+  if (countParam != null) {
+    const stored = state?.completed_count;
+    const countChanged = stored == null || String(stored) !== countParam;
+    if (countChanged && age >= countSeconds) return true;
+  }
+
+  return false;
+}
 
 async function syncFromApi(
   env: Env,
@@ -97,6 +136,7 @@ export async function handleOutstanding(
 
   const url = new URL(request.url);
   const targetLogin = url.searchParams.get("target");
+  const force = url.searchParams.has("force");
   const country: string | null =
     (request.cf?.country as string | undefined) || null;
 
@@ -109,23 +149,18 @@ export async function handleOutstanding(
     );
     const targetHash = await hashLogin(targetLogin);
     const countParam = url.searchParams.get("count");
+    const now = Math.floor(Date.now() / 1000);
 
     const syncRow = await env.better_intra_d1
       .prepare(
         "SELECT completed_count, updated_at FROM outstanding_sync_state WHERE hash = ?",
       )
       .bind(targetHash)
-      .first<{ completed_count: number; updated_at: number }>();
+      .first<OutstandingSyncState>();
 
-    const storedCount = syncRow?.completed_count;
-    const countChanged =
-      storedCount === undefined || String(storedCount) !== countParam;
-    const stale =
-      syncRow?.updated_at === undefined ||
-      Date.now() / 1000 - syncRow.updated_at > OUTSTANDING_RESYNC_SECONDS;
-
-    const shouldSync = (countChanged || stale) && userToken;
-    if (shouldSync) {
+    const wantedSync = force || shouldResync(syncRow, countParam, now);
+    const shouldSync = Boolean(userToken) && wantedSync;
+    if (shouldSync && userToken) {
       await env.better_intra_d1
         .prepare("DELETE FROM outstanding_projects WHERE hash = ?")
         .bind(targetHash)
@@ -140,11 +175,21 @@ export async function handleOutstanding(
           )
           .bind(targetHash, Number(countParam))
           .run();
+      } else {
+        await env.better_intra_d1
+          .prepare(
+            "INSERT INTO outstanding_sync_state (hash, completed_count, updated_at) VALUES (?, NULL, unixepoch()) ON CONFLICT(hash) DO UPDATE SET updated_at = excluded.updated_at",
+          )
+          .bind(targetHash)
+          .run();
       }
     }
 
     const rows = await queryD1(env, targetHash);
-    return buildResponse(rows);
+    return markCache(
+      buildResponse(rows),
+      shouldSync ? "miss" : wantedSync ? "stale" : "hit",
+    );
   }
 
   let userId: number | undefined = existingData.fortyTwoUserId;
@@ -177,22 +222,48 @@ export async function handleOutstanding(
     }
   }
 
+  let wantsSync = false;
+  let synced = false;
   if (userId && userToken) {
-    const latest = await env.better_intra_d1
+    const now = Math.floor(Date.now() / 1000);
+    const syncRow = await env.better_intra_d1
       .prepare(
-        "SELECT scale_team_id FROM outstanding_projects WHERE hash = ? ORDER BY scale_team_id DESC LIMIT 1",
+        "SELECT completed_count, updated_at FROM outstanding_sync_state WHERE hash = ?",
       )
       .bind(loginParam)
-      .first<{ scale_team_id: number }>();
+      .first<OutstandingSyncState>();
 
-    await syncFromApi(
-      env,
-      loginParam,
-      userToken,
-      String(userId),
-      latest?.scale_team_id ?? 0,
-    );
+    wantsSync = force || shouldResync(syncRow, null, now);
+    synced = wantsSync;
+    if (synced) {
+      const latest = await env.better_intra_d1
+        .prepare(
+          "SELECT scale_team_id FROM outstanding_projects WHERE hash = ? ORDER BY scale_team_id DESC LIMIT 1",
+        )
+        .bind(loginParam)
+        .first<{ scale_team_id: number }>();
+
+      await syncFromApi(
+        env,
+        loginParam,
+        userToken,
+        String(userId),
+        latest?.scale_team_id ?? 0,
+      );
+
+      // Only advance the timestamp: `completed_count` belongs to the target
+      // branch and must not be cleared here.
+      await env.better_intra_d1
+        .prepare(
+          "INSERT INTO outstanding_sync_state (hash, completed_count, updated_at) VALUES (?, NULL, unixepoch()) ON CONFLICT(hash) DO UPDATE SET updated_at = excluded.updated_at",
+        )
+        .bind(loginParam)
+        .run();
+    }
   }
 
-  return buildResponse(await queryD1(env, loginParam));
+  return markCache(
+    buildResponse(await queryD1(env, loginParam)),
+    synced ? "miss" : wantsSync ? "stale" : "hit",
+  );
 }
