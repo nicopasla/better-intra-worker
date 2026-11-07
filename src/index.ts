@@ -34,6 +34,7 @@ import {
   handleCalendarIcs,
 } from "./handlers/calendar";
 import { handleClusterSvg, handleClusterSvgs } from "./handlers/clusters";
+import { handleCampusMap } from "./handlers/campus-map";
 import { handleClusterOccupancy } from "./handlers/cluster-occupancy";
 import { handleSeatReports, handleSeatHistory } from "./handlers/seat-reports";
 import {
@@ -156,6 +157,13 @@ const worker = {
     );
     if (imgMatch) {
       return handleImageServe(request, env, imgMatch[1]);
+    }
+
+    const mapMatch = url.pathname.match(
+      /^\/api\/v1\/public\/campus-map\/([a-z0-9-]+)\/([a-z0-9-]+)\.svg$/,
+    );
+    if (mapMatch) {
+      return handleCampusMap(request, env, mapMatch[1], mapMatch[2]);
     }
 
     const avatarMatch = url.pathname.match(
