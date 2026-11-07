@@ -98,4 +98,145 @@ describe("handleClusterSvg", () => {
 
     expect(res.status).toBe(502);
   });
+
+  describe("proxy allowlist", () => {
+    const proxy = (target: string) =>
+      `https://api.betterintra.com/api/v1/cluster/svg?url=${encodeURIComponent(target)}`;
+
+    it("rejects non-42 / non-Better-Intra hosts", async () => {
+      const res = await handleClusterSvg(
+        new Request(proxy("https://evil.example/map.svg")),
+        {} as never,
+        null,
+      );
+      expect(res.status).toBe(403);
+    });
+
+    it("rejects a suffix-spoofed host", async () => {
+      const res = await handleClusterSvg(
+        new Request(proxy("https://meta.intra.42.fr.evil.example/map.svg")),
+        {} as never,
+        null,
+      );
+      expect(res.status).toBe(403);
+    });
+
+    it("rejects plain HTTP targets", async () => {
+      const res = await handleClusterSvg(
+        new Request(proxy("http://meta.intra.42.fr/map.svg")),
+        {} as never,
+        null,
+      );
+      expect(res.status).toBe(403);
+    });
+
+    it("accepts Better Intra campus assets under /gh/", async () => {
+      const res = await handleClusterSvg(
+        new Request(
+          proxy("https://api.betterintra.com/gh/campuses/maps/belgium/shi.svg"),
+        ),
+        {} as never,
+        null,
+      );
+      expect(res.status).toBe(200);
+    });
+
+    it("rejects Better Intra API routes and self-references", async () => {
+      const res = await handleClusterSvg(
+        new Request(
+          proxy(
+            "https://api.betterintra.com/api/v1/cluster/svg?url=https%3A%2F%2Fmeta.intra.42.fr%2Fmap.svg",
+          ),
+        ),
+        {} as never,
+        null,
+      );
+      expect(res.status).toBe(403);
+    });
+
+    it("rejects non-SVG bodies", async () => {
+      globalThis.fetch = vi.fn(
+        async () =>
+          new Response("<html><body>nope</body></html>", {
+            status: 200,
+            headers: { "Content-Type": "text/html" },
+          }),
+      ) as unknown as typeof fetch;
+
+      const res = await handleClusterSvg(
+        new Request(proxy("https://meta.intra.42.fr/map.svg")),
+        {} as never,
+        null,
+      );
+      expect(res.status).toBe(415);
+    });
+
+    it("rejects oversized maps", async () => {
+      globalThis.fetch = vi.fn(
+        async () =>
+          new Response(SVG, {
+            status: 200,
+            headers: {
+              "Content-Type": "image/svg+xml",
+              "Content-Length": String(3 * 1024 * 1024),
+            },
+          }),
+      ) as unknown as typeof fetch;
+
+      const res = await handleClusterSvg(
+        new Request(proxy("https://meta.intra.42.fr/map.svg")),
+        {} as never,
+        null,
+      );
+      expect(res.status).toBe(413);
+    });
+
+    it("rejects redirects to a host outside the allowlist", async () => {
+      globalThis.fetch = vi.fn(
+        async () =>
+          new Response(null, {
+            status: 302,
+            headers: { Location: "https://evil.example/map.svg" },
+          }),
+      ) as unknown as typeof fetch;
+
+      const res = await handleClusterSvg(
+        new Request(proxy("https://meta.intra.42.fr/map.svg")),
+        {} as never,
+        null,
+      );
+      expect(res.status).toBe(403);
+    });
+
+    it("follows redirects inside the allowlist", async () => {
+      globalThis.fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(null, {
+            status: 302,
+            headers: { Location: "https://meta.intra.42.fr/other.svg" },
+          }),
+        )
+        .mockResolvedValueOnce(svgResponse()) as unknown as typeof fetch;
+
+      const res = await handleClusterSvg(
+        new Request(proxy("https://meta.intra.42.fr/map.svg")),
+        {} as never,
+        null,
+      );
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe(SVG);
+    });
+
+    it("only accepts GET and HEAD", async () => {
+      const res = await handleClusterSvg(
+        new Request(proxy("https://meta.intra.42.fr/map.svg"), {
+          method: "POST",
+        }),
+        {} as never,
+        null,
+      );
+      expect(res.status).toBe(405);
+    });
+  });
 });
