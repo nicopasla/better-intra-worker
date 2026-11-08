@@ -172,25 +172,34 @@ describe("accumulate", () => {
 
 describe("handleLogtimeHistory", () => {
   it("recomputes the newest stored day instead of adding to it", async () => {
-    const today = day(0);
-    const env = makeEnv();
-    await env.setStored({ [today]: 6 * HOUR }, Date.now() - 10 * 60_000);
-    stubLocations([
-      { id: 1, begin_at: at(today, 8), end_at: at(today, 12) },
-      { id: 2, begin_at: at(today, 9), end_at: at(today, 10) },
-    ]);
+    // Pin the clock: the sessions end at 12:00Z, and `accumulate` clamps an
+    // unfinished session to `now`, so running this test before noon UTC used to
+    // shave minutes off the expected total.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T18:00:00.000Z"));
+    try {
+      const today = day(0);
+      const env = makeEnv();
+      await env.setStored({ [today]: 6 * HOUR }, Date.now() - 10 * 60_000);
+      stubLocations([
+        { id: 1, begin_at: at(today, 8), end_at: at(today, 12) },
+        { id: 2, begin_at: at(today, 9), end_at: at(today, 10) },
+      ]);
 
-    const res = await handleLogtimeHistory(
-      request(`/api/v1/private/logtime/history?user=alice`),
-      env.env,
-      "alice-hash",
-      USER,
-    );
-    const body = (await res.json()) as { days: Record<string, number> };
+      const res = await handleLogtimeHistory(
+        request(`/api/v1/private/logtime/history?user=alice`),
+        env.env,
+        "alice-hash",
+        USER,
+      );
+      const body = (await res.json()) as { days: Record<string, number> };
 
-    expect(res.status).toBe(200);
-    expect(body.days[today]).toBe(5 * HOUR);
-    expect(await env.storedDays()).toEqual({ [today]: 5 * HOUR });
+      expect(res.status).toBe(200);
+      expect(body.days[today]).toBe(5 * HOUR);
+      expect(await env.storedDays()).toEqual({ [today]: 5 * HOUR });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("counts the session that is still running", async () => {
