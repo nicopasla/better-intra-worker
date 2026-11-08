@@ -13,6 +13,53 @@ const CONCURRENCY = 2;
 const DEADLINE_MS = 30_000;
 
 /**
+ * Night throttle: the sweep is triggered every 10 minutes around the clock, but
+ * between 01:00 and 07:00 local time each user is polled at most every 30 min.
+ * Reveals are unaffected: `handleRevealCatchup` runs every minute and only looks
+ * at already-booked evals.
+ */
+export const NIGHT_START_HOUR = 1;
+export const NIGHT_END_HOUR = 7;
+export const NIGHT_POLL_INTERVAL_SECONDS = 30 * 60;
+
+/** Local hour (0–23) for an IANA timezone, or null when it can't resolve one. */
+export function localHour(
+  now: Date,
+  timeZone: string | null | undefined,
+): number | null {
+  if (!timeZone) return null;
+  try {
+    const formatted = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hour: "numeric",
+      hour12: false,
+    }).format(now);
+    const hour = Number(formatted);
+    if (!Number.isFinite(hour)) return null;
+    return ((hour % 24) + 24) % 24;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True when a user should be skipped for this run: it is night where they are
+ * and they were polled less than 30 minutes ago. Unknown timezones and users
+ * never polled are never skipped.
+ */
+export function shouldSkipNightPoll(
+  lastChecked: number | null | undefined,
+  timeZone: string | null | undefined,
+  nowSeconds: number,
+): boolean {
+  const hour = localHour(new Date(nowSeconds * 1000), timeZone);
+  if (hour === null) return false;
+  if (hour < NIGHT_START_HOUR || hour >= NIGHT_END_HOUR) return false;
+  if (lastChecked == null) return false;
+  return nowSeconds - lastChecked < NIGHT_POLL_INTERVAL_SECONDS;
+}
+
+/**
  * D1 is the source of truth for the Upcoming card, so notifications must use the
  * same instant. The live API value can drift (reschedules / timezone
  * representation) and must not leak into pushes.
@@ -32,10 +79,16 @@ async function fetchScaleTeams(
 ): Promise<{ data: any[]; rateLimited: boolean }> {
   const url = `https://api.intra.42.fr/v2/me/scale_teams?page[size]=100&page[number]=${page}`;
 
-  const apiRes = await intraFetch(env, fortyTwoToken, url, {}, {
-    op: "cron.scale_teams",
-    hash,
-  });
+  const apiRes = await intraFetch(
+    env,
+    fortyTwoToken,
+    url,
+    {},
+    {
+      op: "cron.scale_teams",
+      hash,
+    },
+  );
 
   if (apiRes.status === 429) {
     console.warn(`[cron] scale_teams page=${page} status=429 rate limited`);
@@ -575,11 +628,27 @@ export async function handleMainCron(
   env: Env,
   ctx: ExecutionContext,
 ): Promise<void> {
+  const nowSeconds = Math.floor(Date.now() / 1000);
   const { results } = await env.better_intra_d1
-    .prepare("SELECT hash FROM users WHERE evals_enabled = 1")
-    .all<{ hash: string }>();
+    .prepare(
+      `SELECT u.hash, u.last_checked, cl.timezone AS tz
+       FROM users u
+       LEFT JOIN campus_locations cl ON cl.id = u.campus_id
+       WHERE u.evals_enabled = 1`,
+    )
+    .all<{ hash: string; last_checked: number | null; tz: string | null }>();
   if (!results || results.length === 0) return;
-  console.log(`[cron] main cron start — ${results.length} eval users`);
+
+  const due = results.filter(
+    (row) => !shouldSkipNightPoll(row.last_checked, row.tz, nowSeconds),
+  );
+  const throttled = results.length - due.length;
+  console.log(
+    `[cron] main cron start — ${due.length}/${results.length} eval users${
+      throttled > 0 ? ` (${throttled} throttled at night)` : ""
+    }`,
+  );
+  if (due.length === 0) return;
 
   const { results: projectResults } = await env.better_intra_d1
     .prepare("SELECT id, name, slug FROM projects")
@@ -592,15 +661,15 @@ export async function handleMainCron(
 
   const startTime = Date.now();
 
-  for (let i = 0; i < results.length; i += CONCURRENCY) {
+  for (let i = 0; i < due.length; i += CONCURRENCY) {
     if (Date.now() - startTime > DEADLINE_MS) {
-      const remaining = results.length - i;
+      const remaining = due.length - i;
       console.warn(
         `[cron] deadline reached, ${remaining} users left unprocessed`,
       );
       return;
     }
-    const batch = results.slice(i, i + CONCURRENCY);
+    const batch = due.slice(i, i + CONCURRENCY);
     await Promise.all(
       batch.map(({ hash }) =>
         processCronUser(env, ctx, hash, projectMap, "cron").catch((e) =>
