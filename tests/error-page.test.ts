@@ -135,6 +135,33 @@ describe("maybeErrorPage", () => {
 });
 
 describe("worker.fetch error pages", () => {
+  it("returns a 404 for unknown public API paths", async () => {
+    const res = await worker.fetch(
+      new Request(
+        "https://api.betterintra.com/api/v1/public/clusters/belgium/shi",
+      ),
+      testEnv,
+      testCtx,
+    );
+    expect(res.status).toBe(404);
+    expect(await res.text()).toBe("This endpoint doesn't exist.");
+  });
+
+  it("shows the 404 cat with the real message for an unknown public path", async () => {
+    const res = await worker.fetch(
+      new Request(
+        "https://api.betterintra.com/api/v1/public/clusters/belgium/shi",
+        { headers: { "Sec-Fetch-Dest": "document" } },
+      ),
+      testEnv,
+      testCtx,
+    );
+    expect(res.status).toBe(404);
+    const body = await res.text();
+    expect(body).toContain("https://http.cat/404");
+    expect(body).toContain("This endpoint doesn&#39;t exist.");
+  });
+
   it("shows the cat page for a document navigation to an unknown route", async () => {
     const res = await worker.fetch(
       new Request("https://api.betterintra.com/nope?login=abc", {

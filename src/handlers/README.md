@@ -13,8 +13,9 @@ the PWA use. Reporter logins are never written into any response.
 | Method | Path | Returns |
 | --- | --- | --- |
 | `GET` | `/api/v1/public/clusters/belgium` | `application/json` discovery document |
+| `GET` | `/api/v1/public/clusters/belgium/{issues\|broken\|usbc}` | `application/json` feed of the matching seats |
 | `GET` | `/api/v1/public/clusters/belgium/{shi\|fu\|mi}.svg` | rendered map (`image/svg+xml`) |
-| `HEAD` | either | headers only |
+| `HEAD` | any | headers only |
 
 - `Access-Control-Allow-Origin: *`
 - No auth, no 42 API call
@@ -75,6 +76,39 @@ GET https://api.betterintra.com/api/v1/public/clusters/belgium
 - `counts.broken` = crossed seats, `counts.issues` = seats with any issue
   (broken is a subset), `counts.usbc` = seats with the port.
 - `views` and `components` make the document self-describing.
+
+## Per-view feeds
+
+```
+GET https://api.betterintra.com/api/v1/public/clusters/belgium/issues
+GET https://api.betterintra.com/api/v1/public/clusters/belgium/broken
+GET https://api.betterintra.com/api/v1/public/clusters/belgium/usbc
+```
+
+A flat list of the seats matching one view, across all three maps:
+
+```json
+{
+  "campus": "belgium",
+  "view": "broken",
+  "updatedAt": 1762700000000,
+  "count": 2,
+  "seats": [
+    { "map": "shi", "host": "shi-r1-p1", "severity": "blocking", "issues": ["Power"], "usbc": true },
+    { "map": "fu", "host": "fu-c2-p3", "severity": "blocking", "issues": ["Network"] }
+  ]
+}
+```
+
+- `issues` → seats with a blocking or minor issue.
+- `broken` → crossed seats (Power/Network broken).
+- `usbc` → seats reported to have a USB-C port; they may have `"severity": null`
+  and `"issues": []`.
+- Each seat carries its `map`, and the list is sorted by map (`shi`, `fu`, `mi`)
+  then host.
+- `count` is `seats.length`; `updatedAt` is the newest report time in ms.
+- Same caching, ETag/304 and error contract as the discovery endpoint (`503`
+  when reports are unavailable).
 
 ## Rendered map
 

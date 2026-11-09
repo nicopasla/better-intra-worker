@@ -70,6 +70,10 @@ export const MAP_VIEWS: readonly MapView[] = [
   "plain",
 ];
 
+/** Views with a dedicated JSON feed (`/clusters/belgium/{view}`). */
+export const DATA_VIEWS = ["issues", "broken", "usbc"] as const;
+export type DataView = (typeof DATA_VIEWS)[number];
+
 interface ViewLayers {
   crosses: boolean;
   warnings: boolean;
@@ -126,6 +130,10 @@ function normalizeHost(value: string): string {
 
 function isMapId(value: string): value is MapId {
   return (MAP_IDS as readonly string[]).includes(value);
+}
+
+function isDataView(value: string): value is DataView {
+  return (DATA_VIEWS as readonly string[]).includes(value);
 }
 
 /**
@@ -398,6 +406,65 @@ async function loadRows(env: Env): Promise<SeatIssueRow[]> {
   return results ?? [];
 }
 
+/** Shared "reports are down" response for the JSON resources. */
+function reportsUnavailable(): Response {
+  return jsonError(
+    503,
+    "reports_unavailable",
+    "Seat reports are temporarily unavailable.",
+    {},
+    { "Retry-After": "15", "Cache-Control": "no-store" },
+  );
+}
+
+/** Short per-seat summary used by both the discovery and the view feeds. */
+function seatSummary(host: string, marker: SeatMarkers) {
+  return {
+    host,
+    severity: marker.blocking.length
+      ? ("blocking" as const)
+      : marker.minor.length
+        ? ("minor" as const)
+        : null,
+    issues: [...marker.blocking, ...marker.minor],
+    ...(marker.usbc ? { usbc: true } : {}),
+  };
+}
+
+function belongsToMap(host: string, id: MapId, seats: Set<string>): boolean {
+  return seats.size > 0 ? seats.has(host) : host.startsWith(`${id}-`);
+}
+
+function matchesDataView(marker: SeatMarkers, view: DataView): boolean {
+  if (view === "issues") {
+    return marker.blocking.length > 0 || marker.minor.length > 0;
+  }
+  if (view === "broken") return marker.blocking.length > 0;
+  return marker.usbc;
+}
+
+async function etagJsonResponse(
+  request: Request,
+  body: unknown,
+): Promise<Response> {
+  const serialized = JSON.stringify(body);
+  const etag = await contentEtag(serialized);
+  const headers = new Headers({
+    ...corsHeaders,
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": CACHE_HEADER,
+    ETag: etag,
+  });
+
+  if (matchesEtag(request.headers.get("if-none-match"), etag)) {
+    return new Response(null, { status: 304, headers });
+  }
+
+  return new Response(request.method === "HEAD" ? null : serialized, {
+    headers,
+  });
+}
+
 function viewUrls(origin: string, id: MapId): Record<MapView, string> {
   const base = `${origin}/api/v1/public/clusters/${CAMPUS}/${id}.svg`;
   return {
@@ -496,13 +563,7 @@ export async function handleClustersIndex(
   try {
     rows = await loadRows(env);
   } catch {
-    return jsonError(
-      503,
-      "reports_unavailable",
-      "Seat reports are temporarily unavailable.",
-      {},
-      { "Retry-After": "15", "Cache-Control": "no-store" },
-    );
+    return reportsUnavailable();
   }
 
   const markers = markersByHost(rows);
@@ -529,16 +590,7 @@ export async function handleClustersIndex(
       if (marker.blocking.length > 0) broken++;
       if (hasIssues) issues++;
       if (marker.usbc) usbc++;
-      return {
-        host,
-        severity: marker.blocking.length
-          ? "blocking"
-          : marker.minor.length
-            ? "minor"
-            : null,
-        issues: [...marker.blocking, ...marker.minor],
-        ...(marker.usbc ? { usbc: true } : {}),
-      };
+      return seatSummary(host, marker);
     });
 
     maps.push({
@@ -557,20 +609,59 @@ export async function handleClustersIndex(
     components: COMPONENT_CATALOG,
     maps,
   };
-  const serialized = JSON.stringify(body);
-  const etag = await contentEtag(serialized);
-  const headers = new Headers({
-    ...corsHeaders,
-    "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": CACHE_HEADER,
-    ETag: etag,
-  });
+  return etagJsonResponse(request, body);
+}
 
-  if (matchesEtag(request.headers.get("if-none-match"), etag)) {
-    return new Response(null, { status: 304, headers });
+export async function handleClusterView(
+  request: Request,
+  env: Env,
+  campus: string,
+  view: string,
+): Promise<Response> {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return jsonError(405, "method_not_allowed", "Only GET and HEAD.", {}, {
+      Allow: "GET, HEAD",
+    });
+  }
+  if (campus !== CAMPUS) {
+    return jsonError(404, "campus_not_found", `Unknown campus: ${campus}.`);
+  }
+  if (!isDataView(view)) {
+    return jsonError(404, "view_not_found", `Unknown view: ${view}.`, {
+      allowed: DATA_VIEWS,
+    });
   }
 
-  return new Response(request.method === "HEAD" ? null : serialized, {
-    headers,
+  let rows: SeatIssueRow[];
+  try {
+    rows = await loadRows(env);
+  } catch {
+    return reportsUnavailable();
+  }
+
+  const markers = markersByHost(rows);
+  const newest = rows.reduce(
+    (latest, row) => Math.max(latest, Number(row.updatedAt) || 0),
+    0,
+  );
+
+  const seats: ({ map: MapId } & ReturnType<typeof seatSummary>)[] = [];
+  for (const id of MAP_IDS) {
+    const mapSeats = await seatIdsForMap(env, id);
+    const entries = [...markers.entries()]
+      .filter(([host]) => belongsToMap(host, id, mapSeats))
+      .filter(([, marker]) => matchesDataView(marker, view))
+      .sort(([a], [b]) => a.localeCompare(b));
+    for (const [host, marker] of entries) {
+      seats.push({ map: id, ...seatSummary(host, marker) });
+    }
+  }
+
+  return etagJsonResponse(request, {
+    campus: CAMPUS,
+    view,
+    updatedAt: newest * 1000,
+    count: seats.length,
+    seats,
   });
 }

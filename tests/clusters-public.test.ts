@@ -3,6 +3,7 @@ import {
   decorateMapSvg,
   handleClusterMapView,
   handleClustersIndex,
+  handleClusterView,
   markersByHost,
   parseView,
   MAP_VIEWS,
@@ -455,8 +456,7 @@ describe("handleClusterMapView", () => {
   });
 });
 
-describe("handleClustersIndex", () => {
-  const list: Row[] = [
+describe("handleClustersIndex", () => {  const list: Row[] = [
     {
       host: "shi-r1-p1",
       component: "boot",
@@ -621,5 +621,218 @@ describe("handleClustersIndex", () => {
     );
     expect(method.status).toBe(405);
     expect(method.headers.get("allow")).toBe("GET, HEAD");
+  });
+});
+
+describe("handleClusterView", () => {
+  const list: Row[] = [
+    {
+      host: "shi-r1-p1",
+      component: "boot",
+      status: "broken",
+      reporter: "alice",
+      updatedAt: 1_700_000_100,
+    },
+    {
+      host: "shi-r1-p1",
+      component: "usbc",
+      status: "works",
+      reporter: "bob",
+      updatedAt: 1_700_000_050,
+    },
+    {
+      host: "shi-r1-p2",
+      component: "keyboard",
+      status: "broken",
+      reporter: "carol",
+      updatedAt: 1_700_000_000,
+    },
+    {
+      host: "fu-r1-p1",
+      component: "usbc",
+      status: "works",
+      reporter: "dave",
+      updatedAt: 1_700_000_000,
+    },
+    // Not a seat of any map: must not leak into a feed.
+    {
+      host: "shi-r9-p9",
+      component: "boot",
+      status: "broken",
+      reporter: "eve",
+      updatedAt: 1_700_000_000,
+    },
+  ];
+
+  const viewRequest = (
+    view: string,
+    method = "GET",
+    headers?: Record<string, string>,
+  ) =>
+    new Request(
+      `${ORIGIN}/api/v1/public/clusters/belgium/${view}`,
+      { method, headers },
+    );
+
+  it("issues returns every seat with a blocking or minor issue", async () => {
+    const res = await handleClusterView(
+      viewRequest("issues"),
+      makeEnv(list),
+      "belgium",
+      "issues",
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe(
+      "application/json; charset=utf-8",
+    );
+    const body = (await res.json()) as {
+      campus: string;
+      view: string;
+      updatedAt: number;
+      count: number;
+      seats: unknown[];
+    };
+    expect(body.campus).toBe("belgium");
+    expect(body.view).toBe("issues");
+    expect(body.updatedAt).toBe(1_700_000_100_000);
+    expect(body.count).toBe(2);
+    expect(body.seats).toEqual([
+      {
+        map: "shi",
+        host: "shi-r1-p1",
+        severity: "blocking",
+        issues: ["Power"],
+        usbc: true,
+      },
+      {
+        map: "shi",
+        host: "shi-r1-p2",
+        severity: "minor",
+        issues: ["Keyboard"],
+      },
+    ]);
+  });
+
+  it("broken returns only crossed seats", async () => {
+    const res = await handleClusterView(
+      viewRequest("broken"),
+      makeEnv(list),
+      "belgium",
+      "broken",
+    );
+    const body = (await res.json()) as { count: number; seats: unknown[] };
+    expect(body.count).toBe(1);
+    expect(body.seats).toEqual([
+      {
+        map: "shi",
+        host: "shi-r1-p1",
+        severity: "blocking",
+        issues: ["Power"],
+        usbc: true,
+      },
+    ]);
+  });
+
+  it("usbc returns only seats reported to have a port", async () => {
+    const res = await handleClusterView(
+      viewRequest("usbc"),
+      makeEnv(list),
+      "belgium",
+      "usbc",
+    );
+    const body = (await res.json()) as { count: number; seats: unknown[] };
+    expect(body.count).toBe(2);
+    expect(body.seats).toEqual([
+      {
+        map: "shi",
+        host: "shi-r1-p1",
+        severity: "blocking",
+        issues: ["Power"],
+        usbc: true,
+      },
+      {
+        map: "fu",
+        host: "fu-r1-p1",
+        severity: null,
+        issues: [],
+        usbc: true,
+      },
+    ]);
+  });
+
+  it("answers 304 and omits the body for HEAD", async () => {
+    const env = makeEnv(list);
+    const first = await handleClusterView(
+      viewRequest("broken"),
+      env,
+      "belgium",
+      "broken",
+    );
+    const etag = first.headers.get("etag")!;
+
+    const second = await handleClusterView(
+      viewRequest("broken", "GET", { "If-None-Match": etag }),
+      env,
+      "belgium",
+      "broken",
+    );
+    expect(second.status).toBe(304);
+
+    const head = await handleClusterView(
+      viewRequest("broken", "HEAD"),
+      env,
+      "belgium",
+      "broken",
+    );
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe("");
+  });
+
+  it("validates the campus, view and method", async () => {
+    const campus = await handleClusterView(
+      viewRequest("issues"),
+      makeEnv(list),
+      "paris",
+      "issues",
+    );
+    expect(campus.status).toBe(404);
+    expect(((await campus.json()) as { error: string }).error).toBe(
+      "campus_not_found",
+    );
+
+    const view = await handleClusterView(
+      viewRequest("issues"),
+      makeEnv(list),
+      "belgium",
+      "foo",
+    );
+    expect(view.status).toBe(404);
+    expect(((await view.json()) as { error: string }).error).toBe(
+      "view_not_found",
+    );
+
+    const method = await handleClusterView(
+      viewRequest("issues", "POST"),
+      makeEnv(list),
+      "belgium",
+      "issues",
+    );
+    expect(method.status).toBe(405);
+    expect(method.headers.get("allow")).toBe("GET, HEAD");
+  });
+
+  it("returns 503 when reports are unavailable", async () => {
+    const res = await handleClusterView(
+      viewRequest("broken"),
+      makeEnv([], MAP_SVGS, true),
+      "belgium",
+      "broken",
+    );
+    expect(res.status).toBe(503);
+    expect(res.headers.get("retry-after")).toBe("15");
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "reports_unavailable",
+    );
   });
 });

@@ -38,6 +38,7 @@ import { handleCampusMap } from "./handlers/campus-map";
 import {
   handleClusterMapView,
   handleClustersIndex,
+  handleClusterView,
 } from "./handlers/clusters-public";
 import { handleClusterOccupancy } from "./handlers/cluster-occupancy";
 import { handleSeatReports, handleSeatHistory } from "./handlers/seat-reports";
@@ -189,6 +190,18 @@ const worker = {
       );
     }
 
+    const clusterViewMatch = url.pathname.match(
+      /^\/api\/v1\/public\/clusters\/([a-z0-9-]+)\/(issues|broken|usbc)$/,
+    );
+    if (clusterViewMatch) {
+      return handleClusterView(
+        request,
+        env,
+        clusterViewMatch[1],
+        clusterViewMatch[2],
+      );
+    }
+
     const avatarMatch = url.pathname.match(
       /^\/api\/v1\/public\/avatar\/([^/]+)$/,
     );
@@ -234,6 +247,16 @@ const worker = {
     );
     if (campusMatch) {
       return handleCampusLocation(request, env, campusMatch[1]);
+    }
+
+    // Unknown public paths are not session-gated: let the normal error page
+    // show "404 Not Found" instead of the "Username hash required" cat.
+    // `/api/v1/public/visuals` is the one public route that takes a login hash.
+    if (
+      url.pathname.startsWith("/api/v1/public/") &&
+      url.pathname !== "/api/v1/public/visuals"
+    ) {
+      return textRes("This endpoint doesn't exist.", 404);
     }
 
     const loginParam = url.searchParams.get("login");
