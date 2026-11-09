@@ -35,6 +35,7 @@ import {
 } from "./handlers/calendar";
 import { handleClusterSvg, handleClusterSvgs } from "./handlers/clusters";
 import { handleCampusMap } from "./handlers/campus-map";
+import { handleClusterMapIssues } from "./handlers/cluster-map-issues";
 import { handleClusterOccupancy } from "./handlers/cluster-occupancy";
 import { handleSeatReports, handleSeatHistory } from "./handlers/seat-reports";
 import {
@@ -164,6 +165,14 @@ const worker = {
     );
     if (mapMatch) {
       return handleCampusMap(request, env, mapMatch[1], mapMatch[2]);
+    }
+
+    const issuesMapMatch = url.pathname.match(
+      /^\/api\/v1\/public\/cluster-map\/([a-z0-9-]+)\/([a-z0-9-]+)\.svg$/,
+    );
+    if (issuesMapMatch) {
+      if (issuesMapMatch[1] !== "belgium") return textRes("Not found", 404);
+      return handleClusterMapIssues(request, env, issuesMapMatch[2]);
     }
 
     const avatarMatch = url.pathname.match(
