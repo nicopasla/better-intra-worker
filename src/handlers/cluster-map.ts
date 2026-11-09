@@ -3,11 +3,12 @@ import { corsHeaders, textRes } from "../utils";
 import { SEAT_REPORT_CAMPUS } from "./seat-reports";
 
 /**
- * Public cluster maps with the current broken-computer reports baked in.
+ * Public cluster maps with the current reports baked in.
  *
- * The extension and the PWA paint crosses/triangles over the SVG at runtime.
- * This endpoint produces the same markers server-side so a plain `<img>` (a
- * README, a dashboard, a TV in the cluster) shows the issues without any JS.
+ * The extension and the PWA paint crosses/triangles/USB-C glyphs over the SVG
+ * at runtime. This endpoint composes the same overlays server-side so a plain
+ * `<img>` (a README, a dashboard, a TV in the cluster) shows them without any
+ * JS. `?layers=` selects them; the base seats are always drawn.
  *
  * Only the Belgium room maps are handled: the campus plan has no seat avatars
  * to anchor to. `seat_components` is queried without exposing reporter logins.
@@ -53,6 +54,39 @@ interface SeatIssueRow {
 interface SeatMarkers {
   blocking: string[];
   minor: string[];
+  /** A signed-in or legacy report said this seat has a USB-C port. */
+  usbc: boolean;
+}
+
+/** Overlays drawn on top of the base map (see `parseLayers`). */
+export interface MapLayers {
+  /** Crosses and warning triangles. */
+  issues: boolean;
+  /** Crosses only, for seats whose Power/Network is broken. */
+  broken: boolean;
+  usbc: boolean;
+}
+
+const DEFAULT_LAYERS: MapLayers = { issues: true, broken: false, usbc: true };
+
+/**
+ * Parses `?layers=`, a comma-separated list of overlays. The base map is
+ * always drawn; `seats`/`none` exist so `?layers=seats` reads naturally.
+ * `broken` is the cross-only subset (`issues` also draws warning triangles).
+ * An empty value means "no overlays". Unknown tokens return `null` (400).
+ */
+export function parseLayers(raw: string | null): MapLayers | null {
+  if (raw === null) return { ...DEFAULT_LAYERS };
+  const layers: MapLayers = { issues: false, broken: false, usbc: false };
+  for (const value of raw.split(",")) {
+    const token = value.trim().toLowerCase();
+    if (!token) continue;
+    if (token === "issues") layers.issues = true;
+    else if (token === "broken") layers.broken = true;
+    else if (token === "usbc") layers.usbc = true;
+    else if (token !== "seats" && token !== "none") return null;
+  }
+  return layers;
 }
 
 function round2(value: number): string {
@@ -115,21 +149,35 @@ export function markersByHost(rows: SeatIssueRow[]): Map<string, SeatMarkers> {
     // computer is unusable, so the minor peripheral issues are not surfaced
     // (same rule as the extension and the PWA).
     if (blocking.length > 0) minor.length = 0;
-    if (blocking.length || minor.length) markers.set(host, { blocking, minor });
+    // Presence answer, not a defect: it never crosses a seat and does not
+    // depend on the issue severity. Shown regardless of occupancy.
+    const usbc = components.some(
+      (row) => row.component === "usbc" && row.status === "works",
+    );
+    if (blocking.length || minor.length || usbc) {
+      markers.set(host, { blocking, minor, usbc });
+    }
   }
   return markers;
 }
 
-/** Applies the markers to the SVG's seat `<image id=...>` placeholders. */
+/** Applies the requested overlays to the SVG's seat `<image id=...>` placeholders. */
 export function decorateMapSvg(
   svg: string,
   markers: Map<string, SeatMarkers>,
+  layers: MapLayers = DEFAULT_LAYERS,
 ): string {
   if (markers.size === 0) return svg;
+
+  const showCrosses = layers.issues || layers.broken;
+  const showWarnings = layers.issues;
+  const showUsbc = layers.usbc;
+  if (!showCrosses && !showWarnings && !showUsbc) return svg;
 
   const groups: string[] = [];
   let usedCross = false;
   let usedWarning = false;
+  let usedUsbc = false;
   const imageTag = /<image\b[^>]*>/gi;
   for (const match of svg.matchAll(imageTag)) {
     const attributes = new Map<string, string>();
@@ -142,6 +190,11 @@ export function decorateMapSvg(
     const issues = markers.get(host);
     if (!issues) continue;
 
+    const drawCross = showCrosses && issues.blocking.length > 0;
+    const drawWarning = showWarnings && issues.minor.length > 0;
+    const drawUsbc = showUsbc && issues.usbc;
+    if (!drawCross && !drawWarning && !drawUsbc) continue;
+
     const x = Number(attributes.get("x"));
     const y = Number(attributes.get("y"));
     const w = Number(attributes.get("width"));
@@ -151,13 +204,15 @@ export function decorateMapSvg(
     const transform = attributes.get("transform");
     const transformAttr = transform ? ` transform="${transform}"` : "";
     const minSide = Math.min(w, h);
+    const titleParts: string[] = [];
+    if (showCrosses) titleParts.push(...issues.blocking);
+    if (showWarnings) titleParts.push(...issues.minor);
+    if (drawUsbc) titleParts.push("USB-C");
     const parts: string[] = [
-      `<title>${escapeXml(host)} — ${escapeXml(
-        [...issues.blocking, ...issues.minor].join(", "),
-      )}</title>`,
+      `<title>${escapeXml(host)} — ${escapeXml(titleParts.join(", "))}</title>`,
     ];
 
-    if (issues.blocking.length > 0) {
+    if (drawCross) {
       usedCross = true;
       // Same inset and stroke as the app's report cross.
       const inset = minSide * 0.18;
@@ -170,7 +225,7 @@ export function decorateMapSvg(
       );
     }
 
-    if (issues.minor.length > 0) {
+    if (drawWarning) {
       usedWarning = true;
       // Lucide `triangle-exclamation`, bottom-left like the app's warning glyph.
       const size = Math.max(8, Math.min(16, minSide * 0.35));
@@ -180,6 +235,19 @@ export function decorateMapSvg(
       const scale = round2(size / 24);
       parts.push(
         `<g class="ft-issue-warning" transform="translate(${glyphX} ${glyphY}) scale(${scale})" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></g>`,
+      );
+    }
+
+    if (drawUsbc) {
+      usedUsbc = true;
+      // Same glyph and position as the app, bottom-right of the seat.
+      const size = Math.max(8, Math.min(16, minSide * 0.35));
+      const inset = Math.max(1, minSide * 0.1);
+      const glyphX = round2(x + w - size - inset);
+      const glyphY = round2(y + h - size / 2 - inset);
+      const scale = round2(size / 96);
+      parts.push(
+        `<g class="ft-issue-usbc" transform="translate(${glyphX} ${glyphY}) scale(${scale})" fill="none"><rect x="4" y="4" width="88" height="40" rx="20" stroke="currentColor" stroke-width="8"/><rect x="20" y="20" width="56" height="8" rx="4" fill="currentColor"/></g>`,
       );
     }
 
@@ -193,7 +261,9 @@ export function decorateMapSvg(
   const styles =
     (usedCross
       ? ".ft-issue-cross{fill:none;stroke:#d9453f;stroke-linecap:round}"
-      : "") + (usedWarning ? ".ft-issue-warning{color:#df9539}" : "");
+      : "") +
+    (usedWarning ? ".ft-issue-warning{color:#df9539}" : "") +
+    (usedUsbc ? ".ft-issue-usbc{color:#38bdf8}" : "");
   const block = `${styles ? `<style>${styles}</style>` : ""}<g id="ft-issue-markers">${groups.join("")}</g>`;
   const closing = svg.lastIndexOf("</svg>");
   if (closing === -1) return svg + block;
@@ -245,7 +315,7 @@ async function contentEtag(value: string): Promise<string> {
   return `"${hex}"`;
 }
 
-export async function handleClusterMapIssues(
+export async function handleClusterMap(
   request: Request,
   env: Env,
   id: string,
@@ -255,6 +325,9 @@ export async function handleClusterMapIssues(
   }
   if (!MAPS.has(id)) return textRes("Not found", 404);
 
+  const layers = parseLayers(new URL(request.url).searchParams.get("layers"));
+  if (!layers) return textRes("Invalid layers parameter", 400);
+
   const svg = await loadBaseSvg(env, id);
   if (svg === null) return textRes("Map not found", 404);
   if (svg.length > MAX_SVG_BYTES) return textRes("Map too large", 413);
@@ -262,30 +335,32 @@ export async function handleClusterMapIssues(
 
   let markers = new Map<string, SeatMarkers>();
   let version = "none";
-  let maxAge = 15;
-  try {
-    const { results } = await env.better_intra_d1
-      .prepare(
-        `SELECT host, component, status, reporter, updated_at AS updatedAt
-         FROM seat_components
-         WHERE campus = ?`,
-      )
-      .bind(SEAT_REPORT_CAMPUS)
-      .all<SeatIssueRow>();
-    markers = markersByHost(results ?? []);
-    const rows = results ?? [];
-    const newest = rows.reduce(
-      (latest, row) => Math.max(latest, Number(row.updatedAt) || 0),
-      0,
-    );
-    version = `${rows.length}-${newest}`;
-    maxAge = 60;
-  } catch {
-    // Keep the map usable (unmarked) and let the next request retry soon.
-    maxAge = 15;
+  let maxAge = 60;
+  // The plain map has no reports to load; skip D1 entirely.
+  if (layers.issues || layers.broken || layers.usbc) {
+    try {
+      const { results } = await env.better_intra_d1
+        .prepare(
+          `SELECT host, component, status, reporter, updated_at AS updatedAt
+           FROM seat_components
+           WHERE campus = ?`,
+        )
+        .bind(SEAT_REPORT_CAMPUS)
+        .all<SeatIssueRow>();
+      const rows = results ?? [];
+      markers = markersByHost(rows);
+      const newest = rows.reduce(
+        (latest, row) => Math.max(latest, Number(row.updatedAt) || 0),
+        0,
+      );
+      version = `${rows.length}-${newest}`;
+    } catch {
+      // Keep the map usable (unmarked) and let the next request retry soon.
+      maxAge = 15;
+    }
   }
 
-  const body = decorateMapSvg(svg, markers);
+  const body = decorateMapSvg(svg, markers, layers);
   const etag = await contentEtag(`${version}\n${body}`);
   const headers = new Headers({
     ...corsHeaders,
