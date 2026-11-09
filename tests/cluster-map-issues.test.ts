@@ -67,20 +67,52 @@ describe("markersByHost", () => {
   it("groups blocking and minor components per seat", () => {
     const markers = markersByHost(
       rows([
-        { host: "shi-r1-p1", component: "boot", status: "broken" },
-        { host: "shi-r1-p1", component: "keyboard", status: "broken" },
+        {
+          host: "shi-r1-p1",
+          component: "keyboard",
+          status: "broken",
+        },
         {
           host: "shi-r1-p1",
           component: "audio",
           status: "works",
           reporter: "alice",
         },
+        {
+          host: "shi-r1-p2",
+          component: "keyboard",
+          status: "broken",
+        },
+        {
+          host: "shi-r1-p2",
+          component: "mouse_scroll",
+          status: "broken",
+        },
+      ]),
+    );
+
+    expect(markers.get("shi-r1-p1")).toEqual({
+      blocking: [],
+      minor: ["Keyboard"],
+    });
+    expect(markers.get("shi-r1-p2")).toEqual({
+      blocking: [],
+      minor: ["Keyboard", "Mouse scroll"],
+    });
+  });
+
+  it("drops the warning when the seat is already crossed", () => {
+    const markers = markersByHost(
+      rows([
+        { host: "shi-r1-p1", component: "boot", status: "broken" },
+        { host: "shi-r1-p1", component: "keyboard", status: "broken" },
+        { host: "shi-r1-p1", component: "audio", status: "broken" },
       ]),
     );
 
     expect(markers.get("shi-r1-p1")).toEqual({
       blocking: ["Power"],
-      minor: ["Keyboard"],
+      minor: [],
     });
   });
 
@@ -153,6 +185,17 @@ describe("decorateMapSvg", () => {
     expect(svg).toContain(
       '<title>shi-r1-p1 — Keyboard</title>',
     );
+  });
+
+  it("never draws the triangle on a crossed seat", () => {
+    const svg = decorateMapSvg(
+      BASE,
+      new Map([["shi-r1-p1", { blocking: ["Power"], minor: [] }]]),
+    );
+
+    expect(svg).toContain('class="ft-issue-cross"');
+    expect(svg).not.toContain("ft-issue-warning");
+    expect(svg).toContain('<title>shi-r1-p1 — Power</title>');
   });
 
   it("copies the seat transform onto the marker group", () => {

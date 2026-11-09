@@ -111,6 +111,10 @@ export function markersByHost(rows: SeatIssueRow[]): Map<string, SeatMarkers> {
       if (SEVERITY[key] === "blocking") blocking.push(label);
       else if (SEVERITY[key] === "minor") minor.push(label);
     }
+    // A crossed seat never keeps the warning glyph: the cross already says the
+    // computer is unusable, so the minor peripheral issues are not surfaced
+    // (same rule as the extension and the PWA).
+    if (blocking.length > 0) minor.length = 0;
     if (blocking.length || minor.length) markers.set(host, { blocking, minor });
   }
   return markers;
