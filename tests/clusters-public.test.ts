@@ -299,6 +299,24 @@ describe("decorateMapSvg", () => {
     expect(svg).toContain("<title>shi-r1-p1 — USB-C</title>");
   });
 
+  it("includes a legend with the markers the view draws", () => {
+    const withCross = decorateMapSvg(
+      MAP_SVGS.shi!,
+      new Map([["shi-r1-p1", seat({ noComputer: true })]]),
+    );
+    expect(withCross).toContain('id="ft-legend"');
+    expect(withCross).toContain("No computer");
+    expect(withCross).toContain("USB-C port");
+
+    const usbcOnly = decorateMapSvg(
+      MAP_SVGS.shi!,
+      new Map([["shi-r1-p1", seat({ noComputer: true, usbc: true })]]),
+      "usbc",
+    );
+    expect(usbcOnly).toContain("USB-C port");
+    expect(usbcOnly).not.toContain("No computer");
+  });
+
   it("plain leaves the map untouched", () => {
     const markers = new Map([["shi-r1-p1", seat({ blocking: ["Power"] })]]);
     expect(decorateMapSvg(MAP_SVGS.shi!, markers, "plain")).toBe(MAP_SVGS.shi);
