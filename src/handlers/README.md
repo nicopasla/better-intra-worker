@@ -130,9 +130,10 @@ GET https://api.betterintra.com/api/v1/public/clusters/belgium/{shi|fu|mi}.svg?v
 - Empty, combined or unknown values return `400 invalid_view`.
 - `plain` does not query D1 at all.
 - Query strings are part of the cache key, so every view caches independently.
-- Each rendered map carries a fixed-size legend (`<g id="ft-legend">`) with one
-  row per marker the view draws, placed in a dedicated band **below** the map
-  (the `viewBox` grows by the band height, so it never overlaps the floor plan).
+- Each rendered map carries a compact, fixed-size legend (`<g id="ft-legend">`)
+  with one row per marker the view draws. It is placed next to the floor plan:
+  right of the content when the canvas has room, otherwise below it, otherwise
+  the `viewBox` grows sideways so it never overlaps the seats.
 
 ### Legend
 

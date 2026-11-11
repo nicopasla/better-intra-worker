@@ -206,14 +206,14 @@ interface ViewBox {
   h: number;
 }
 
-/** Fixed legend geometry: same block on every map, whatever the view. */
-const LEGEND_WIDTH = 220;
-const LEGEND_ROW_HEIGHT = 18;
-const LEGEND_PADDING = 10;
+/** Compact legend geometry: same block on every map, whatever the view. */
+const LEGEND_WIDTH = 142;
+const LEGEND_ROW_HEIGHT = 16;
+const LEGEND_PADDING = 8;
 const LEGEND_MAX_ROWS = 5;
 const LEGEND_HEIGHT =
   LEGEND_PADDING * 2 + LEGEND_MAX_ROWS * LEGEND_ROW_HEIGHT;
-const LEGEND_GAP = 10;
+const LEGEND_GAP = 12;
 
 /** `viewBox` of the map, with a sane fallback when it is missing. */
 function svgViewBox(svg: string): ViewBox {
@@ -225,6 +225,43 @@ function svgViewBox(svg: string): ViewBox {
     }
   }
   return { x: 0, y: 0, w: 1200, h: 800 };
+}
+
+/**
+ * Bounding box of what the map actually draws (rects and seat placeholders).
+ * Paths are ignored: they are walls/decoration and stay inside the rooms.
+ */
+function contentBox(svg: string): ViewBox | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const match of svg.matchAll(/<(?:rect|image)\b[^>]*>/gi)) {
+    const attributes = new Map<string, string>();
+    for (const attr of match[0].matchAll(
+      /([a-zA-Z_:][-a-zA-Z0-9_:.]*)="([^"]*)"/g,
+    )) {
+      attributes.set(attr[1].toLowerCase(), attr[2]);
+    }
+    let x = Number(attributes.get("x"));
+    let y = Number(attributes.get("y"));
+    const w = Number(attributes.get("width"));
+    const h = Number(attributes.get("height"));
+    if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) continue;
+    const translate = attributes
+      .get("transform")
+      ?.match(/translate\(\s*(-?[\d.]+)[ ,]+(-?[\d.]+)/);
+    if (translate) {
+      x += Number(translate[1]);
+      y += Number(translate[2]);
+    }
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + w);
+    maxY = Math.max(maxY, y + h);
+  }
+  if (![minX, minY, maxX, maxY].every(Number.isFinite)) return null;
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
 /** Legend rows for the layers a view actually draws. */
@@ -249,7 +286,7 @@ function legendRows(
   if (layers.warnings) {
     rows.push({
       icon: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" fill="none" stroke="#df9539" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 9v4" stroke="#df9539" stroke-width="2" stroke-linecap="round"/><path d="M12 17h.01" stroke="#df9539" stroke-width="2" stroke-linecap="round"/>',
-      label: "Keyboard / scroll issue",
+      label: "Keyboard / scroll",
     });
   }
   if (layers.usbc) {
@@ -269,51 +306,85 @@ function legendRows(
 }
 
 /**
- * Draws the legend in a dedicated band below the map: the canvas grows by the
- * band height, so the legend can never overlap the floor plan and every map gets
- * the same fixed-size block.
+ * Places the legend next to the map content: to the right when there is room
+ * inside the canvas, then below, and otherwise the canvas grows sideways so the
+ * legend sits beside the floor plan instead of overlapping it.
  */
-function appendLegendBand(
+function appendLegend(
   svg: string,
   rows: { icon: string; label: string }[],
   view: ViewBox,
 ): string {
-  const band = LEGEND_HEIGHT + LEGEND_GAP;
   const items = rows
     .map((row, index) => {
       const rowY = LEGEND_PADDING + index * LEGEND_ROW_HEIGHT;
       return (
         `<g transform="translate(${LEGEND_PADDING} ${rowY})">` +
-        `<svg x="0" y="1" width="16" height="16" viewBox="0 0 24 24">${row.icon}</svg>` +
-        `<text class="ft-legend-text" x="26" y="9" dominant-baseline="middle">${escapeXml(row.label)}</text>` +
+        `<svg x="0" y="0" width="14" height="14" viewBox="0 0 24 24">${row.icon}</svg>` +
+        `<text class="ft-legend-text" x="20" y="8" dominant-baseline="middle">${escapeXml(row.label)}</text>` +
         `</g>`
       );
     })
     .join("");
+
+  const content = contentBox(svg) ?? view;
+  const right = content.x + content.w + LEGEND_GAP;
+  const below = content.y + content.h + LEGEND_GAP;
+  const viewRight = view.x + view.w;
+  const viewBottom = view.y + view.h;
+
+  let x: number;
+  let y: number;
+  let canvas = { ...view };
+  if (right + LEGEND_WIDTH <= viewRight) {
+    x = right;
+    y = content.y;
+  } else if (below + LEGEND_HEIGHT <= viewBottom) {
+    x = content.x;
+    y = below;
+  } else {
+    // No room inside the canvas: widen it so the legend stays alongside.
+    x = right;
+    y = content.y;
+    canvas.w = Math.max(view.w, x + LEGEND_WIDTH + LEGEND_GAP - view.x);
+  }
+
   const legend =
-    `<g id="ft-legend" transform="translate(${round2(view.x + LEGEND_GAP)} ${round2(view.y + view.h + LEGEND_GAP)})">` +
+    `<g id="ft-legend" transform="translate(${round2(x)} ${round2(y)})">` +
     `<rect class="ft-legend-bg" width="${LEGEND_WIDTH}" height="${LEGEND_HEIGHT}" rx="8"/>${items}</g>`;
 
   let out = svg.replace(
     /viewBox="[^"]*"/i,
-    `viewBox="${round2(view.x)} ${round2(view.y)} ${round2(view.w)} ${round2(view.h + band)}"`,
+    `viewBox="${round2(canvas.x)} ${round2(canvas.y)} ${round2(canvas.w)} ${round2(canvas.h)}"`,
   );
 
-  // Keep an explicit pixel height in proportion so the map keeps its size.
+  // Keep explicit pixel dimensions in proportion to the new canvas.
   const root = out.match(/<svg\b[^>]*>/i)?.[0];
   if (root) {
+    let tag = root;
+    const width = root.match(/\bwidth="([\d.]+)"/i);
+    if (width) {
+      const value = Number(width[1]);
+      if (Number.isFinite(value) && value > 0 && view.w > 0) {
+        const scaled = Math.round(value * (canvas.w / view.w));
+        tag = tag.replace(width[0], `width="${scaled}"`);
+      }
+    }
     const height = root.match(/\bheight="([\d.]+)"/i);
     if (height) {
       const value = Number(height[1]);
-      if (Number.isFinite(value) && value > 0) {
-        const scaled = Math.round(value * ((view.h + band) / view.h));
-        out = out.replace(root, root.replace(height[0], `height="${scaled}"`));
+      if (Number.isFinite(value) && value > 0 && view.h > 0) {
+        const scaled = Math.round(value * (canvas.h / view.h));
+        tag = tag.replace(height[0], `height="${scaled}"`);
       }
     }
+    out = out.replace(root, tag);
   }
 
   const closing = out.lastIndexOf("</svg>");
-  return closing === -1 ? out + legend : out.slice(0, closing) + legend + out.slice(closing);
+  return closing === -1
+    ? out + legend
+    : out.slice(0, closing) + legend + out.slice(closing);
 }
 
 /** Applies the requested view's overlays to the seat `<image id>` placeholders. */
@@ -442,15 +513,13 @@ export function decorateMapSvg(
     (usedUsbc ? ".ft-issue-usbc{color:#38bdf8}" : "");
   const rows = legendRows(layers, svg);
   const legendStyles = rows.length
-    ? ".ft-legend-bg{fill:#fff;fill-opacity:.94;stroke:#d1d5db;stroke-width:1}.ft-legend-text{fill:#1f2937;font:11px system-ui,-apple-system,\"Segoe UI\",sans-serif}"
+    ? ".ft-legend-bg{fill:#fff;fill-opacity:.94;stroke:#d1d5db;stroke-width:1}.ft-legend-text{fill:#1f2937;font:10px system-ui,-apple-system,\"Segoe UI\",sans-serif}"
     : "";
   const block = `${styles || legendStyles ? `<style>${styles}${legendStyles}</style>` : ""}<g id="ft-issue-markers">${groups.join("")}</g>`;
   const closing = svg.lastIndexOf("</svg>");
   const decorated =
     closing === -1 ? svg + block : svg.slice(0, closing) + block + svg.slice(closing);
-  return rows.length
-    ? appendLegendBand(decorated, rows, svgViewBox(svg))
-    : decorated;
+  return rows.length ? appendLegend(decorated, rows, svgViewBox(svg)) : decorated;
 }
 
 async function loadBaseSvg(env: Env, id: MapId): Promise<string | null> {
