@@ -372,7 +372,7 @@ export const LEGEND_PLACEMENT: Record<
 > = {
   shi: { x: -30, y: -40, width: 120 },
   fu: { x: 0, y: 405, width: 120 },
-  mi: { x: 30, y: 70, width: 120 },
+  mi: { x: 20, y: 0, width: 120 },
 };
 
 /** Applies the requested view's overlays to the seat `<image id>` placeholders. */
