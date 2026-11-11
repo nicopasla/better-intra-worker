@@ -299,12 +299,15 @@ describe("decorateMapSvg", () => {
     expect(svg).toContain("<title>shi-r1-p1 — USB-C</title>");
   });
 
-  it("includes a legend with the markers the view draws", () => {
+  it("includes a fixed-size legend below the map", () => {
     const withCross = decorateMapSvg(
       MAP_SVGS.shi!,
       new Map([["shi-r1-p1", seat({ noComputer: true })]]),
     );
+    // The canvas grows by the legend band, so it never overlaps the plan.
+    expect(withCross).toContain('viewBox="0 0 200 320"');
     expect(withCross).toContain('id="ft-legend"');
+    expect(withCross).toContain('transform="translate(10 210)"');
     expect(withCross).toContain("No computer");
     expect(withCross).toContain("USB-C port");
 
@@ -315,6 +318,8 @@ describe("decorateMapSvg", () => {
     );
     expect(usbcOnly).toContain("USB-C port");
     expect(usbcOnly).not.toContain("No computer");
+    // Same band height whatever the row count.
+    expect(usbcOnly).toContain('viewBox="0 0 200 320"');
   });
 
   it("plain leaves the map untouched", () => {

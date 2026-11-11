@@ -199,15 +199,24 @@ export function markersByHost(rows: SeatIssueRow[]): Map<string, SeatMarkers> {
   return markers;
 }
 
-interface Box {
+interface ViewBox {
   x: number;
   y: number;
   w: number;
   h: number;
 }
 
+/** Fixed legend geometry: same block on every map, whatever the view. */
+const LEGEND_WIDTH = 220;
+const LEGEND_ROW_HEIGHT = 18;
+const LEGEND_PADDING = 10;
+const LEGEND_MAX_ROWS = 5;
+const LEGEND_HEIGHT =
+  LEGEND_PADDING * 2 + LEGEND_MAX_ROWS * LEGEND_ROW_HEIGHT;
+const LEGEND_GAP = 10;
+
 /** `viewBox` of the map, with a sane fallback when it is missing. */
-function svgViewBox(svg: string): Box {
+function svgViewBox(svg: string): ViewBox {
   const match = svg.match(/viewBox="([^"]+)"/i);
   if (match) {
     const [x, y, w, h] = (match[1] ?? "").trim().split(/[\s,]+/).map(Number);
@@ -218,121 +227,93 @@ function svgViewBox(svg: string): Box {
   return { x: 0, y: 0, w: 1200, h: 800 };
 }
 
-/** Seat boxes from the map's `<image id>` placeholders (translate included). */
-function seatBoxes(svg: string): Box[] {
-  const boxes: Box[] = [];
-  for (const match of svg.matchAll(/<image\b[^>]*>/gi)) {
-    const attributes = new Map<string, string>();
-    for (const attr of match[0].matchAll(
-      /([a-zA-Z_:][-a-zA-Z0-9_:.]*)="([^"]*)"/g,
-    )) {
-      attributes.set(attr[1].toLowerCase(), attr[2]);
-    }
-    let x = Number(attributes.get("x"));
-    let y = Number(attributes.get("y"));
-    const w = Number(attributes.get("width"));
-    const h = Number(attributes.get("height"));
-    if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) continue;
-    const translate = attributes
-      .get("transform")
-      ?.match(/translate\(\s*(-?[\d.]+)[ ,]+(-?[\d.]+)/);
-    if (translate) {
-      x += Number(translate[1]);
-      y += Number(translate[2]);
-    }
-    boxes.push({ x, y, w, h });
-  }
-  return boxes;
-}
-
-/** First of top-left / bottom-left / top-right / bottom-right that is free. */
-function placeLegend(
-  svg: string,
-  width: number,
-  height: number,
-): { x: number; y: number } {
-  const view = svgViewBox(svg);
-  const margin = 14;
-  const candidates = [
-    { x: view.x + margin, y: view.y + margin },
-    { x: view.x + margin, y: view.y + view.h - height - margin },
-    { x: view.x + view.w - width - margin, y: view.y + margin },
-    {
-      x: view.x + view.w - width - margin,
-      y: view.y + view.h - height - margin,
-    },
-  ];
-  const boxes = seatBoxes(svg);
-  const pad = 6;
-  const overlaps = (box: Box): boolean =>
-    boxes.some(
-      (seat) =>
-        !(
-          box.x + box.w + pad < seat.x ||
-          box.x > seat.x + seat.w + pad ||
-          box.y + box.h + pad < seat.y ||
-          box.y > seat.y + seat.h + pad
-        ),
-    );
-  return candidates.find((candidate) => !overlaps({ ...candidate, w: width, h: height })) ??
-    candidates[0]!;
-}
-
 /** Legend rows for the layers a view actually draws. */
 function legendRows(
   layers: ViewLayers,
   svg: string,
 ): { icon: string; label: string }[] {
+  // All swatches are drawn in the same 24×24 box so they line up.
   const rows: { icon: string; label: string }[] = [];
   if (layers.crosses) {
     rows.push({
-      icon: '<path d="M3 3 17 17 M17 3 3 17" fill="none" stroke="#d9453f" stroke-width="2.4" stroke-linecap="round"/>',
+      icon: '<path d="M5 5 19 19 M19 5 5 19" fill="none" stroke="#d9453f" stroke-width="2.4" stroke-linecap="round"/>',
       label: "No computer",
     });
   }
   if (layers.tint) {
     rows.push({
-      icon: '<rect x="2" y="2" width="16" height="16" rx="3" fill="#d9453f" fill-opacity=".22" stroke="#d9453f" stroke-width="1.5"/>',
+      icon: '<rect x="3" y="3" width="18" height="18" rx="3" fill="#d9453f" fill-opacity=".22" stroke="#d9453f" stroke-width="1.5"/>',
       label: "Broken computer",
     });
   }
   if (layers.warnings) {
     rows.push({
-      icon: '<path d="m19 13.5-6.2-10.5a.9.9 0 0 0-1.6 0L5 13.5a.9.9 0 0 0 .8 1.4h12.4a.9.9 0 0 0 .8-1.4" fill="none" stroke="#df9539" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>',
+      icon: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" fill="none" stroke="#df9539" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 9v4" stroke="#df9539" stroke-width="2" stroke-linecap="round"/><path d="M12 17h.01" stroke="#df9539" stroke-width="2" stroke-linecap="round"/>',
       label: "Keyboard / scroll issue",
     });
   }
   if (layers.usbc) {
     rows.push({
-      icon: '<rect x="1" y="6" width="18" height="8" rx="4" fill="none" stroke="#38bdf8" stroke-width="1.4"/><rect x="5" y="9" width="10" height="2" rx="1" fill="#38bdf8"/>',
+      icon: '<rect x="2" y="7" width="20" height="10" rx="5" fill="none" stroke="#38bdf8" stroke-width="1.6"/><rect x="7" y="11" width="10" height="2" rx="1" fill="#38bdf8"/>',
       label: "USB-C port",
     });
   }
   // Newer computers are baked into the base map, not a report layer.
   if (/seat-newer/.test(svg)) {
     rows.push({
-      icon: '<rect x="2" y="2" width="16" height="16" rx="3" fill="#22c55e" fill-opacity=".3" stroke="#22c55e" stroke-width="1.5"/>',
+      icon: '<rect x="3" y="3" width="18" height="18" rx="3" fill="#22c55e" fill-opacity=".3" stroke="#22c55e" stroke-width="1.5"/>',
       label: "Newer computer",
     });
   }
   return rows;
 }
 
-function buildLegend(svg: string, layers: ViewLayers): string {
-  const rows = legendRows(layers, svg);
-  if (rows.length === 0) return "";
-  const rowHeight = 18;
-  const pad = 10;
-  const width = 214;
-  const height = pad * 2 + rows.length * rowHeight;
-  const { x, y } = placeLegend(svg, width, height);
+/**
+ * Draws the legend in a dedicated band below the map: the canvas grows by the
+ * band height, so the legend can never overlap the floor plan and every map gets
+ * the same fixed-size block.
+ */
+function appendLegendBand(
+  svg: string,
+  rows: { icon: string; label: string }[],
+  view: ViewBox,
+): string {
+  const band = LEGEND_HEIGHT + LEGEND_GAP;
   const items = rows
     .map((row, index) => {
-      const rowY = pad + index * rowHeight;
-      return `<g transform="translate(${pad} ${rowY})">${row.icon}<text class="ft-legend-text" x="26" y="13">${escapeXml(row.label)}</text></g>`;
+      const rowY = LEGEND_PADDING + index * LEGEND_ROW_HEIGHT;
+      return (
+        `<g transform="translate(${LEGEND_PADDING} ${rowY})">` +
+        `<svg x="0" y="1" width="16" height="16" viewBox="0 0 24 24">${row.icon}</svg>` +
+        `<text class="ft-legend-text" x="26" y="9" dominant-baseline="middle">${escapeXml(row.label)}</text>` +
+        `</g>`
+      );
     })
     .join("");
-  return `<g id="ft-legend" transform="translate(${round2(x)} ${round2(y)})"><rect class="ft-legend-bg" width="${width}" height="${height}" rx="8"/>${items}</g>`;
+  const legend =
+    `<g id="ft-legend" transform="translate(${round2(view.x + LEGEND_GAP)} ${round2(view.y + view.h + LEGEND_GAP)})">` +
+    `<rect class="ft-legend-bg" width="${LEGEND_WIDTH}" height="${LEGEND_HEIGHT}" rx="8"/>${items}</g>`;
+
+  let out = svg.replace(
+    /viewBox="[^"]*"/i,
+    `viewBox="${round2(view.x)} ${round2(view.y)} ${round2(view.w)} ${round2(view.h + band)}"`,
+  );
+
+  // Keep an explicit pixel height in proportion so the map keeps its size.
+  const root = out.match(/<svg\b[^>]*>/i)?.[0];
+  if (root) {
+    const height = root.match(/\bheight="([\d.]+)"/i);
+    if (height) {
+      const value = Number(height[1]);
+      if (Number.isFinite(value) && value > 0) {
+        const scaled = Math.round(value * ((view.h + band) / view.h));
+        out = out.replace(root, root.replace(height[0], `height="${scaled}"`));
+      }
+    }
+  }
+
+  const closing = out.lastIndexOf("</svg>");
+  return closing === -1 ? out + legend : out.slice(0, closing) + legend + out.slice(closing);
 }
 
 /** Applies the requested view's overlays to the seat `<image id>` placeholders. */
@@ -459,14 +440,17 @@ export function decorateMapSvg(
       : "") +
     (usedWarning ? ".ft-issue-warning{color:#df9539}" : "") +
     (usedUsbc ? ".ft-issue-usbc{color:#38bdf8}" : "");
-  const legend = buildLegend(svg, layers);
-  const legendStyles = legend
+  const rows = legendRows(layers, svg);
+  const legendStyles = rows.length
     ? ".ft-legend-bg{fill:#fff;fill-opacity:.94;stroke:#d1d5db;stroke-width:1}.ft-legend-text{fill:#1f2937;font:11px system-ui,-apple-system,\"Segoe UI\",sans-serif}"
     : "";
-  const block = `${styles || legendStyles ? `<style>${styles}${legendStyles}</style>` : ""}<g id="ft-issue-markers">${groups.join("")}</g>${legend}`;
+  const block = `${styles || legendStyles ? `<style>${styles}${legendStyles}</style>` : ""}<g id="ft-issue-markers">${groups.join("")}</g>`;
   const closing = svg.lastIndexOf("</svg>");
-  if (closing === -1) return svg + block;
-  return svg.slice(0, closing) + block + svg.slice(closing);
+  const decorated =
+    closing === -1 ? svg + block : svg.slice(0, closing) + block + svg.slice(closing);
+  return rows.length
+    ? appendLegendBand(decorated, rows, svgViewBox(svg))
+    : decorated;
 }
 
 async function loadBaseSvg(env: Env, id: MapId): Promise<string | null> {
