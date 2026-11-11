@@ -380,6 +380,7 @@ function appendLegend(
   rows: { icon: string; label: string }[],
   view: ViewBox,
   placement: LegendPlacement = "auto",
+  boxes: ViewBox[] = occupiedBoxes(svg),
 ): string {
   const items = rows
     .map((row, index) => {
@@ -393,7 +394,6 @@ function appendLegend(
     })
     .join("");
 
-  const boxes = occupiedBoxes(svg);
   const width = LEGEND_WIDTH;
   const height = LEGEND_HEIGHT;
   const gap = LEGEND_GAP;
@@ -465,7 +465,7 @@ function appendLegend(
 /** Hand-tuned corner per map: the plans have room there, beside the labels. */
 const LEGEND_PLACEMENT: Record<MapId, LegendPlacement> = {
   shi: "top-left",
-  fu: "bottom-left",
+  fu: "top-left",
   mi: "auto",
 };
 
@@ -605,7 +605,13 @@ export function decorateMapSvg(
   const decorated =
     closing === -1 ? svg + block : svg.slice(0, closing) + block + svg.slice(closing);
   return rows.length
-    ? appendLegend(decorated, rows, svgViewBox(svg), placement)
+    ? appendLegend(
+        decorated,
+        rows,
+        svgViewBox(svg),
+        placement,
+        occupiedBoxes(svg),
+      )
     : decorated;
 }
 
