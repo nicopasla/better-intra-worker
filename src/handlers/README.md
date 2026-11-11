@@ -56,7 +56,7 @@ GET https://api.betterintra.com/api/v1/public/clusters/belgium
       },
       "seats": [
         { "host": "shi-r1-p1", "severity": "blocking", "issues": ["Power"], "usbc": true },
-        { "host": "shi-r1-p2", "severity": "minor", "issues": ["Keyboard"] }
+        { "host": "shi-r1-p2", "severity": "minor", "issues": ["Keyboard"], "noComputer": true }
       ]
     }
   ]
@@ -69,12 +69,14 @@ GET https://api.betterintra.com/api/v1/public/clusters/belgium
   seat ids, sorted by host.
 - `severity` is `blocking`, `minor`, or `null` for USB-C-only seats.
 - `issues` are the broken defect components (Power, Network, Keyboard, Mouse
-  scroll, Audio). They are reported even on crossed seats, where the SVG
+  scroll). They are reported even on crossed seats, where the SVG
   deliberately does not draw the warning triangle.
+- `noComputer: true` when someone reported the seat has no computer at all; the
+  key is omitted otherwise.
 - `usbc: true` only when the port was reported present; the key is omitted
   otherwise.
-- `counts.broken` = crossed seats, `counts.issues` = seats with any issue
-  (broken is a subset), `counts.usbc` = seats with the port.
+- `counts.broken` = crossed seats (no computer), `counts.issues` = seats with
+  any defect, `counts.usbc` = seats with the port.
 - `views` and `components` make the document self-describing.
 
 ## Per-view feeds
@@ -95,13 +97,13 @@ A flat list of the seats matching one view, across all three maps:
   "count": 2,
   "seats": [
     { "map": "shi", "host": "shi-r1-p1", "severity": "blocking", "issues": ["Power"], "usbc": true },
-    { "map": "fu", "host": "fu-c2-p3", "severity": "blocking", "issues": ["Network"] }
+    { "map": "fu", "host": "fu-c2-p3", "severity": null, "issues": [], "noComputer": true }
   ]
 }
 ```
 
 - `issues` → seats with a blocking or minor issue.
-- `broken` → crossed seats (Power/Network broken).
+- `broken` → crossed seats (no computer reported).
 - `usbc` → seats reported to have a USB-C port; they may have `"severity": null`
   and `"issues": []`.
 - Each seat carries its `map`, and the list is sorted by map (`shi`, `fu`, `mi`)
@@ -118,8 +120,8 @@ GET https://api.betterintra.com/api/v1/public/clusters/belgium/{shi|fu|mi}.svg?v
 
 | `view` | Layers |
 | --- | --- |
-| `default` (implicit when omitted) | Crosses, triangles and USB-C glyphs |
-| `issues` | Crosses and triangles |
+| `default` (implicit when omitted) | Crosses, red tints, triangles and USB-C glyphs |
+| `issues` | Crosses, red tints and triangles |
 | `broken` | Crosses only |
 | `usbc` | USB-C glyphs only |
 | `plain` | Base map, no overlays |
@@ -133,8 +135,9 @@ GET https://api.betterintra.com/api/v1/public/clusters/belgium/{shi|fu|mi}.svg?v
 
 | Marker | Meaning |
 | --- | --- |
-| Red cross | Power or network is reported broken |
-| Amber triangle | Keyboard or mouse scroll is reported broken. Never drawn on an already-crossed seat. |
+| Red cross | The seat has no computer at all |
+| Red tint | Power or network is reported broken |
+| Amber triangle | Keyboard or mouse scroll is reported broken. Never drawn on a crossed or red-tinted seat. |
 | Blue USB-C glyph | Someone reported a USB-C port on that seat. It means the port exists, not that the seat is free; occupancy is not used. |
 
 Each marked seat also carries a `<title>` with its hostname and reasons, e.g.

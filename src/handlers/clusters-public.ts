@@ -78,14 +78,16 @@ interface ViewLayers {
   crosses: boolean;
   warnings: boolean;
   usbc: boolean;
+  /** Red tint on seats whose computer is broken (Power/Network). */
+  tint: boolean;
 }
 
 const VIEW_LAYERS: Record<MapView, ViewLayers> = {
-  default: { crosses: true, warnings: true, usbc: true },
-  issues: { crosses: true, warnings: true, usbc: false },
-  broken: { crosses: true, warnings: false, usbc: false },
-  usbc: { crosses: false, warnings: false, usbc: true },
-  plain: { crosses: false, warnings: false, usbc: false },
+  default: { crosses: true, warnings: true, usbc: true, tint: true },
+  issues: { crosses: true, warnings: true, usbc: false, tint: true },
+  broken: { crosses: true, warnings: false, usbc: false, tint: false },
+  usbc: { crosses: false, warnings: false, usbc: true, tint: false },
+  plain: { crosses: false, warnings: false, usbc: false, tint: false },
 };
 
 /** Parses `?view=`; omitted means `default`, anything unknown returns null. */
@@ -108,6 +110,8 @@ interface SeatIssueRow {
 export interface SeatMarkers {
   blocking: string[];
   minor: string[];
+  /** A report said this seat has no computer at all. */
+  noComputer: boolean;
   /** A report said this seat has a USB-C port. */
   usbc: boolean;
 }
@@ -184,8 +188,12 @@ export function markersByHost(rows: SeatIssueRow[]): Map<string, SeatMarkers> {
     const usbc = components.some(
       (row) => row.component === "usbc" && row.status === "works",
     );
-    if (blocking.length || minor.length || usbc) {
-      markers.set(host, { blocking, minor, usbc });
+    // A seat with no computer is crossed out: it cannot be used at all.
+    const noComputer = components.some(
+      (row) => row.component === "computer" && crossing(row),
+    );
+    if (blocking.length || minor.length || usbc || noComputer) {
+      markers.set(host, { blocking, minor, noComputer, usbc });
     }
   }
   return markers;
@@ -200,12 +208,15 @@ export function decorateMapSvg(
   if (markers.size === 0) return svg;
 
   const layers = VIEW_LAYERS[view];
-  if (!layers.crosses && !layers.warnings && !layers.usbc) return svg;
+  if (!layers.crosses && !layers.warnings && !layers.usbc && !layers.tint) {
+    return svg;
+  }
 
   const groups: string[] = [];
   let usedCross = false;
   let usedWarning = false;
   let usedUsbc = false;
+  let usedTint = false;
   const imageTag = /<image\b[^>]*>/gi;
   for (const match of svg.matchAll(imageTag)) {
     const attributes = new Map<string, string>();
@@ -220,12 +231,15 @@ export function decorateMapSvg(
     const issues = markers.get(host);
     if (!issues) continue;
 
-    const crossed = issues.blocking.length > 0;
+    const crossed = issues.noComputer;
     const drawCross = layers.crosses && crossed;
+    const drawTint = layers.tint && issues.blocking.length > 0 && !crossed;
+    // Crossed (no computer) and red-tinted (broken) seats only show that: the
+    // triangle is reserved for seats with non-blocking defects.
     const drawWarning =
-      layers.warnings && !crossed && issues.minor.length > 0;
+      layers.warnings && !crossed && issues.blocking.length === 0 && issues.minor.length > 0;
     const drawUsbc = layers.usbc && issues.usbc;
-    if (!drawCross && !drawWarning && !drawUsbc) continue;
+    if (!drawCross && !drawTint && !drawWarning && !drawUsbc) continue;
 
     const x = Number(attributes.get("x"));
     const y = Number(attributes.get("y"));
@@ -237,12 +251,22 @@ export function decorateMapSvg(
     const transformAttr = transform ? ` transform="${transform}"` : "";
     const minSide = Math.min(w, h);
     const titleParts: string[] = [];
-    if (layers.crosses) titleParts.push(...issues.blocking);
-    if (layers.warnings && !crossed) titleParts.push(...issues.minor);
+    if (drawCross) titleParts.push("No computer");
+    if (drawTint) titleParts.push(...issues.blocking);
+    if (drawWarning) titleParts.push(...issues.minor);
     if (drawUsbc) titleParts.push("USB-C");
     const parts: string[] = [
       `<title>${escapeXml(host)} — ${escapeXml(titleParts.join(", "))}</title>`,
     ];
+
+    if (drawTint) {
+      usedTint = true;
+      // Quiet red wash over the seat, like the app's broken-computer tint.
+      const rx = attributes.get("rx");
+      parts.push(
+        `<rect class="ft-issue-broken" x="${round2(x)}" y="${round2(y)}" width="${round2(w)}" height="${round2(h)}"${rx ? ` rx="${escapeXml(rx)}"` : ""}/>`,
+      );
+    }
 
     if (drawCross) {
       usedCross = true;
@@ -293,6 +317,9 @@ export function decorateMapSvg(
   const styles =
     (usedCross
       ? ".ft-issue-cross{fill:none;stroke:#d9453f;stroke-linecap:round}"
+      : "") +
+    (usedTint
+      ? ".ft-issue-broken{fill:#d9453f;fill-opacity:.22;stroke:#d9453f;stroke-width:1.5;pointer-events:none}"
       : "") +
     (usedWarning ? ".ft-issue-warning{color:#df9539}" : "") +
     (usedUsbc ? ".ft-issue-usbc{color:#38bdf8}" : "");
@@ -427,6 +454,7 @@ function seatSummary(host: string, marker: SeatMarkers) {
         ? ("minor" as const)
         : null,
     issues: [...marker.blocking, ...marker.minor],
+    ...(marker.noComputer ? { noComputer: true } : {}),
     ...(marker.usbc ? { usbc: true } : {}),
   };
 }
@@ -439,7 +467,8 @@ function matchesDataView(marker: SeatMarkers, view: DataView): boolean {
   if (view === "issues") {
     return marker.blocking.length > 0 || marker.minor.length > 0;
   }
-  if (view === "broken") return marker.blocking.length > 0;
+  // "broken" is the crossed-out feed: seats with no computer.
+  if (view === "broken") return marker.noComputer;
   return marker.usbc;
 }
 
@@ -587,7 +616,8 @@ export async function handleClustersIndex(
     let usbc = 0;
     const reported = entries.map(([host, marker]) => {
       const hasIssues = marker.blocking.length > 0 || marker.minor.length > 0;
-      if (marker.blocking.length > 0) broken++;
+      // Crossed seats are the ones without a computer.
+      if (marker.noComputer) broken++;
       if (hasIssues) issues++;
       if (marker.usbc) usbc++;
       return seatSummary(host, marker);

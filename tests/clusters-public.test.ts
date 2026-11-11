@@ -91,9 +91,20 @@ function indexRequest(
 }
 
 function seat(
-  partial: Partial<{ blocking: string[]; minor: string[]; usbc: boolean }> = {},
+  partial: Partial<{
+    blocking: string[];
+    minor: string[];
+    noComputer: boolean;
+    usbc: boolean;
+  }> = {},
 ) {
-  return { blocking: [], minor: [], usbc: false, ...partial };
+  return {
+    blocking: [],
+    minor: [],
+    noComputer: false,
+    usbc: false,
+    ...partial,
+  };
 }
 
 afterEach(() => {
@@ -189,11 +200,11 @@ describe("markersByHost", () => {
 });
 
 describe("decorateMapSvg", () => {
-  it("draws both overlays by default", () => {
+  it("crosses seats with no computer and still draws the other overlays", () => {
     const svg = decorateMapSvg(
       MAP_SVGS.shi!,
       new Map([
-        ["shi-r1-p1", seat({ blocking: ["Power"], usbc: true })],
+        ["shi-r1-p1", seat({ noComputer: true, usbc: true })],
         ["shi-r1-p2", seat({ minor: ["Keyboard"] })],
       ]),
     );
@@ -203,29 +214,44 @@ describe("decorateMapSvg", () => {
     );
     expect(svg).toContain('class="ft-issue-warning"');
     expect(svg).toContain('class="ft-issue-usbc"');
-    expect(svg).toContain("<title>shi-r1-p1 — Power, USB-C</title>");
+    expect(svg).toContain("<title>shi-r1-p1 — No computer, USB-C</title>");
   });
 
-  it("never draws the triangle on a crossed seat", () => {
+  it("tints, but does not cross, a seat whose computer is broken", () => {
     const svg = decorateMapSvg(
+      MAP_SVGS.shi!,
+      new Map([["shi-r1-p1", seat({ blocking: ["Power"] })]]),
+    );
+
+    expect(svg).toContain('class="ft-issue-broken"');
+    expect(svg).not.toContain("ft-issue-cross");
+    expect(svg).toContain("<title>shi-r1-p1 — Power</title>");
+  });
+
+  it("never draws the triangle on a crossed or broken seat", () => {
+    const crossed = decorateMapSvg(
       MAP_SVGS.shi!,
       new Map([
         [
           "shi-r1-p1",
-          seat({ blocking: ["Power"], minor: ["Keyboard"], usbc: false }),
+          seat({ noComputer: true, minor: ["Keyboard"], usbc: false }),
         ],
       ]),
     );
+    const broken = decorateMapSvg(
+      MAP_SVGS.shi!,
+      new Map([["shi-r1-p1", seat({ blocking: ["Power"], minor: ["Keyboard"] })]]),
+    );
 
-    expect(svg).toContain('class="ft-issue-cross"');
-    expect(svg).not.toContain("ft-issue-warning");
-    expect(svg).toContain("<title>shi-r1-p1 — Power</title>");
+    expect(crossed).toContain('class="ft-issue-cross"');
+    expect(crossed).not.toContain("ft-issue-warning");
+    expect(broken).not.toContain("ft-issue-warning");
   });
 
   it("issues omits USB-C", () => {
     const svg = decorateMapSvg(
       MAP_SVGS.shi!,
-      new Map([["shi-r1-p1", seat({ blocking: ["Power"], usbc: true })]]),
+      new Map([["shi-r1-p1", seat({ noComputer: true, usbc: true })]]),
       "issues",
     );
 
@@ -237,7 +263,7 @@ describe("decorateMapSvg", () => {
     const svg = decorateMapSvg(
       MAP_SVGS.shi!,
       new Map([
-        ["shi-r1-p1", seat({ blocking: ["Power"] })],
+        ["shi-r1-p1", seat({ noComputer: true })],
         ["shi-r1-p2", seat({ minor: ["Keyboard"] })],
       ]),
       "broken",
@@ -246,6 +272,7 @@ describe("decorateMapSvg", () => {
     expect(svg).toContain('data-seat="shi-r1-p1"');
     expect(svg).not.toContain('data-seat="shi-r1-p2"');
     expect(svg).not.toContain("ft-issue-warning");
+    expect(svg).not.toContain("ft-issue-broken");
   });
 
   it("usbc draws only the port glyph", () => {
@@ -254,7 +281,12 @@ describe("decorateMapSvg", () => {
       new Map([
         [
           "shi-r1-p1",
-          seat({ blocking: ["Power"], minor: ["Keyboard"], usbc: true }),
+          seat({
+            noComputer: true,
+            blocking: ["Power"],
+            minor: ["Keyboard"],
+            usbc: true,
+          }),
         ],
       ]),
       "usbc",
@@ -263,6 +295,7 @@ describe("decorateMapSvg", () => {
     expect(svg).toContain('class="ft-issue-usbc"');
     expect(svg).not.toContain("ft-issue-cross");
     expect(svg).not.toContain("ft-issue-warning");
+    expect(svg).not.toContain("ft-issue-broken");
     expect(svg).toContain("<title>shi-r1-p1 — USB-C</title>");
   });
 
@@ -284,7 +317,9 @@ describe("handleClusterMapView", () => {
   it("serves the default view with cache headers", async () => {
     const res = await handleClusterMapView(
       viewRequest(),
-      makeEnv([{ host: "shi-r1-p1", component: "boot", status: "broken" }]),
+      makeEnv([
+        { host: "shi-r1-p1", component: "computer", status: "broken" },
+      ]),
       "belgium",
       "shi",
     );
@@ -480,6 +515,14 @@ describe("handleClustersIndex", () => {  const list: Row[] = [
       updatedAt: 1_700_000_000,
     },
     {
+      // Crossed seat: no computer at all.
+      host: "shi-r1-p2",
+      component: "computer",
+      status: "broken",
+      reporter: "carol",
+      updatedAt: 1_700_000_000,
+    },
+    {
       host: "fu-r1-p1",
       component: "usbc",
       status: "works",
@@ -549,6 +592,7 @@ describe("handleClustersIndex", () => {  const list: Row[] = [
         host: "shi-r1-p2",
         severity: "minor",
         issues: ["Keyboard"],
+        noComputer: true,
       },
     ]);
     expect(shi.views.default).toBe(
@@ -715,10 +759,25 @@ describe("handleClusterView", () => {
     ]);
   });
 
-  it("broken returns only crossed seats", async () => {
+  it("broken returns only seats with no computer", async () => {
     const res = await handleClusterView(
       viewRequest("broken"),
-      makeEnv(list),
+      makeEnv([
+        {
+          host: "shi-r1-p1",
+          component: "boot",
+          status: "broken",
+          reporter: "alice",
+          updatedAt: 1_700_000_100,
+        },
+        {
+          host: "shi-r1-p2",
+          component: "computer",
+          status: "broken",
+          reporter: "carol",
+          updatedAt: 1_700_000_100,
+        },
+      ]),
       "belgium",
       "broken",
     );
@@ -727,10 +786,10 @@ describe("handleClusterView", () => {
     expect(body.seats).toEqual([
       {
         map: "shi",
-        host: "shi-r1-p1",
-        severity: "blocking",
-        issues: ["Power"],
-        usbc: true,
+        host: "shi-r1-p2",
+        severity: null,
+        issues: [],
+        noComputer: true,
       },
     ]);
   });
