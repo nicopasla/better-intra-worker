@@ -17,11 +17,11 @@ import {
 export const SEAT_REPORT_CAMPUS = "12";
 
 export const SEAT_COMPONENTS = [
+  "computer",
   "boot",
   "network",
   "keyboard",
   "mouse_scroll",
-  "audio",
   "usbc",
 ] as const;
 

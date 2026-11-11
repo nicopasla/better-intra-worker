@@ -35,11 +35,11 @@ GET https://api.betterintra.com/api/v1/public/clusters/belgium
   "updatedAt": 1762700000000,
   "views": ["default", "issues", "broken", "usbc", "plain"],
   "components": [
+    { "key": "computer", "label": "Computer", "kind": "presence" },
     { "key": "boot", "label": "Power", "severity": "blocking", "kind": "defect" },
     { "key": "network", "label": "Network", "severity": "blocking", "kind": "defect" },
     { "key": "keyboard", "label": "Keyboard", "severity": "minor", "kind": "defect" },
     { "key": "mouse_scroll", "label": "Mouse scroll", "severity": "minor", "kind": "defect" },
-    { "key": "audio", "label": "Audio", "severity": "minor", "kind": "defect" },
     { "key": "usbc", "label": "USB-C", "kind": "presence" }
   ],
   "maps": [
@@ -134,7 +134,7 @@ GET https://api.betterintra.com/api/v1/public/clusters/belgium/{shi|fu|mi}.svg?v
 | Marker | Meaning |
 | --- | --- |
 | Red cross | Power or network is reported broken |
-| Amber triangle | Keyboard, mouse scroll or audio is reported broken. Never drawn on an already-crossed seat. |
+| Amber triangle | Keyboard or mouse scroll is reported broken. Never drawn on an already-crossed seat. |
 | Blue USB-C glyph | Someone reported a USB-C port on that seat. It means the port exists, not that the seat is free; occupancy is not used. |
 
 Each marked seat also carries a `<title>` with its hostname and reasons, e.g.
@@ -217,8 +217,8 @@ All errors are JSON:
 
 - Reports come from `seat_components` (Belgium, campus `12`).
 - Severity split matches the app: `boot`/`network` are blocking,
-  `keyboard`/`mouse_scroll`/`audio` are minor, `usbc` is a presence answer and
-  never marks a seat broken.
+  `keyboard`/`mouse_scroll` are minor, `computer` and `usbc` are presence
+  answers and never mark a seat broken.
 - Legacy anonymous Power/Network rows are ignored when a signed-in user
   confirmed the USB-C port on that seat.
 - Maps are read from R2 (`campus-maps/belgium/<id>.svg`), falling back to the

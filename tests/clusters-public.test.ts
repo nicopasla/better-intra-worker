@@ -125,12 +125,13 @@ describe("markersByHost", () => {
       rows([
         { host: "shi-r1-p1", component: "boot", status: "broken" },
         { host: "shi-r1-p1", component: "keyboard", status: "broken" },
+        // Retired component: rows can linger in D1 and must be ignored.
         { host: "shi-r1-p1", component: "audio", status: "broken" },
       ]),
     );
 
     expect(markers.get("shi-r1-p1")).toEqual(
-      seat({ blocking: ["Power"], minor: ["Keyboard", "Audio"] }),
+      seat({ blocking: ["Power"], minor: ["Keyboard"] }),
     );
   });
 

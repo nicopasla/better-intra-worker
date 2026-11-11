@@ -71,11 +71,11 @@ describe("isValidSeatHost", () => {
 describe("parseSeatReports", () => {
   it("accepts the full catalog", () => {
     const reports = parseSeatReports([
-      { component: "audio", status: "works" },
+      { component: "computer", status: "works" },
       { component: "keyboard", status: "broken" },
     ]);
     expect(reports).toEqual([
-      { component: "audio", status: "works" },
+      { component: "computer", status: "works" },
       { component: "keyboard", status: "broken" },
     ]);
   });
@@ -96,9 +96,9 @@ describe("parseSeatReports", () => {
       parseSeatReports([{ component: "coffee", status: "broken" }]),
     ).toBeNull();
     expect(
-      parseSeatReports([{ component: "audio", status: "maybe" }]),
+      parseSeatReports([{ component: "computer", status: "maybe" }]),
     ).toBeNull();
-    expect(parseSeatReports([{ component: "audio" }])).toBeNull();
+    expect(parseSeatReports([{ component: "computer" }])).toBeNull();
   });
 });
 
@@ -108,7 +108,7 @@ describe("groupSeatRows", () => {
       {
         host: "shi-r1-p1",
         cluster: "shi",
-        component: "audio",
+        component: "computer",
         status: "works",
         updatedAt: 10,
         confirmations: 2,
@@ -133,7 +133,7 @@ describe("groupSeatRows", () => {
     expect(seats).toHaveLength(1);
     expect(seats[0].host).toBe("shi-r1-p1");
     expect(seats[0].components.map((c) => c.component)).toEqual([
-      "audio",
+      "computer",
       "keyboard",
     ]);
   });
@@ -187,7 +187,7 @@ describe("handleSeatReports", () => {
         body: JSON.stringify({
           campus: "21",
           host: "shi-r1-p1",
-          reports: [{ component: "audio", status: "broken" }],
+          reports: [{ component: "computer", status: "broken" }],
         }),
       }),
       env,
@@ -227,7 +227,7 @@ describe("handleSeatReports", () => {
         body: JSON.stringify({
           host: "shi-r1-p1",
           cluster: "shi",
-          reports: [{ component: "audio", status: "works" }],
+          reports: [{ component: "computer", status: "works" }],
         }),
       }),
       env,
@@ -254,7 +254,7 @@ describe("handleSeatReports", () => {
         body: JSON.stringify({
           host: "shi-r1-p1",
           cluster: "shi",
-          reports: [{ component: "audio", status: "works" }],
+          reports: [{ component: "computer", status: "works" }],
         }),
       }),
       env,
@@ -274,7 +274,7 @@ describe("handleSeatReports", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           host: "shi-r1-p1",
-          reports: [{ component: "audio", status: "broken" }],
+          reports: [{ component: "computer", status: "broken" }],
         }),
       }),
       env,
@@ -299,7 +299,7 @@ describe("handleSeatHistory", () => {
           results: sql.includes("seat_component_events")
             ? [
                 {
-                  component: "audio",
+                  component: "computer",
                   status: "works",
                   created_at: 100,
                   reporter: "alice",
@@ -333,7 +333,7 @@ describe("handleSeatHistory", () => {
     };
     expect(body.events).toEqual([
       {
-        component: "audio",
+        component: "computer",
         status: "works",
         createdAt: 100_000,
         reporter: "alice",

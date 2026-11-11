@@ -28,6 +28,7 @@ const SVG_SOURCES = [
 
 /** Self-describing component catalog returned by the discovery endpoint. */
 const COMPONENT_CATALOG = [
+  { key: "computer", label: "Computer", kind: "presence" },
   { key: "boot", label: "Power", severity: "blocking", kind: "defect" },
   { key: "network", label: "Network", severity: "blocking", kind: "defect" },
   { key: "keyboard", label: "Keyboard", severity: "minor", kind: "defect" },
@@ -37,29 +38,28 @@ const COMPONENT_CATALOG = [
     severity: "minor",
     kind: "defect",
   },
-  { key: "audio", label: "Audio", severity: "minor", kind: "defect" },
   { key: "usbc", label: "USB-C", kind: "presence" },
 ] as const;
 
 /** Matches the extension's catalog (`src/features/clusters/map-dialog/components.ts`). */
 const SEVERITY: Record<string, "blocking" | "minor" | "presence"> = {
+  computer: "presence",
   boot: "blocking",
   network: "blocking",
   keyboard: "minor",
   mouse_scroll: "minor",
-  audio: "minor",
   usbc: "presence",
 };
 
 const LABELS: Record<string, string> = {
+  computer: "Computer",
   boot: "Power",
   network: "Network",
   keyboard: "Keyboard",
   mouse_scroll: "Mouse scroll",
-  audio: "Audio",
 };
 
-const LABEL_ORDER = ["boot", "network", "keyboard", "mouse_scroll", "audio"];
+const LABEL_ORDER = ["boot", "network", "keyboard", "mouse_scroll"];
 
 export type MapView = "default" | "issues" | "broken" | "usbc" | "plain";
 export const MAP_VIEWS: readonly MapView[] = [
