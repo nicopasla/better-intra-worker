@@ -228,14 +228,12 @@ function svgViewBox(svg: string): ViewBox {
 }
 
 /**
- * Bounding box of what the map actually draws (rects and seat placeholders).
- * Paths are ignored: they are walls/decoration and stay inside the rooms.
+ * Boxes of what the map draws: rects, seat placeholders and text labels.
+ * Labels matter because zone names sit outside the rooms, and the legend must
+ * not cover them. Paths are ignored (walls/decoration stay inside the rooms).
  */
-function contentBox(svg: string): ViewBox | null {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
+function occupiedBoxes(svg: string): ViewBox[] {
+  const boxes: ViewBox[] = [];
   for (const match of svg.matchAll(/<(?:rect|image)\b[^>]*>/gi)) {
     const attributes = new Map<string, string>();
     for (const attr of match[0].matchAll(
@@ -255,13 +253,28 @@ function contentBox(svg: string): ViewBox | null {
       x += Number(translate[1]);
       y += Number(translate[2]);
     }
-    minX = Math.min(minX, x);
-    minY = Math.min(minY, y);
-    maxX = Math.max(maxX, x + w);
-    maxY = Math.max(maxY, y + h);
+    boxes.push({ x, y, w, h });
   }
-  if (![minX, minY, maxX, maxY].every(Number.isFinite)) return null;
-  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  for (const match of svg.matchAll(/<text\b([^>]*)>([\s\S]*?)<\/text>/gi)) {
+    const attributes = new Map<string, string>();
+    for (const attr of (match[1] ?? "").matchAll(
+      /([a-zA-Z_:][-a-zA-Z0-9_:.]*)="([^"]*)"/g,
+    )) {
+      attributes.set(attr[1].toLowerCase(), attr[2]);
+    }
+    const x = Number(attributes.get("x"));
+    const y = Number(attributes.get("y"));
+    if (![x, y].every(Number.isFinite)) continue;
+    const size = Number(attributes.get("font-size")) || 14;
+    const label = (match[2] ?? "").replace(/<[^>]*>/g, "").trim();
+    const anchor = attributes.get("text-anchor") ?? "start";
+    const width = Math.max(size, label.length * size * 0.56);
+    const left =
+      anchor === "middle" ? x - width / 2 : anchor === "end" ? x - width : x;
+    // Text y is the baseline; approximate the box around the glyphs.
+    boxes.push({ x: left, y: y - size, w: width, h: size * 1.25 });
+  }
+  return boxes;
 }
 
 /** Legend rows for the layers a view actually draws. */
@@ -305,15 +318,68 @@ function legendRows(
   return rows;
 }
 
+/** Leftmost/topmost empty rectangle inside the canvas, if any. */
+function findFreeSpot(
+  view: ViewBox,
+  boxes: ViewBox[],
+  width: number,
+  height: number,
+): { x: number; y: number } | null {
+  const margin = 8;
+  const step = 12;
+  const pad = 4;
+  const overlaps = (x: number, y: number): boolean =>
+    boxes.some(
+      (box) =>
+        !(
+          x + width + pad < box.x ||
+          x > box.x + box.w + pad ||
+          y + height + pad < box.y ||
+          y > box.y + box.h + pad
+        ),
+    );
+  let best: { x: number; y: number } | null = null;
+  for (let y = view.y + margin; y + height <= view.y + view.h; y += step) {
+    for (let x = view.x + margin; x + width <= view.x + view.w; x += step) {
+      if (overlaps(x, y)) continue;
+      if (!best || x < best.x || (x === best.x && y < best.y)) {
+        best = { x, y };
+      }
+    }
+  }
+  return best;
+}
+
+/** Leftmost occupied x in a horizontal band (view right when the band is free). */
+function bandFreeLeft(
+  view: ViewBox,
+  boxes: ViewBox[],
+  height: number,
+  y: number,
+): number {
+  let freeLeft = Infinity;
+  for (const box of boxes) {
+    if (box.y < y + height && box.y + box.h > y) {
+      freeLeft = Math.min(freeLeft, box.x);
+    }
+  }
+  // Empty band: it can host the legend at the left margin without growth.
+  return Number.isFinite(freeLeft)
+    ? freeLeft
+    : view.x + 8 + LEGEND_GAP + LEGEND_WIDTH;
+}
+
 /**
- * Places the legend next to the map content: to the right when there is room
- * inside the canvas, then below, and otherwise the canvas grows sideways so the
- * legend sits beside the floor plan instead of overlapping it.
+ * Places the legend in free space around the drawn content: an empty rectangle
+ * inside the canvas when one exists (leftmost first), otherwise on the left of
+ * the content in the band with the most free room — growing the canvas to the
+ * left if needed. It never covers seats or labels.
  */
 function appendLegend(
   svg: string,
   rows: { icon: string; label: string }[],
   view: ViewBox,
+  placement: LegendPlacement = "auto",
 ): string {
   const items = rows
     .map((row, index) => {
@@ -327,31 +393,40 @@ function appendLegend(
     })
     .join("");
 
-  const content = contentBox(svg) ?? view;
-  const right = content.x + content.w + LEGEND_GAP;
-  const below = content.y + content.h + LEGEND_GAP;
-  const viewRight = view.x + view.w;
-  const viewBottom = view.y + view.h;
+  const boxes = occupiedBoxes(svg);
+  const width = LEGEND_WIDTH;
+  const height = LEGEND_HEIGHT;
+  const gap = LEGEND_GAP;
 
-  let x: number;
-  let y: number;
-  let canvas = { ...view };
-  if (right + LEGEND_WIDTH <= viewRight) {
-    x = right;
-    y = content.y;
-  } else if (below + LEGEND_HEIGHT <= viewBottom) {
-    x = content.x;
-    y = below;
+  const canvas = { ...view };
+  const inside = findFreeSpot(view, boxes, width, height);
+  let chosen: { x: number; y: number };
+  if (inside && placement === "auto") {
+    chosen = inside;
   } else {
-    // No room inside the canvas: widen it so the legend stays alongside.
-    x = right;
-    y = content.y;
-    canvas.w = Math.max(view.w, x + LEGEND_WIDTH + LEGEND_GAP - view.x);
+    const topY = view.y;
+    const bottomY = view.y + view.h - height;
+    const topLeft = bandFreeLeft(view, boxes, height, topY);
+    const bottomLeft = bandFreeLeft(view, boxes, height, bottomY);
+    const useTop =
+      placement === "top-left" ||
+      (placement === "auto" && topLeft >= bottomLeft);
+    chosen = {
+      x: Math.min(
+        (useTop ? topLeft : bottomLeft) - gap - width,
+        view.x + view.w - width,
+      ),
+      y: useTop ? topY : bottomY,
+    };
+  }
+  if (chosen.x < view.x) {
+    canvas.x = chosen.x;
+    canvas.w = view.x + view.w - chosen.x;
   }
 
   const legend =
-    `<g id="ft-legend" transform="translate(${round2(x)} ${round2(y)})">` +
-    `<rect class="ft-legend-bg" width="${LEGEND_WIDTH}" height="${LEGEND_HEIGHT}" rx="8"/>${items}</g>`;
+    `<g id="ft-legend" transform="translate(${round2(chosen.x)} ${round2(chosen.y)})">` +
+    `<rect class="ft-legend-bg" width="${width}" height="${height}" rx="8"/>${items}</g>`;
 
   let out = svg.replace(
     /viewBox="[^"]*"/i,
@@ -387,11 +462,21 @@ function appendLegend(
     : out.slice(0, closing) + legend + out.slice(closing);
 }
 
+/** Hand-tuned corner per map: the plans have room there, beside the labels. */
+const LEGEND_PLACEMENT: Record<MapId, LegendPlacement> = {
+  shi: "top-left",
+  fu: "bottom-left",
+  mi: "auto",
+};
+
+export type LegendPlacement = "top-left" | "bottom-left" | "auto";
+
 /** Applies the requested view's overlays to the seat `<image id>` placeholders. */
 export function decorateMapSvg(
   svg: string,
   markers: Map<string, SeatMarkers>,
   view: MapView = "default",
+  placement: LegendPlacement = "auto",
 ): string {
   if (markers.size === 0) return svg;
 
@@ -519,7 +604,9 @@ export function decorateMapSvg(
   const closing = svg.lastIndexOf("</svg>");
   const decorated =
     closing === -1 ? svg + block : svg.slice(0, closing) + block + svg.slice(closing);
-  return rows.length ? appendLegend(decorated, rows, svgViewBox(svg)) : decorated;
+  return rows.length
+    ? appendLegend(decorated, rows, svgViewBox(svg), placement)
+    : decorated;
 }
 
 async function loadBaseSvg(env: Env, id: MapId): Promise<string | null> {
@@ -750,7 +837,7 @@ export async function handleClusterMapView(
     }
   }
 
-  const body = decorateMapSvg(svg, markers, view);
+  const body = decorateMapSvg(svg, markers, view, LEGEND_PLACEMENT[id]);
   const etag = await contentEtag(`${version}\n${body}`);
   const headers = new Headers({
     ...corsHeaders,

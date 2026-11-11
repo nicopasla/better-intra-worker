@@ -131,9 +131,10 @@ GET https://api.betterintra.com/api/v1/public/clusters/belgium/{shi|fu|mi}.svg?v
 - `plain` does not query D1 at all.
 - Query strings are part of the cache key, so every view caches independently.
 - Each rendered map carries a compact, fixed-size legend (`<g id="ft-legend">`)
-  with one row per marker the view draws. It is placed next to the floor plan:
-  right of the content when the canvas has room, otherwise below it, otherwise
-  the `viewBox` grows sideways so it never overlaps the seats.
+  with one row per marker the view draws. It goes in free space beside the plan:
+  inside the canvas when a clear rectangle exists, otherwise on the left of the
+  content (top-left or bottom-left, per map) with the `viewBox` growing on that
+  side — never over seats or labels.
 
 ### Legend
 

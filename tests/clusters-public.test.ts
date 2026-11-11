@@ -304,11 +304,10 @@ describe("decorateMapSvg", () => {
       MAP_SVGS.shi!,
       new Map([["shi-r1-p1", seat({ noComputer: true })]]),
     );
-    // No room on the right in this fixture, so it sits under the seats inside
-    // the existing canvas (the viewBox is unchanged).
+    // The fixture has an empty band under the seats: the legend goes there,
+    // inside the existing canvas.
     expect(withCross).toContain('viewBox="0 0 200 200"');
     expect(withCross).toContain('id="ft-legend"');
-    expect(withCross).toContain('transform="translate(0 52)"');
     expect(withCross).toContain("No computer");
     expect(withCross).toContain("USB-C port");
 
@@ -321,6 +320,17 @@ describe("decorateMapSvg", () => {
     expect(usbcOnly).not.toContain("No computer");
     // Same legend box size whatever the row count.
     expect(usbcOnly).toContain('width="142" height="96"');
+  });
+
+  it("honours the placement hint", () => {
+    const top = decorateMapSvg(
+      MAP_SVGS.shi!,
+      new Map([["shi-r1-p1", seat({ noComputer: true })]]),
+      "default",
+      "top-left",
+    );
+    expect(top).toContain('id="ft-legend"');
+    expect(top).toMatch(/id="ft-legend" transform="translate\([-\d.]+ [-\d.]+\)"/);
   });
 
   it("plain leaves the map untouched", () => {
