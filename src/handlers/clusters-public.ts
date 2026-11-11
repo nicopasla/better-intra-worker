@@ -204,6 +204,8 @@ interface ViewBox {
   y: number;
   w: number;
   h: number;
+  /** Seat id, when the box comes from a rect/image with an id. */
+  id?: string;
 }
 
 /** Compact legend geometry: same block on every map, whatever the view. */
@@ -253,7 +255,7 @@ function occupiedBoxes(svg: string): ViewBox[] {
       x += Number(translate[1]);
       y += Number(translate[2]);
     }
-    boxes.push({ x, y, w, h });
+    boxes.push({ x, y, w, h, id: attributes.get("id") ?? undefined });
   }
   for (const match of svg.matchAll(/<text\b([^>]*)>([\s\S]*?)<\/text>/gi)) {
     const attributes = new Map<string, string>();
@@ -381,6 +383,7 @@ function appendLegend(
   view: ViewBox,
   placement: LegendPlacement = "auto",
   boxes: ViewBox[] = occupiedBoxes(svg),
+  anchorSeat?: string,
 ): string {
   const items = rows
     .map((row, index) => {
@@ -399,10 +402,18 @@ function appendLegend(
   const gap = LEGEND_GAP;
 
   const canvas = { ...view };
+  const seat = anchorSeat
+    ? boxes.find((box) => box.id === anchorSeat)
+    : undefined;
   const inside = findFreeSpot(view, boxes, width, height);
   let chosen: { x: number; y: number };
-  if (inside && placement === "auto") {
+  if (seat) {
+    // Explicit anchor: right under that seat, per the plan's free area.
+    chosen = { x: seat.x, y: seat.y + seat.h + gap };
+  } else if (inside && placement === "auto") {
     chosen = inside;
+  } else if (placement === "right") {
+    chosen = { x: view.x + view.w + gap, y: view.y };
   } else {
     const topY = view.y;
     const bottomY = view.y + view.h - height;
@@ -422,6 +433,14 @@ function appendLegend(
   if (chosen.x < view.x) {
     canvas.x = chosen.x;
     canvas.w = view.x + view.w - chosen.x;
+  } else if (chosen.x + width > view.x + view.w) {
+    canvas.w = chosen.x + width + gap - view.x;
+  }
+  if (chosen.y < view.y) {
+    canvas.y = chosen.y;
+    canvas.h = view.y + view.h - chosen.y;
+  } else if (chosen.y + height > view.y + view.h) {
+    canvas.h = chosen.y + height + gap - view.y;
   }
 
   const legend =
@@ -462,14 +481,21 @@ function appendLegend(
     : out.slice(0, closing) + legend + out.slice(closing);
 }
 
-/** Hand-tuned corner per map: the plans have room there, beside the labels. */
-const LEGEND_PLACEMENT: Record<MapId, LegendPlacement> = {
-  shi: "top-left",
-  fu: "top-left",
-  mi: "auto",
+/** Hand-tuned spot per map: the plans have room there, beside the labels. */
+const LEGEND_PLACEMENT: Record<
+  MapId,
+  { placement: LegendPlacement; below?: string }
+> = {
+  shi: { placement: "right" },
+  fu: { placement: "auto", below: "fu-c1-p1" },
+  mi: { placement: "auto" },
 };
 
-export type LegendPlacement = "top-left" | "bottom-left" | "auto";
+export type LegendPlacement =
+  | "top-left"
+  | "bottom-left"
+  | "right"
+  | "auto";
 
 /** Applies the requested view's overlays to the seat `<image id>` placeholders. */
 export function decorateMapSvg(
@@ -477,6 +503,7 @@ export function decorateMapSvg(
   markers: Map<string, SeatMarkers>,
   view: MapView = "default",
   placement: LegendPlacement = "auto",
+  anchorSeat?: string,
 ): string {
   if (markers.size === 0) return svg;
 
@@ -611,6 +638,7 @@ export function decorateMapSvg(
         svgViewBox(svg),
         placement,
         occupiedBoxes(svg),
+        anchorSeat,
       )
     : decorated;
 }
@@ -843,7 +871,14 @@ export async function handleClusterMapView(
     }
   }
 
-  const body = decorateMapSvg(svg, markers, view, LEGEND_PLACEMENT[id]);
+  const legend = LEGEND_PLACEMENT[id];
+  const body = decorateMapSvg(
+    svg,
+    markers,
+    view,
+    legend.placement,
+    legend.below,
+  );
   const etag = await contentEtag(`${version}\n${body}`);
   const headers = new Headers({
     ...corsHeaders,
