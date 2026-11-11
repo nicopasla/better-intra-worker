@@ -482,7 +482,7 @@ function appendLegend(
 }
 
 /** Hand-tuned spot per map: the plans have room there, beside the labels. */
-const LEGEND_PLACEMENT: Record<
+export const LEGEND_PLACEMENT: Record<
   MapId,
   { placement: LegendPlacement; below?: string }
 > = {

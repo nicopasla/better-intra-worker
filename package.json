@@ -8,7 +8,8 @@
     "deploy": "wrangler deploy",
     "cf-typegen": "wrangler types",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "preview": "node scripts/preview-maps.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260905.1",
