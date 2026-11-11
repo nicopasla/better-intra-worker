@@ -299,17 +299,16 @@ describe("decorateMapSvg", () => {
     expect(svg).toContain("<title>shi-r1-p1 — USB-C</title>");
   });
 
-  it("includes a fixed-size legend next to the map", () => {
+  it("draws the legend at the given coordinates with a label-sized box", () => {
     const withCross = decorateMapSvg(
       MAP_SVGS.shi!,
       new Map([["shi-r1-p1", seat({ noComputer: true })]]),
     );
-    // The fixture has an empty band under the seats: the legend goes there,
-    // inside the existing canvas.
-    expect(withCross).toContain('viewBox="0 0 200 200"');
+    // Default spot: just right of the canvas, which grows to fit it.
     expect(withCross).toContain('id="ft-legend"');
     expect(withCross).toContain("No computer");
     expect(withCross).toContain("USB-C port");
+    expect(withCross).toMatch(/viewBox="0 0 \d+ 200"/);
 
     const usbcOnly = decorateMapSvg(
       MAP_SVGS.shi!,
@@ -318,19 +317,21 @@ describe("decorateMapSvg", () => {
     );
     expect(usbcOnly).toContain("USB-C port");
     expect(usbcOnly).not.toContain("No computer");
-    // Same legend box size whatever the row count.
-    expect(usbcOnly).toContain('width="142" height="96"');
+    // One row: the box shrinks with the labels, nothing extra.
+    expect(usbcOnly).toMatch(
+      /class="ft-legend-bg" width="\d+" height="32"/,
+    );
   });
 
-  it("honours the placement hint", () => {
-    const top = decorateMapSvg(
+  it("honours explicit coordinates", () => {
+    const svg = decorateMapSvg(
       MAP_SVGS.shi!,
       new Map([["shi-r1-p1", seat({ noComputer: true })]]),
       "default",
-      "top-left",
+      { x: 10, y: 20 },
     );
-    expect(top).toContain('id="ft-legend"');
-    expect(top).toMatch(/id="ft-legend" transform="translate\([-\d.]+ [-\d.]+\)"/);
+    expect(svg).toContain('transform="translate(10 20)"');
+    expect(svg).toContain('viewBox="0 0 200 200"');
   });
 
   it("plain leaves the map untouched", () => {

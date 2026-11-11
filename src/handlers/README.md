@@ -130,12 +130,10 @@ GET https://api.betterintra.com/api/v1/public/clusters/belgium/{shi|fu|mi}.svg?v
 - Empty, combined or unknown values return `400 invalid_view`.
 - `plain` does not query D1 at all.
 - Query strings are part of the cache key, so every view caches independently.
-- Each rendered map carries a compact, fixed-size legend (`<g id="ft-legend">`)
-  with one row per marker the view draws. It is placed in free space beside the
-  plan: inside the canvas when a clear rectangle exists (mi), under a chosen seat
-  when the plan has room there (fu → `fu-c1-p1`), or outside the drawn area on
-  the right (shi) with the `viewBox` growing on that side. It never covers seats
-  or labels.
+- Each rendered map carries a legend (`<g id="ft-legend">`) with one row per
+  marker the view draws. Its position is **manual** per map in
+  `LEGEND_PLACEMENT` (SVG/viewBox units), its width follows the longest label and
+  its height the row count. The `viewBox` grows only enough to keep it visible.
 
 ### Legend
 

@@ -89,13 +89,11 @@ async function renderMaps(view) {
   const blocks = [];
   for (const id of MAP_IDS) {
     const svg = await readFile(join(mapsDir, `${id}.svg`), "utf8");
-    const spot = LEGEND_PLACEMENT?.[id] ?? { placement: "auto" };
     const decorated = decorateMapSvg(
       svg,
       sampleMarkers(svg),
       view,
-      spot.placement,
-      spot.below,
+      LEGEND_PLACEMENT?.[id],
     );
     blocks.push(`
       <section class="map">

@@ -208,75 +208,27 @@ interface ViewBox {
   id?: string;
 }
 
-/** Compact legend geometry: same block on every map, whatever the view. */
-const LEGEND_WIDTH = 142;
-const LEGEND_ROW_HEIGHT = 16;
+/** Legend geometry: the width follows the labels, the height the row count. */
 const LEGEND_PADDING = 8;
-const LEGEND_MAX_ROWS = 5;
-const LEGEND_HEIGHT =
-  LEGEND_PADDING * 2 + LEGEND_MAX_ROWS * LEGEND_ROW_HEIGHT;
+const LEGEND_ROW_HEIGHT = 16;
+const LEGEND_ICON = 14;
+const LEGEND_TEXT_GAP = 6;
+const LEGEND_FONT = 10;
 const LEGEND_GAP = 12;
 
 /** `viewBox` of the map, with a sane fallback when it is missing. */
 function svgViewBox(svg: string): ViewBox {
   const match = svg.match(/viewBox="([^"]+)"/i);
   if (match) {
-    const [x, y, w, h] = (match[1] ?? "").trim().split(/[\s,]+/).map(Number);
+    const [x, y, w, h] = (match[1] ?? "")
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number);
     if ([x, y, w, h].every(Number.isFinite) && w! > 0 && h! > 0) {
       return { x: x!, y: y!, w: w!, h: h! };
     }
   }
   return { x: 0, y: 0, w: 1200, h: 800 };
-}
-
-/**
- * Boxes of what the map draws: rects, seat placeholders and text labels.
- * Labels matter because zone names sit outside the rooms, and the legend must
- * not cover them. Paths are ignored (walls/decoration stay inside the rooms).
- */
-function occupiedBoxes(svg: string): ViewBox[] {
-  const boxes: ViewBox[] = [];
-  for (const match of svg.matchAll(/<(?:rect|image)\b[^>]*>/gi)) {
-    const attributes = new Map<string, string>();
-    for (const attr of match[0].matchAll(
-      /([a-zA-Z_:][-a-zA-Z0-9_:.]*)="([^"]*)"/g,
-    )) {
-      attributes.set(attr[1].toLowerCase(), attr[2]);
-    }
-    let x = Number(attributes.get("x"));
-    let y = Number(attributes.get("y"));
-    const w = Number(attributes.get("width"));
-    const h = Number(attributes.get("height"));
-    if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) continue;
-    const translate = attributes
-      .get("transform")
-      ?.match(/translate\(\s*(-?[\d.]+)[ ,]+(-?[\d.]+)/);
-    if (translate) {
-      x += Number(translate[1]);
-      y += Number(translate[2]);
-    }
-    boxes.push({ x, y, w, h, id: attributes.get("id") ?? undefined });
-  }
-  for (const match of svg.matchAll(/<text\b([^>]*)>([\s\S]*?)<\/text>/gi)) {
-    const attributes = new Map<string, string>();
-    for (const attr of (match[1] ?? "").matchAll(
-      /([a-zA-Z_:][-a-zA-Z0-9_:.]*)="([^"]*)"/g,
-    )) {
-      attributes.set(attr[1].toLowerCase(), attr[2]);
-    }
-    const x = Number(attributes.get("x"));
-    const y = Number(attributes.get("y"));
-    if (![x, y].every(Number.isFinite)) continue;
-    const size = Number(attributes.get("font-size")) || 14;
-    const label = (match[2] ?? "").replace(/<[^>]*>/g, "").trim();
-    const anchor = attributes.get("text-anchor") ?? "start";
-    const width = Math.max(size, label.length * size * 0.56);
-    const left =
-      anchor === "middle" ? x - width / 2 : anchor === "end" ? x - width : x;
-    // Text y is the baseline; approximate the box around the glyphs.
-    boxes.push({ x: left, y: y - size, w: width, h: size * 1.25 });
-  }
-  return boxes;
 }
 
 /** Legend rows for the layers a view actually draws. */
@@ -320,131 +272,56 @@ function legendRows(
   return rows;
 }
 
-/** Leftmost/topmost empty rectangle inside the canvas, if any. */
-function findFreeSpot(
-  view: ViewBox,
-  boxes: ViewBox[],
-  width: number,
-  height: number,
-): { x: number; y: number } | null {
-  const margin = 8;
-  const step = 12;
-  const pad = 4;
-  const overlaps = (x: number, y: number): boolean =>
-    boxes.some(
-      (box) =>
-        !(
-          x + width + pad < box.x ||
-          x > box.x + box.w + pad ||
-          y + height + pad < box.y ||
-          y > box.y + box.h + pad
-        ),
-    );
-  let best: { x: number; y: number } | null = null;
-  for (let y = view.y + margin; y + height <= view.y + view.h; y += step) {
-    for (let x = view.x + margin; x + width <= view.x + view.w; x += step) {
-      if (overlaps(x, y)) continue;
-      if (!best || x < best.x || (x === best.x && y < best.y)) {
-        best = { x, y };
-      }
-    }
-  }
-  return best;
-}
-
-/** Leftmost occupied x in a horizontal band (view right when the band is free). */
-function bandFreeLeft(
-  view: ViewBox,
-  boxes: ViewBox[],
-  height: number,
-  y: number,
-): number {
-  let freeLeft = Infinity;
-  for (const box of boxes) {
-    if (box.y < y + height && box.y + box.h > y) {
-      freeLeft = Math.min(freeLeft, box.x);
-    }
-  }
-  // Empty band: it can host the legend at the left margin without growth.
-  return Number.isFinite(freeLeft)
-    ? freeLeft
-    : view.x + 8 + LEGEND_GAP + LEGEND_WIDTH;
-}
-
 /**
- * Places the legend in free space around the drawn content: an empty rectangle
- * inside the canvas when one exists (leftmost first), otherwise on the left of
- * the content in the band with the most free room — growing the canvas to the
- * left if needed. It never covers seats or labels.
+ * Draws the legend at the coordinates in `LEGEND_PLACEMENT[id]`. Its width
+ * follows the labels and the canvas grows just enough to keep it visible.
  */
 function appendLegend(
   svg: string,
   rows: { icon: string; label: string }[],
   view: ViewBox,
-  placement: LegendPlacement = "auto",
-  boxes: ViewBox[] = occupiedBoxes(svg),
-  anchorSeat?: string,
+  at?: { x: number; y: number; width?: number },
 ): string {
+  const labelWidth = Math.max(
+    ...rows.map((row) => row.label.length * LEGEND_FONT * 0.56),
+  );
+  const width =
+    at?.width ??
+    Math.ceil(
+      LEGEND_PADDING * 2 + LEGEND_ICON + LEGEND_TEXT_GAP + labelWidth + 6,
+    );
+  const height = LEGEND_PADDING * 2 + rows.length * LEGEND_ROW_HEIGHT;
+
   const items = rows
     .map((row, index) => {
       const rowY = LEGEND_PADDING + index * LEGEND_ROW_HEIGHT;
       return (
         `<g transform="translate(${LEGEND_PADDING} ${rowY})">` +
-        `<svg x="0" y="0" width="14" height="14" viewBox="0 0 24 24">${row.icon}</svg>` +
-        `<text class="ft-legend-text" x="20" y="8" dominant-baseline="middle">${escapeXml(row.label)}</text>` +
+        `<svg x="0" y="0" width="${LEGEND_ICON}" height="${LEGEND_ICON}" viewBox="0 0 24 24">${row.icon}</svg>` +
+        `<text class="ft-legend-text" x="${LEGEND_ICON + LEGEND_TEXT_GAP}" y="${LEGEND_ROW_HEIGHT / 2}" dominant-baseline="middle">${escapeXml(row.label)}</text>` +
         `</g>`
       );
     })
     .join("");
 
-  const width = LEGEND_WIDTH;
-  const height = LEGEND_HEIGHT;
-  const gap = LEGEND_GAP;
-
+  const x = at?.x ?? view.x + view.w + LEGEND_GAP;
+  const y = at?.y ?? view.y;
   const canvas = { ...view };
-  const seat = anchorSeat
-    ? boxes.find((box) => box.id === anchorSeat)
-    : undefined;
-  const inside = findFreeSpot(view, boxes, width, height);
-  let chosen: { x: number; y: number };
-  if (seat) {
-    // Explicit anchor: right under that seat, per the plan's free area.
-    chosen = { x: seat.x, y: seat.y + seat.h + gap };
-  } else if (inside && placement === "auto") {
-    chosen = inside;
-  } else if (placement === "right") {
-    chosen = { x: view.x + view.w + gap, y: view.y };
-  } else {
-    const topY = view.y;
-    const bottomY = view.y + view.h - height;
-    const topLeft = bandFreeLeft(view, boxes, height, topY);
-    const bottomLeft = bandFreeLeft(view, boxes, height, bottomY);
-    const useTop =
-      placement === "top-left" ||
-      (placement === "auto" && topLeft >= bottomLeft);
-    chosen = {
-      x: Math.min(
-        (useTop ? topLeft : bottomLeft) - gap - width,
-        view.x + view.w - width,
-      ),
-      y: useTop ? topY : bottomY,
-    };
+  if (x < view.x) {
+    canvas.x = x;
+    canvas.w = view.x + view.w - x;
+  } else if (x + width > view.x + view.w) {
+    canvas.w = x + width + LEGEND_GAP - view.x;
   }
-  if (chosen.x < view.x) {
-    canvas.x = chosen.x;
-    canvas.w = view.x + view.w - chosen.x;
-  } else if (chosen.x + width > view.x + view.w) {
-    canvas.w = chosen.x + width + gap - view.x;
-  }
-  if (chosen.y < view.y) {
-    canvas.y = chosen.y;
-    canvas.h = view.y + view.h - chosen.y;
-  } else if (chosen.y + height > view.y + view.h) {
-    canvas.h = chosen.y + height + gap - view.y;
+  if (y < view.y) {
+    canvas.y = y;
+    canvas.h = view.y + view.h - y;
+  } else if (y + height > view.y + view.h) {
+    canvas.h = y + height + LEGEND_GAP - view.y;
   }
 
   const legend =
-    `<g id="ft-legend" transform="translate(${round2(chosen.x)} ${round2(chosen.y)})">` +
+    `<g id="ft-legend" transform="translate(${round2(x)} ${round2(y)})">` +
     `<rect class="ft-legend-bg" width="${width}" height="${height}" rx="8"/>${items}</g>`;
 
   let out = svg.replace(
@@ -452,24 +329,27 @@ function appendLegend(
     `viewBox="${round2(canvas.x)} ${round2(canvas.y)} ${round2(canvas.w)} ${round2(canvas.h)}"`,
   );
 
-  // Keep explicit pixel dimensions in proportion to the new canvas.
   const root = out.match(/<svg\b[^>]*>/i)?.[0];
   if (root) {
     let tag = root;
-    const width = root.match(/\bwidth="([\d.]+)"/i);
-    if (width) {
-      const value = Number(width[1]);
+    const rootWidth = root.match(/\bwidth="([\d.]+)"/i);
+    if (rootWidth) {
+      const value = Number(rootWidth[1]);
       if (Number.isFinite(value) && value > 0 && view.w > 0) {
-        const scaled = Math.round(value * (canvas.w / view.w));
-        tag = tag.replace(width[0], `width="${scaled}"`);
+        tag = tag.replace(
+          rootWidth[0],
+          `width="${Math.round(value * (canvas.w / view.w))}"`,
+        );
       }
     }
-    const height = root.match(/\bheight="([\d.]+)"/i);
-    if (height) {
-      const value = Number(height[1]);
+    const rootHeight = root.match(/\bheight="([\d.]+)"/i);
+    if (rootHeight) {
+      const value = Number(rootHeight[1]);
       if (Number.isFinite(value) && value > 0 && view.h > 0) {
-        const scaled = Math.round(value * (canvas.h / view.h));
-        tag = tag.replace(height[0], `height="${scaled}"`);
+        tag = tag.replace(
+          rootHeight[0],
+          `height="${Math.round(value * (canvas.h / view.h))}"`,
+        );
       }
     }
     out = out.replace(root, tag);
@@ -481,29 +361,26 @@ function appendLegend(
     : out.slice(0, closing) + legend + out.slice(closing);
 }
 
-/** Hand-tuned spot per map: the plans have room there, beside the labels. */
+/**
+ * Legend position per map, in the SVG's own coordinates (same units as the map
+ * `viewBox`; negative values are fine). Edit the numbers here — the preview
+ * (`npm run preview`) shows them live.
+ */
 export const LEGEND_PLACEMENT: Record<
   MapId,
-  { placement: LegendPlacement; below?: string }
+  { x: number; y: number; width?: number }
 > = {
-  shi: { placement: "right" },
-  fu: { placement: "auto", below: "fu-c1-p1" },
-  mi: { placement: "auto" },
+  shi: { x: -30, y: -40, width: 110 },
+  fu: { x: 0, y: 405, width: 110 },
+  mi: { x: 30, y: 70, width: 110 },
 };
-
-export type LegendPlacement =
-  | "top-left"
-  | "bottom-left"
-  | "right"
-  | "auto";
 
 /** Applies the requested view's overlays to the seat `<image id>` placeholders. */
 export function decorateMapSvg(
   svg: string,
   markers: Map<string, SeatMarkers>,
   view: MapView = "default",
-  placement: LegendPlacement = "auto",
-  anchorSeat?: string,
+  at?: { x: number; y: number; width?: number },
 ): string {
   if (markers.size === 0) return svg;
 
@@ -537,7 +414,10 @@ export function decorateMapSvg(
     // Crossed (no computer) and red-tinted (broken) seats only show that: the
     // triangle is reserved for seats with non-blocking defects.
     const drawWarning =
-      layers.warnings && !crossed && issues.blocking.length === 0 && issues.minor.length > 0;
+      layers.warnings &&
+      !crossed &&
+      issues.blocking.length === 0 &&
+      issues.minor.length > 0;
     const drawUsbc = layers.usbc && issues.usbc;
     if (!drawCross && !drawTint && !drawWarning && !drawUsbc) continue;
 
@@ -625,21 +505,16 @@ export function decorateMapSvg(
     (usedUsbc ? ".ft-issue-usbc{color:#38bdf8}" : "");
   const rows = legendRows(layers, svg);
   const legendStyles = rows.length
-    ? ".ft-legend-bg{fill:#fff;fill-opacity:.94;stroke:#d1d5db;stroke-width:1}.ft-legend-text{fill:#1f2937;font:10px system-ui,-apple-system,\"Segoe UI\",sans-serif}"
+    ? '.ft-legend-bg{fill:#fff;fill-opacity:.94;stroke:#d1d5db;stroke-width:1}.ft-legend-text{fill:#1f2937;font:10px system-ui,-apple-system,"Segoe UI",sans-serif}'
     : "";
   const block = `${styles || legendStyles ? `<style>${styles}${legendStyles}</style>` : ""}<g id="ft-issue-markers">${groups.join("")}</g>`;
   const closing = svg.lastIndexOf("</svg>");
   const decorated =
-    closing === -1 ? svg + block : svg.slice(0, closing) + block + svg.slice(closing);
+    closing === -1
+      ? svg + block
+      : svg.slice(0, closing) + block + svg.slice(closing);
   return rows.length
-    ? appendLegend(
-        decorated,
-        rows,
-        svgViewBox(svg),
-        placement,
-        occupiedBoxes(svg),
-        anchorSeat,
-      )
+    ? appendLegend(decorated, rows, svgViewBox(svg), at)
     : decorated;
 }
 
@@ -670,7 +545,8 @@ async function loadBaseSvg(env: Env, id: MapId): Promise<string | null> {
 }
 
 /** Seat ids are the map's `<image id>` attributes. */
-function seatIdsFromSvg(svg: string): Set<string> {  const ids = new Set<string>();
+function seatIdsFromSvg(svg: string): Set<string> {
+  const ids = new Set<string>();
   for (const match of svg.matchAll(/<image\b[^>]*\sid="([^"]+)"/gi)) {
     const id = normalizeHost(match[1] ?? "");
     if (id) ids.add(id);
@@ -826,9 +702,15 @@ export async function handleClusterMapView(
 ): Promise<Response> {
   const methodAllowed = request.method === "GET" || request.method === "HEAD";
   if (!methodAllowed) {
-    return jsonError(405, "method_not_allowed", "Only GET and HEAD.", {}, {
-      Allow: "GET, HEAD",
-    });
+    return jsonError(
+      405,
+      "method_not_allowed",
+      "Only GET and HEAD.",
+      {},
+      {
+        Allow: "GET, HEAD",
+      },
+    );
   }
   if (campus !== CAMPUS) {
     return jsonError(404, "campus_not_found", `Unknown campus: ${campus}.`);
@@ -871,14 +753,7 @@ export async function handleClusterMapView(
     }
   }
 
-  const legend = LEGEND_PLACEMENT[id];
-  const body = decorateMapSvg(
-    svg,
-    markers,
-    view,
-    legend.placement,
-    legend.below,
-  );
+  const body = decorateMapSvg(svg, markers, view, LEGEND_PLACEMENT[id]);
   const etag = await contentEtag(`${version}\n${body}`);
   const headers = new Headers({
     ...corsHeaders,
@@ -900,9 +775,15 @@ export async function handleClustersIndex(
   campus: string,
 ): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
-    return jsonError(405, "method_not_allowed", "Only GET and HEAD.", {}, {
-      Allow: "GET, HEAD",
-    });
+    return jsonError(
+      405,
+      "method_not_allowed",
+      "Only GET and HEAD.",
+      {},
+      {
+        Allow: "GET, HEAD",
+      },
+    );
   }
   if (campus !== CAMPUS) {
     return jsonError(404, "campus_not_found", `Unknown campus: ${campus}.`);
@@ -969,9 +850,15 @@ export async function handleClusterView(
   view: string,
 ): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
-    return jsonError(405, "method_not_allowed", "Only GET and HEAD.", {}, {
-      Allow: "GET, HEAD",
-    });
+    return jsonError(
+      405,
+      "method_not_allowed",
+      "Only GET and HEAD.",
+      {},
+      {
+        Allow: "GET, HEAD",
+      },
+    );
   }
   if (campus !== CAMPUS) {
     return jsonError(404, "campus_not_found", `Unknown campus: ${campus}.`);
