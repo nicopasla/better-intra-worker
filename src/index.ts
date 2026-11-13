@@ -63,6 +63,8 @@ import {
   handleSubjectsReport,
 } from "./handlers/subjects";
 import { handleAnnouncement } from "./handlers/announcement";
+import { handleTransitBoard } from "./handlers/transit";
+import { handleStibLines } from "./handlers/gtfs";
 import { handleStats } from "./handlers/stats";
 import { handleImageUpload } from "./handlers/image-upload";
 import { handleCustomBadges } from "./handlers/custom-badges";
@@ -215,6 +217,14 @@ const worker = {
 
     if (url.pathname === "/api/v1/public/announcement") {
       return handleAnnouncement(request, env);
+    }
+
+    if (url.pathname === "/api/v1/public/transit/gare-centrale") {
+      return handleTransitBoard(request, env);
+    }
+
+    if (url.pathname === "/api/v1/public/transit/lines") {
+      return handleStibLines(request, env);
     }
 
     if (url.pathname === "/api/v1/public/cron") {

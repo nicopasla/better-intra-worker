@@ -17,6 +17,8 @@ export interface Env {
   ALLOW_LOCAL_DEV?: string;
   CRON_SECRET?: string;
   AVATAR_URL_SECRET?: string;
+  /** MobilityTwin.Brussels API token, used by the public transit board. */
+  MOBILITYTWIN_TOKEN?: string;
   RELAY_URL?: string;
   RELAY_KEY?: string;
 }
