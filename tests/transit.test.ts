@@ -72,6 +72,10 @@ function makeEnv(kv: FakeKV, token = "mt-token"): Env {
 
 const STOP_ID = "1502";
 
+function catalogCache() {
+  return { radiusM: 400, stops: catalog() };
+}
+
 function catalog(): CatalogStop[] {
   return [
     {
@@ -183,18 +187,19 @@ describe("transit helpers", () => {
     expect(degree).toBeLessThan(112_000);
   });
 
-  it("keeps only the station's own stops, merging lines", () => {
+  it("keeps every walkable platform, merging lines per stop", () => {
     const built = buildCatalog(stopsPayload);
-    expect(built).toHaveLength(1);
+    expect(built.map((stop) => stop.name)).toEqual(["Gare Centrale", "BOZAR"]);
     expect(built[0]).toMatchObject({
       id: STOP_ID,
       name: "Gare Centrale",
       lines: ["38", "71"],
     });
     expect(built[0].distanceM).toBeLessThan(10);
+    expect(built[1]).toMatchObject({ name: "BOZAR", lines: ["71"] });
   });
 
-  it("accepts the Dutch station name and ignores neighbouring stops", () => {
+  it("drops platform points outside the walking radius", () => {
     const built = buildCatalog({
       features: [
         {
@@ -209,15 +214,24 @@ describe("transit helpers", () => {
         {
           properties: {
             stop_id: 13,
-            stop_name: "ARENBERG",
-            stop_lat: 50.8458,
-            stop_lon: 4.3571,
-            route_short_name: "29",
+            stop_name: "ROYALE",
+            stop_lat: 50.8440,
+            stop_lon: 4.3570,
+            route_short_name: "92",
+          },
+        },
+        {
+          properties: {
+            stop_id: 14,
+            stop_name: "PARC",
+            stop_lat: 50.8497,
+            stop_lon: 4.3650,
+            route_short_name: "92",
           },
         },
       ],
     });
-    expect(built.map((stop) => stop.id)).toEqual(["12"]);
+    expect(built.map((stop) => stop.id)).toEqual(["12", "13"]);
   });
 
   it("builds the board from future arrivals, two per line", () => {
@@ -319,7 +333,7 @@ describe("GET /api/v1/public/transit/gare-centrale", () => {
     const board = normalizeBoard(catalog(), waitingPayload, null, CATALOGUE, NOW);
     const kv = makeKV({
       [BOARD_KEY]: { ...board, updatedAt: NOW - 5 * 60_000 },
-      [CATALOG_KEY]: catalog(),
+      [CATALOG_KEY]: catalogCache(),
     });
     fetchMock.mockImplementation(async (url: string) => {
       if (url.endsWith("/stib/stops")) {
@@ -347,7 +361,7 @@ describe("GET /api/v1/public/transit/gare-centrale", () => {
     const board = normalizeBoard(catalog(), waitingPayload, null, CATALOGUE, NOW);
     const kv = makeKV({
       [BOARD_KEY]: { ...board, updatedAt: NOW - 10 * 60_000 },
-      [CATALOG_KEY]: catalog(),
+      [CATALOG_KEY]: catalogCache(),
     });
     fetchMock.mockResolvedValue(new Response("nope", { status: 500 }));
 

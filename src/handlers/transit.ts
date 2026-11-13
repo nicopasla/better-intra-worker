@@ -20,10 +20,10 @@ const AREA_LABEL = "Gare Centrale";
 /** Bruxelles-Central, in front of the main entrance on the Carrefour de l'Europe side. */
 const CENTER = { lat: 50.84572, lon: 4.35694 };
 /** Walking radius kept on the board. */
-const RADIUS_METERS = 300;
+const RADIUS_METERS = 400;
 const MAX_DEPARTURES_PER_LINE = 2;
-/** Upper bound on stops in one response, nearest first. */
-const MAX_STOPS = 12;
+/** Upper bound on platform points in one response, nearest first. */
+const MAX_STOPS = 24;
 /** A board younger than this is served without touching the upstream. */
 const FRESH_MS = 45_000;
 const CATALOG_KEY = "TRANSIT_STOPS";
@@ -143,12 +143,9 @@ function named(raw: unknown): string | null {
   return (value.fr ?? value.nl ?? "").trim() || null;
 }
 
-/** Only the station's own platforms: neighbouring stops (Bozar, Arenberg…)
- *  belong to other boards. French and Dutch names are both accepted. */
-const STATION_NAME = /gare\s+centrale|centraal\s+station/i;
-
-/** Keeps the stops of the daily `/stib/stops` snapshot that are walkable from
- *  the station, merging the lines that serve each stop id. */
+/** Keeps the platform points of the daily `/stib/stops` snapshot that are
+ *  walkable from the station (the station itself first), merging the lines
+ *  that serve each stop id. */
 export function buildCatalog(payload: UpstreamPayload): CatalogStop[] {
   const features = Array.isArray(payload?.features) ? payload.features : [];
   const byId = new Map<string, CatalogStop>();
@@ -161,7 +158,6 @@ export function buildCatalog(payload: UpstreamPayload): CatalogStop[] {
     if (!props) continue;
 
     const name = String(props.stop_name ?? "").trim() || "";
-    if (!STATION_NAME.test(name)) continue;
 
     const id = props.stop_id == null ? "" : String(props.stop_id).trim();
     if (!id) continue;
@@ -304,16 +300,29 @@ async function fetchUpstream(env: Env, path: string): Promise<UpstreamResponse> 
   };
 }
 
+/** The radius is stored with the catalog so a changed one rebuilds it. */
+interface CatalogCache {
+  radiusM: number;
+  stops: CatalogStop[];
+}
+
 async function loadCatalog(env: Env): Promise<CatalogStop[]> {
-  const cached = await env.BETTER_INTRA_KV.get<CatalogStop[]>(CATALOG_KEY, {
+  const cached = await env.BETTER_INTRA_KV.get<CatalogCache>(CATALOG_KEY, {
     type: "json",
     cacheTtl: 60,
   });
-  if (Array.isArray(cached) && cached.length > 0) return cached;
+  if (
+    cached?.radiusM === RADIUS_METERS &&
+    Array.isArray(cached.stops) &&
+    cached.stops.length > 0
+  ) {
+    return cached.stops;
+  }
 
   const { data } = await fetchUpstream(env, "/stib/stops");
   const catalog = buildCatalog(data);
-  await env.BETTER_INTRA_KV.put(CATALOG_KEY, JSON.stringify(catalog), {
+  const cache: CatalogCache = { radiusM: RADIUS_METERS, stops: catalog };
+  await env.BETTER_INTRA_KV.put(CATALOG_KEY, JSON.stringify(cache), {
     expirationTtl: catalog.length > 0 ? CATALOG_TTL_SECS : EMPTY_CATALOG_TTL_SECS,
   });
   return catalog;
